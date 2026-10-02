@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 鎮诞绐?(閫€鍑哄悗鏄剧ず Nori) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 「所有文件访问权限」(Android 11+): 用来读写 Download/NoriDroid 里的数据文件。
+         为什么必须要它 (2026-09-26 实机自检结论): Android 11+ 起, 别的应用(或本应用的旧实例)
+         写进 /sdcard/Download 的文件, 对本应用既不在 MediaStore 里可见、也不能直接 File 读
+         —— 卸载重装后就会出现"磁盘上明明有文件(5436 字节), 但可直读=否、MediaStore 可见=否"。
+         READ_EXTERNAL_STORAGE / READ_MEDIA_* 都覆盖不到 Download 下的非媒体文件。
+         本应用不上架 Google Play (个人自用), 不受其"仅限文件管理器/备份类"的策略限制。 -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <!-- 鑱婂ぉ/璁板繂/璁剧疆缁?MediaStore 鍐欏叆鍏叡 Downloads(API29+ 鏃犻渶澶ф潈闄?; 浠呰€佺郴缁熼渶瑕佸啓鏉冮檺 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- 鐣寗閽? 瀹屾垚绯荤粺閫氱煡 (API33+ 杩愯鏃惰姹? + 杩涚▼琚潃鏃剁殑鍑嗙偣鍏滃簳闂归挓 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <application
+        android:allowBackup="true"
+        android:hasFragileUserData="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.DeepEr"
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|density|uiMode"
+            android:screenOrientation="fullSensor"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.DeepEr.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 閫€鍑哄悗鎮诞绐楁湇鍔?-->
+        <service
+            android:name=".FloatService"
+            android:exported="false" />
+
+        <!-- 鐣寗閽熷厹搴曢椆閽? 杩涚▼琚潃鏃惰ˉ鍙戝畬鎴愰€氱煡 -->
+        <receiver
+            android:name=".PomodoroAlarmReceiver"
+            android:exported="false" />
+
+        <!-- 鎮诞绐楄亰澶╂皵娉?(鍗婇€忔槑灏忕獥鍙? 鎵胯浇杈撳叆妗? -->
+        <activity
+            android:name=".FloatBubbleActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.DeepEr.FloatBubble"
+            android:windowSoftInputMode="adjustResize" />
+
+    </application>
+
+</manifest>

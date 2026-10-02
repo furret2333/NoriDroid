@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>历史总结机制自测</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px 14px 40px;
+    background: #0f172a; color: #e2e8f0;
+    font: 14px/1.6 -apple-system, "Noto Sans SC", system-ui, sans-serif;
+  }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .sub { color: #94a3b8; font-size: 12px; margin-bottom: 14px; }
+  .card {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+    padding: 12px 13px; margin-bottom: 12px;
+  }
+  button {
+    width: 100%; padding: 13px; font-size: 15px; font-weight: 600;
+    background: #2563eb; color: #fff; border: 0; border-radius: 10px;
+    cursor: pointer;
+  }
+  button:disabled { background: #334155; color: #94a3b8; }
+  h2 { font-size: 14px; margin: 0 0 8px; display: flex; align-items: center; gap: 7px; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 20px; font-weight: 500; }
+  .tag.ok { background: #14532d; color: #4ade80; }
+  .tag.bad { background: #7f1d1d; color: #fca5a5; }
+  .tag.old { background: #422006; color: #fbbf24; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 5px 0; vertical-align: top; }
+  td:first-child { color: #94a3b8; width: 46%; }
+  td:last-child { font-variant-numeric: tabular-nums; word-break: break-all; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .ids { max-height: 190px; overflow: auto; background: #0f172a; border-radius: 8px; padding: 8px; margin-top: 6px; }
+  .ids div { padding: 1px 0; }
+  .dup { color: #fca5a5; }
+  .note { color: #94a3b8; font-size: 12px; margin-top: 8px; }
+  .warn { background: #422006; border-color: #a16207; color: #fde68a; }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid #64748b;
+          border-top-color: transparent; border-radius: 50%; animation: r .7s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<h1>历史总结机制自测</h1>
+<div class="sub">
+  在浏览器里跑真实的摘要代码，对比「修复后」与「修复前」。不联网、不花 token。
+</div>
+
+<div class="card">
+  <button id="run">开始测试（约 1 秒）</button>
+  <div class="note">
+    模拟 150 轮问答（300 条消息），每轮尝试摘要；摘要成功后按 App 的规则裁剪到 20 条。
+    摘要用假 LLM（固定文本），所以测的是<b>机制</b>，不是摘要质量。
+  </div>
+</div>
+
+<div id="out"></div>
+
+<script type="module">
+const ROUNDS = 150
+const HISTORY_KEEP = 20
+const RAW_WINDOW = 20
+const FAKE_SUMMARY = "【摘要】这一段对话压缩后的要点占位文本，用于验证机制。"
+
+const out = document.getElementById("out")
+const btn = document.getElementById("run")
+
+/** 渲染一个结果卡 */
+function card(title, tagClass, tagText, rows, ids, note) {
+  const div = document.createElement("div")
+  div.className = "card"
+  const trs = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")
+  const idLines = (ids || []).map(x => `<div class="${x.dup ? "dup" : ""}">${x.text}</div>`).join("")
+  div.innerHTML = `
+    <h2>${title} <span class="tag ${tagClass}">${tagText}</span></h2>
+    <table>${trs}</table>
+    ${idLines ? `<div class="ids mono">${idLines}</div>` : ""}
+    ${note ? `<div class="note">${note}</div>` : ""}`
+  return div
+}
+
+/** 唯一覆盖的消息条数: 按 id 里的时间戳区间求并集, 重叠不重复计入。
+    直接累加 msgCount 会把"同一段被反复压缩"的重复算进去, 虚高。 */
+function uniqueCoverage(ids) {
+  const iv = []
+  for (const id of ids) {
+    const m = String(id).match(/^sum-(\d+)-(\d+)$/)
+    if (!m) continue
+    iv.push([Number(m[1]), Number(m[2])])
+  }
+  iv.sort((a, b) => a[0] - b[0])
+  let total = 0
+  let curS = null
+  let curE = null
+  for (const [s, e] of iv) {
+    if (curS === null) { curS = s; curE = e; continue }
+    if (s <= curE) { if (e > curE) curE = e; continue }
+    total += curE - curS + 1
+    curS = s; curE = e
+  }
+  if (curS !== null) total += curE - curS + 1
+  return total
+}
+
+/** 按 id 并集去重 (模拟落盘归并 mergeStores 的行为) 并把结果写回磁盘 */
+async function mergeByIdOnDisk(files, mod) {
+  const f = JSON.parse(files.get("memory.json") || "{}")
+  const seen = new Set()
+  f.summaries = (f.summaries ?? []).filter(s => {
+    if (seen.has(s.id)) return false
+    seen.add(s.id)
+    return true
+  })
+  const seenM = new Set()
+  f.meta = (f.meta ?? []).filter(m => {
+    if (seenM.has(m.id)) return false
+    seenM.add(m.id)
+    return true
+  })
+  files.set("memory.json", JSON.stringify(f))
+}
+
+/** 跑一轮完整模拟; mod = 记忆服务模块 */
+async function runSim(mod) {
+  const files = new Map()
+  window.NoriChat = {
+    readFile: (n) => files.get(n) ?? "",
+    writeFile: (n, c) => { files.set(n, String(c)); return "ok" },
+  }
+  mod.reloadMemory()          // 重置内存 cache
+  await mod.flushMemoryPersist()
+
+  let messages = []
+  let clock = 1_700_000_000_000
+  let trims = 0
+  const hasNotify = typeof mod.notifyHistoryTrimmed === "function"
+
+  for (let round = 0; round < ROUNDS; round += 1) {
+    messages.push({role: "user", content: `第${round}轮提问`, ts: clock++})
+    messages.push({role: "assistant", content: `第${round}轮回答`, ts: clock++})
+    // App.vue 每轮回复后都会尝试摘要
+    const summarized = await mod.summarizeIfNeeded(messages, async () => FAKE_SUMMARY)
+    await mod.flushMemoryPersist()
+    // 摘要成功才裁剪 (与 App.vue 的守卫一致)
+    if (summarized && messages.length > HISTORY_KEEP) {
+      const kept = [
+        {role: "system", content: "（更早的对话已压缩为历史总结）", ts: clock++, placeholder: true},
+        ...messages.slice(-HISTORY_KEEP),
+      ]
+      messages = kept
+      // 修复后才存在的 API: 通知聊天存储已裁剪, 让它重算摘要游标
+      if (hasNotify) mod.notifyHistoryTrimmed(kept.length)
+      await mod.flushMemoryPersist()
+      trims += 1
+    }
+  }
+
+  const deep = (JSON.parse(files.get("memory.json") || "{}").summaries) ?? []
+  // 模拟"重启后": 落盘归并按 id 去重, 再重新载入 —— 这才是用户看到的结果
+  await mergeByIdOnDisk(files, mod)
+  mod.reloadMemory()
+  await mod.flushMemoryPersist()
+
+  const disk = JSON.parse(files.get("memory.json") || "{}")
+  const sums = disk.summaries ?? []
+  const ids = sums.map(s => s.id)
+  const uniq = new Set(ids).size
+  const covered = uniqueCoverage(ids)
+
+  // 区间衔接检查 (相邻两段必须严格递增且不重叠)
+  let overlaps = 0
+  let prevLast = -1
+  for (const id of ids) {
+    const m = String(id).match(/^sum-(\d+)-(\d+)$/)
+    if (!m) continue
+    const first = Number(m[1]), last = Number(m[2])
+    if (first <= prevLast) overlaps += 1
+    prevLast = last
+  }
+  const seen = new Set()
+  const idRows = ids.map(id => {
+    const dup = seen.has(id)
+    seen.add(id)
+    return {text: `${id}${dup ? "   ← 重复!" : ""}`, dup}
+  })
+
+  return {
+    trims, count: sums.length, uniq, covered, overlaps,
+    deepCount: deep.length, deepUniq: new Set(deep.map(s => s.id)).size,
+    cursor: disk.summarizedMsgCount,
+    idRows, ids,
+    ok: uniq === ids.length && overlaps === 0 && sums.length > 2,
+  }
+}
+
+btn.addEventListener("click", async () => {
+  btn.disabled = true
+  out.innerHTML = `<div class="card"><span class="spin"></span> 正在跑…</div>`
+  try {
+    const [nowMod, oldMod] = await Promise.all([
+      import("/sumtest/now.js"),
+      import("/sumtest/old.js"),
+    ])
+    await new Promise(r => setTimeout(r, 30))   // 让 loading 能渲染出来
+
+    const now = await runSim(nowMod)
+    const old = await runSim(oldMod)
+
+    out.innerHTML = ""
+    out.appendChild(card(
+      "修复后（1.1.30 源码）",
+      now.ok ? "ok" : "bad",
+      now.ok ? "✓ 正常推进" : "✗ 异常",
+      [
+        ["摘要条数（重启后你看到的）", `<b>${now.count}</b> 条`],
+        ["id 唯一", `${now.uniq} / ${now.count}${now.uniq === now.count ? " ✓" : " ✗"}`],
+        ["唯一覆盖消息（区间并集）", `<b>${now.covered}</b> 条`],
+        ["区间重叠/倒退", `${now.overlaps} 处${now.overlaps === 0 ? " ✓" : " ✗"}`],
+        ["裁剪次数", `${now.trims} 次`],
+        ["摘要游标", now.cursor],
+      ],
+      now.idRows,
+      `预期: 摘要数随轮数稳步增长（150 轮约 6~9 条），id 形如 <span class="mono">sum-&lt;13位时间戳&gt;-&lt;13位时间戳&gt;</span>，互不重叠。`
+    ))
+
+    const oldOk = old.uniq === old.ids.length && old.overlaps === 0 && old.count > 2
+    out.appendChild(card(
+      "修复前（1.1.27 基线）",
+      oldOk ? "ok" : "old",
+      oldOk ? "也正常？" : "✗ 卡死（这就是被修掉的 bug）",
+      [
+        ["摘要条数（重启后你看到的）", `<b>${old.count}</b> 条`],
+        ["其中不同区间", `<b>${old.uniq}</b> 个${old.uniq < old.count ? " ← 其余是同一段重复" : ""}`],
+        ["唯一覆盖消息（区间并集）", `<b>${old.covered}</b> 条`],
+        ["区间重叠/倒退", `${old.overlaps} 处`],
+        ["裁剪次数", `${old.trims} 次`],
+        ["摘要游标", `<b>${old.cursor}</b>${old.cursor <= 3 ? "  ← 被打回小值" : ""}`],
+        ["（参考）去重前磁盘里有", `${old.deepCount} 条，但只有 ${old.deepUniq} 个不同 id`],
+      ],
+      old.idRows,
+      `病因: 裁剪后摘要游标被打回 ${old.cursor} → 反复压缩同一段旧消息 → id 用下标、每轮撞车 →
+       重启按 id 归并去重后只剩 <b>${old.uniq} 个不同区间</b>
+       （期间产出 ${old.deepCount} 条，其中 ${old.deepCount - old.deepUniq} 条是同一段重复），
+       真正的新消息永远进不了摘要。`
+    ))
+
+    const verdict = document.createElement("div")
+    verdict.className = "card " + (now.ok ? "" : "warn")
+    verdict.innerHTML = now.ok
+      ? `<b>结论</b><div class="note">
+           同一套模拟（${ROUNDS} 轮对话）：<b>修复后 ${now.count} 条摘要，唯一覆盖 ${now.covered} 条消息</b>；
+           修复前只覆盖 <b>${old.covered}</b> 条 —— 它产出 ${old.deepCount} 条摘要，但只有
+           ${old.deepUniq} 个不同区间（${old.deepCount - old.deepUniq} 条是同一段被反复压缩），
+           摘要游标一直卡在 ${old.cursor}。
+           两者跑的是同一份"消息 + 裁剪"流程，只有摘要游标与 id 生成方式不同。
+           ${oldOk ? "<br>注意：修复前这次也通过了，请把本页发回复核。" : ""}
+         </div>`
+      : `<b>结论</b><div class="note">修复后仍未达预期，请把本页截图发回。</div>`
+    out.appendChild(verdict)
+  } catch (e) {
+    out.innerHTML = `<div class="card warn"><b>出错了</b><div class="note mono">${e?.message ?? e}</div></div>`
+  } finally {
+    btn.disabled = false
+  }
+})
+</script>
+</body>
+</html>

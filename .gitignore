@@ -1,0 +1,42 @@
+.reasonix
+docs/key_password
+
+# ---- 依赖 / 构建产物 (可重建, 不进版本库) ----
+node_modules/
+app/android/web-src/node_modules/
+app/android/web-src/dist/
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+app/android/app/src/main/assets/web/
+
+# ---- 手工快照备份 (体积大; 版本历史改由 git 承担, 目录仍在磁盘上) ----
+backups/
+
+# ---- 二进制产物 ----
+*.apk
+*.aab
+
+# ---- 测试目录里生成的东西 (日志 / 报告 / 截图; 手写的 _dbg-*.mjs 要进库, 所以不整目录挡) ----
+app/android/web-src/tmp-memcheck/_*.log
+app/android/web-src/tmp-memcheck/_*.txt
+app/android/web-src/tmp-memcheck/_*.png
+app/android/web-src/tmp-memcheck/.App.vue.*
+
+# ---- 系统垃圾 ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Live2D Cubism Core（专有许可，不得置于允许修改的开源许可下；见 SETUP.md / THIRD-PARTY.md）
+live2dcubismcore.min.js
+
+# ==== 绝对不能进仓库/公开仓库的东西（2026-10-02 事故后补） ====
+keystore/
+*.jks
+*.keystore
+口令.txt
+keystore.properties
+/App.vue
+tmp-patch-report.txt
+.scope-logs/

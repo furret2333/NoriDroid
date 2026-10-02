@@ -1,0 +1,70 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.noridroid'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.noridroid"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    /* 2026-10-02 用户要求切正式签名。keystore.properties 在 .gitignore 里（不进仓库/公开仓库）；
+       该文件不存在时（别处构建）自动回落 debug 签名，避免构建失败。 */
+    def ksProps = new Properties()
+    def ksPropsFile = rootProject.file("keystore.properties")
+    if (ksPropsFile.exists()) { ksPropsFile.withInputStream { ksProps.load(it) } }
+    def hasReleaseKey = ksPropsFile.exists() && ksProps['storeFile']
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                storeFile file(ksProps['storeFile'])
+                storePassword ksProps['storePassword']
+                keyAlias ksProps['keyAlias']
+                keyPassword ksProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            outputFileName = "NoriDroid-${variant.versionName}-${variant.buildType.name}.apk"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.webkit:webkit:1.10.0'
+}

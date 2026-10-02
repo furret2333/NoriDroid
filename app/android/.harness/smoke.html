@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SMOKE-WAIT</title>
+<style>
+	body { font: 14px/1.6 monospace; background: #0f172a; color: #cbd5e1; padding: 16px }
+	h3 { color: #e2e8f0; margin: 0 0 8px }
+	#v { font-size: 20px; font-weight: bold; margin: 10px 0 }
+	iframe { width: 400px; height: 820px; border: 1px solid #334155; background: #0f172a }
+	pre { color: #94a3b8; white-space: pre-wrap }
+</style>
+</head>
+<body>
+<h3>NoriDroid 构建冒烟测试</h3>
+<div>场景: 真实构建产物 + ARGNori 模型, 渲染分辨率 3x (故意与桌面 dpr=1 错配, 专抓系数类回归)。
+断言: 0 异常、命中≥30、命中区宽≥30%视口、高≥40%视口。</div>
+<div id="v">运行中...</div>
+<pre id="d"></pre>
+<iframe id="f" src="/assets/web/index.html?rs=3&smoke=1"></iframe>
+<script>
+	const f = document.getElementById("f"), v = document.getElementById("v"), d = document.getElementById("d");
+	const t0 = Date.now();
+	const tick = () => {
+		let t = "";
+		try { t = f.contentDocument.title || "" } catch (e) {}
+		if (t.indexOf("SMOKE-OK") === 0) {
+			v.textContent = "✅ 冒烟通过 (SMOKE-OK) — 用时 " + Math.round((Date.now() - t0) / 1000) + "s";
+			v.style.color = "#4ade80";
+			document.title = "SMOKE-OK";
+			try { d.textContent = JSON.stringify(f.contentWindow.__smokeResult, null, 1) } catch (e) {}
+			return;
+		}
+		if (t.indexOf("SMOKE-FAIL") === 0) {
+			v.textContent = "❌ 冒烟失败: " + t.slice(11);
+			v.style.color = "#f87171";
+			document.title = "SMOKE-FAIL";
+			try { d.textContent = JSON.stringify(f.contentWindow.__smokeResult, null, 1) } catch (e) {}
+			return;
+		}
+		v.textContent = "运行中... " + Math.round((Date.now() - t0) / 1000) + "s (加载模型中)";
+		if (Date.now() - t0 > 90000) {
+			v.textContent = "❌ 冒烟失败: 90s 超时(模型未加载完成)";
+			v.style.color = "#f87171";
+			document.title = "SMOKE-FAIL";
+			return;
+		}
+		setTimeout(tick, 500);
+	};
+	tick();
+</script>
+</body>
+</html>

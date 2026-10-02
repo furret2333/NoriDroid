@@ -1,0 +1,122 @@
+# Android **验证**流水线（手动触发）—— 它替换掉了上游那条「桌面版 Tauri 发布」`release.yml`（已删）
+#
+# ⚠ 这条**不产出可安装的包**，只做"干净环境里能不能构建 + 改动有没有把东西弄坏"：
+#   实测 CI runner 每次都会新生成一把 debug key ⇒ CI 打的包与本地包**签名不同**
+#   ⇒ 装到已装过的手机上会"签名冲突"，而卸载重装会**丢数据**（记忆/聊天/日记在公共目录）。
+#   所以**打包仍然在本地做**（本地用固定的 ~/.android/debug.keystore，签名与你手机上那版一致）。
+#   （想恢复"CI 出包"的话：给 app/build.gradle 加 NORI_DEBUG_KEYSTORE 环境变量支持 + 仓库 Secret
+#     存 base64 keystore；方向可行但当次没验证完，细节见 git 提交历史。）
+#
+# 为什么只做「手动触发」：私有仓库 Actions 分钟数有限；也避开"推 v* 标签误触发流水线"的坑。
+
+name: Android 构建验证
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "跳过验证（只做构建，平时别勾）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 构建 release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      # ---------- 前端工具链 ----------
+      # 锁文件是 pnpm 9 格式（lockfileVersion: 9.0），所以 pnpm 要 9+
+      - name: 装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: 装 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: app/android/web-src/pnpm-lock.yaml
+
+      - name: 装前端依赖
+        working-directory: app/android/web-src
+        run: pnpm install --frozen-lockfile
+
+      # ---------- Android 工具链 ----------
+      # Gradle 8.8 + AGP 8.5.2 ⇒ JDK 17
+      - name: 装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ⚠ 2026-10-01 踩坑：原来这里用 android-actions/setup-android@v3，它内部会去装
+      #   旧版 `tools` 包，而新 SDK 仓库里已经没有这个包 ⇒ `Failed to find package 'tools'` ⇒ job 直接挂。
+      #    改成不用第三方 action：ubuntu 的 runner 自带 Android SDK（含 platform 34 / build-tools），
+      #    这里只把缺的组件补齐（sdkmanager 幂等，已装也不报错）。
+      - name: 准备 Android SDK（用 runner 自带的，只补缺的组件）
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "SDK 现有 platforms: $(ls "$SDK/platforms" 2>/dev/null | tr '\n' ' ')"
+          echo "SDK 现有 build-tools: $(ls "$SDK/build-tools" 2>/dev/null | tr '\n' ' ')"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SM" ] || SM=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
+          echo "sdkmanager: $SM"
+          yes | "$SM" --licenses > /dev/null 2>&1 || true
+          "$SM" --install "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+
+      # ---------- 前端构建 ----------
+      # ⚠ 必须放在 gradle 之前：app/src/main/assets/web/ 是 gitignore 的产物目录，
+      #    gradle 只是把它整个打进 APK —— 不先构建就打成空壳。
+      - name: 构建前端产物（vue-tsc 类型检查 + vite build）
+        working-directory: app/android/web-src
+        run: pnpm build
+
+      # ---------- 验证（与本地同一套脚本，纯 Node，约 1 分钟）----------
+      - name: 快速门禁（run-tests 502 条 + 纯 Node 探针）
+        if: ${{ !inputs.skip_tests }}
+        working-directory: app/android/web-src
+        run: node tmp-memcheck/run-all-gates.mjs --fast
+
+      # 打包前预检：读**已构建的前端产物**，断言"本轮该有的东西真的在里面"
+      # （记忆/诊断/模型选择/底栏图标 6 张 png 等 82 项）—— 专门防"改了但没打进包"。
+      - name: 打包预检（82 项关键字与图标）
+        working-directory: app/android/web-src
+        run: node tmp-memcheck/verify-apk-bundle.mjs --web
+
+      # ---------- 构建（只证明"能构建"，产物不上传）----------
+      - name: 构建 release APK（不上传，仅验证能构建）
+        working-directory: app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: 打印产物信息（仅记录，供比对）
+        working-directory: app/android/app/build/outputs/apk/release
+        run: |
+          APK=$(ls *.apk | head -1)
+          {
+            echo "### $APK（CI 构建，**不要拿去装**）"
+            echo ""
+            echo "CI runner 每次都会新生成一把 debug key，签名与本地包不同；"
+            echo "装到已装过的手机上会签名冲突，卸载重装会丢数据。要装就装本地打的包。"
+            echo ""
+            echo '```'
+            sha256sum "$APK"
+            ls -l "$APK"
+            echo '```'
+            echo ""
+            echo "版本信息（output-metadata.json）："
+            echo '```json'
+            cat output-metadata.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
