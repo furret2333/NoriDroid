@@ -1,7 +1,7 @@
 <div align="center">
 
 #  NoriDroid
-**Nori。（I_Nori二创）**
+**Nori。（I_Nori二创）（安卓陪伴型LLM&TTS）**
 ⚠️注：新手教程在设置最下方⚠️
 
 反馈群：1041616195
