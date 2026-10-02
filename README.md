@@ -1,8 +1,10 @@
 <div align="center">
 
-# 🎀 NoriDroid
-
-**一只会陪你上班 / 学习 / 摸鱼的 Android 桌面伙伴 · Nori**
+#  NoriDroid
+**Nori。（I_Nori二创）**
+⚠️注：新手教程在设置最下方⚠️
+反馈群：1041616195
+小桧（471419518）~在群里活跃哦（1＆2）
 
 Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长期记忆 · 语音合成。
 
@@ -40,7 +42,7 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 
 ---
 
-## ⚠️ 第一次用：这三件事得自己补
+## ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️第一次用：先看设置内的新手教程！！！⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
 
 装好之后的 Nori **没有人设、没有音效、没有模型** —— 这是有意的设计，不是 bug。
 
@@ -51,28 +53,14 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 | **Live2D 模型** | 模型不随包分发：在设置里选模型时**联网下载**（内置清单 `ARGNori` / `Nori`）；也可以放自己的模型 + 一份配置 |
 
 > 下载模型 / 音频在国内不一定直连得上，请自备网络环境。
-
----
-
-## 从源码构建
-
-完整步骤（含 Cubism Core 放置、依赖、构建与测试命令）见 **[SETUP.md](SETUP.md)**。这里只留最容易踩的一条：
-
-```bash
-cd app/android/web-src && pnpm install && pnpm build   # 必须先构建前端
-cd .. && ./gradlew assembleRelease
-```
-
-`gradlew` **不会**帮你重新构建前端 —— 改了 `web-src/` 之后只跑 gradle，打进包里的还是旧界面。
-
+ 
 ---
 
 ## 许可与衍生声明
 
 - 本项目源码：[**GPL-3.0**](LICENSE)
-- **衍生自 [erhiolab/DeepEr](https://github.com/erhiolab/DeepEr)**（同样 GPL-3.0）：本项目是它的**修改版**，
+- **衍生自 [erhiolab/DeepEr](https://github.com/erhiolab/DeepEr)**（同样 GPL-3.0）：本项目是它的**大规模重制版**，
   Android 主线以及记忆 / 语音 / 番茄钟 / 悬浮窗等改动都在本仓库完成；**不是上游官方仓库**，
-  上游作者不对本仓库的内容负责。
 - **例外**：Live2D Cubism SDK / Cubism Core 不属于 GPL-3.0 范围，受 Live2D Inc. 独立许可约束，
   且**不随本仓库分发**。
 - 随应用分发的第三方组件（Vue / live2d-easy-control / AndroidX / Kotlin stdlib / Cubism Core）的版权与许可，
