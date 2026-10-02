@@ -39,12 +39,9 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 ## 安装
 
 1. **下载 APK** —— [Releases](https://github.com/furret2333/NoriDroid/releases) 里有 `NoriDroid-*.apk` 就直接装
-   （需要允许「安装未知来源应用」）。目前还没发过 Release，所以多半要走第 2 步。
-2. **自己构建** —— 完整步骤见 **[SETUP.md](SETUP.md)**：先 `pnpm build` 打前端，再 `./gradlew assembleRelease`，
-   产物在 `app/android/app/build/outputs/apk/release/`。
+   （需要允许「安装未知来源应用」）。
 
-> ⚠️ **Live2D Cubism Core 不在本仓库内**（专有许可，不能随仓库分发）：构建前必须自己从 Live2D 官网下载
-> `live2dcubismcore.min.js` 放进 `app/android/web-src/public/`。见 **SETUP.md** 第 1 节。
+> ⚠️ **Live2D Cubism Core 不在本仓库内**若自己构建需要自行下载
 
 ---
 
