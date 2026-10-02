@@ -2,13 +2,17 @@
 
 #  NoriDroid
 **Nori。（I_Nori二创）（安卓陪伴型LLM&TTS）**
-⚠️注：新手教程在设置最下方⚠️
+⚠️注：新手教程在App内设置最下方⚠️
+
+请自行接入API！本项目不提供收费服务
 
 反馈群：1041616195
 
 小桧（471419518）~在群里活跃哦（1＆2）
 
 Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长期记忆 · 语音合成。
+
+社区项目声明：本项目为社区同好自发维护的非官方、非商业开源项目，与官方团队或母公司无商业关联与从属关系。
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2010%2B-3ddc84)](#安装)
