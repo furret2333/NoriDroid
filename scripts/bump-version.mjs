@@ -17,6 +17,7 @@ import path from "node:path"
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const FILE = path.join(ROOT, "app", "android", "app", "build.gradle")
+const WEB_FILE = path.join(ROOT, "app", "android", "web-src", "src", "App.vue")
 const args = process.argv.slice(2)
 const version = args.find((arg) => !arg.startsWith("--"))
 const codeIndex = args.indexOf("--code")
@@ -33,8 +34,10 @@ if (!versionCode || !/^\d+$/.test(versionCode) || Number(versionCode) <= 0) {
 }
 
 const relativeFile = path.relative(ROOT, FILE).replace(/\\/g, "/")
+const relativeWebFile = path.relative(ROOT, WEB_FILE).replace(/\\/g, "/")
 const tagName = `v${version}`
 const raw = readFileSync(FILE, "utf8")
+const webRaw = readFileSync(WEB_FILE, "utf8")
 const oldCode = raw.match(/versionCode\s+(\d+)/)?.[1]
 const oldName = raw.match(/versionName\s+"([^"]+)"/)?.[1]
 if (!oldCode || !oldName) {
@@ -46,13 +49,26 @@ const updated = raw
 	.replace(/versionName\s+"[^"]+"/, `versionName "${version}"`)
 writeFileSync(FILE, updated)
 
+const updatedWeb = webRaw.replace(/const\s+APP_VERSION\s*=\s*"[^"]+"/, `const APP_VERSION = "${version}"`)
+if (updatedWeb === webRaw) {
+	console.error(`Could not find APP_VERSION in ${relativeWebFile}`)
+	process.exit(1)
+}
+writeFileSync(WEB_FILE, updatedWeb)
+
 const verify = readFileSync(FILE, "utf8")
 if (!new RegExp(`versionCode\\s+${versionCode}`).test(verify) ||
 	!new RegExp(`versionName\\s+"${version.replace(/\./g, "\\.")}"`).test(verify)) {
 	console.error("Version verification failed")
 	process.exit(1)
 }
+const webVerify = readFileSync(WEB_FILE, "utf8")
+if (!new RegExp(`const\\s+APP_VERSION\\s*=\\s*"${version.replace(/\./g, "\\.")}"`).test(webVerify)) {
+	console.error("Web version verification failed")
+	process.exit(1)
+}
 console.log(`${relativeFile}: versionCode ${oldCode} -> ${versionCode}, versionName ${oldName} -> ${version}`)
+console.log(`${relativeWebFile}: APP_VERSION -> ${version}`)
 
 if (!isRelease) {
 	console.log("Local update complete. Review and commit the change manually when ready.")
@@ -61,16 +77,16 @@ if (!isRelease) {
 
 const status = execSync("git status --porcelain", {cwd: ROOT, encoding: "utf8"})
 const changed = status.split(/\r?\n/).filter(Boolean).map((line) => line.slice(3).trim().replace(/\\/g, "/"))
-if (changed.some((file) => file !== relativeFile)) {
+if (changed.some((file) => file !== relativeFile && file !== relativeWebFile)) {
 	console.error("Refusing --release while unrelated working-tree changes exist:")
-	console.error(changed.filter((file) => file !== relativeFile).join("\n"))
+	console.error(changed.filter((file) => file !== relativeFile && file !== relativeWebFile).join("\n"))
 	process.exit(1)
 }
 if (execSync(`git tag -l "${tagName}"`, {cwd: ROOT, encoding: "utf8"}).trim() === tagName) {
 	console.error(`Tag ${tagName} already exists; refusing to overwrite it.`)
 	process.exit(1)
 }
-execSync(`git add "${relativeFile}"`, {cwd: ROOT, stdio: "inherit"})
+execSync(`git add "${relativeFile}" "${relativeWebFile}"`, {cwd: ROOT, stdio: "inherit"})
 execSync(`git commit -m "Release ${tagName}"`, {cwd: ROOT, stdio: "inherit"})
 execSync(`git tag "${tagName}"`, {cwd: ROOT, stdio: "inherit"})
 const branch = execSync("git rev-parse --abbrev-ref HEAD", {cwd: ROOT, encoding: "utf8"}).trim()

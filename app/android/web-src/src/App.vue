@@ -1526,7 +1526,7 @@ const hideThumb = (e: Event) => { (e.currentTarget as HTMLElement).style.visibil
  * 版本号：与 app/android/app/build.gradle 的 versionName 保持一致（前端随 APK 一起发版）。
  * ⚠ 别拿 web-src/package.json 的 version（脚手架留下的 0.1.0）当版本号 —— 那不是用户看到的版本。
  * 上游声明与许可清单同步自仓库根的 THIRD-PARTY.md（App 里只放要点 + 指向它）。 */
-const APP_VERSION = "1.0.0"
+const APP_VERSION = "2.0.0"
 const UPSTREAM_REPO_URL = "https://github.com/erhiolab/DeepEr"
 const LIVE2D_EULA_URL = "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
 /** 通用外链打开：与 openRepo / openSteamWishlist 同款（优先原生 openExternal，桥不支持时退回 window.open）。

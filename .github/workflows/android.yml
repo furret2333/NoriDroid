@@ -50,6 +50,9 @@ jobs:
         working-directory: app/android/web-src
         run: pnpm install --frozen-lockfile
 
+      - name: Check Android and web version consistency
+        run: node scripts/check-version-consistency.mjs
+
       # ---------- Android 工具链 ----------
       # Gradle 8.8 + AGP 8.5.2 ⇒ JDK 17
       - name: 装 JDK 17
