@@ -261,7 +261,8 @@ object PomodoroEngine {
             PendingIntent.getActivity(ctx, NOTIF_ID, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(ctx, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(ctx)
-        b.setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(text)
+        // 用白色剪影 (通知小图标只取 alpha 通道; 彩色启动图标会在状态栏显示成白方块)
+        b.setSmallIcon(R.drawable.ic_stat_nori).setContentTitle(title).setContentText(text)
             .setAutoCancel(true)
         pi?.let { b.setContentIntent(it) }
         runCatching { nm.notify(NOTIF_ID, b.build()) }

@@ -476,24 +476,37 @@ var fetchVoices = (baseUrl, apiKey) => new Promise((resolve) => {
     done({ ok: false, message: "NoriChat \u672A\u6CE8\u5165" });
   }
 });
+var CHAT_TOTAL_TIMEOUT_MS = 9e4;
 var sendChat = (baseUrl, apiKey, model, messages, thinking = false) => {
   if (!apiKey.trim()) return Promise.resolve({ ok: false, message: "\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u586B\u5199 API Key" });
   if (!model.trim()) return Promise.resolve({ ok: false, message: "\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u9009\u62E9\u6A21\u578B" });
   return enqueueChat(() => {
     const payload = JSON.stringify(messages.map(({ role, content }) => ({ role, content })));
     return new Promise((resolve) => {
-      window.__noriChatRes = (json) => {
+      let settled = false;
+      let timeout = null;
+      const done = (result) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
         delete window.__noriChatRes;
+        resolve(result);
+      };
+      window.__noriChatRes = (json) => {
         try {
-          resolve(JSON.parse(json));
+          done(JSON.parse(json));
         } catch {
-          resolve({ ok: false, message: "\u54CD\u5E94\u89E3\u6790\u5931\u8D25" });
+          done({ ok: false, message: "\u54CD\u5E94\u89E3\u6790\u5931\u8D25" });
         }
       };
+      timeout = setTimeout(() => done({ ok: false, message: "\u8BF7\u6C42\u8D85\u65F6, \u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5" }), CHAT_TOTAL_TIMEOUT_MS);
       try {
         bridge().chat(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking));
       } catch {
-        resolve({ ok: false, message: "\u8BF7\u6C42\u5931\u8D25" });
+        done({ ok: false, message: "\u8BF7\u6C42\u5931\u8D25" });
       }
     });
   });

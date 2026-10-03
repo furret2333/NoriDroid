@@ -238,15 +238,19 @@ var writeTodayDiary = async (llmCall) => {
 };
 var deleteDiaryEntry = (date) => {
   const store = load();
-  const before = store.entries.length;
+  const before = store.entries;
   store.entries = store.entries.filter((e) => e.date !== date);
-  if (store.entries.length === before) return false;
-  persist();
-  return true;
+  if (store.entries.length === before.length) return false;
+  if (persist()) return true;
+  store.entries = before;
+  return false;
 };
 var clearDiary = () => {
+  const before = cache ?? load();
   cache = { ...EMPTY, entries: [] };
-  persist();
+  if (persist()) return true;
+  cache = before;
+  return false;
 };
 var __resetDiaryCacheForTest = () => {
   cache = null;

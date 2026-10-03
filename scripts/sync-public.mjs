@@ -42,7 +42,7 @@ const PUBLIC_REMOTE = "https://github.com/furret2333/NoriDroid.git"
 const COMMIT_IDENTITY = {name: "HuiOVO", email: "317002734+furret2333@users.noreply.github.com"}
 
 /** 根级只保留这些（其余根级条目一律排除，并逐条打印原因） */
-const ROOT_KEEP_FILES = [".gitignore", "README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md"]
+const ROOT_KEEP_FILES = [".gitignore", ".gitattributes", "README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md"]
 const ROOT_KEEP_DIRS = [".github", "app", "scripts"]
 /** 根级"内部文档"的命名（用户要求：这些是项目记忆，留在私有仓库，不进公开仓库） */
 const ROOT_DOC_PATTERNS = [/^交接-.*\.md$/, /^实机验证清单-.*\.md$/, /^待办清单-.*\.md$/,

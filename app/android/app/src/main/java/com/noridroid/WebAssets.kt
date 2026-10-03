@@ -1,7 +1,9 @@
 package com.noridroid
 
 import android.content.res.AssetManager
+import android.net.Uri
 import android.webkit.WebResourceResponse
+import java.io.ByteArrayInputStream
 
 /**
  * 静态资源兜底服务 (FloatService / FloatBubbleActivity 共用):
@@ -11,12 +13,25 @@ import android.webkit.WebResourceResponse
  */
 object WebAssets {
 
+    const val APP_HOST = "appassets.androidplatform.net"
+
+    fun isAllowedUrl(url: String): Boolean = isAllowedUrl(Uri.parse(url))
+
+    fun isAllowedUrl(uri: Uri): Boolean =
+        uri.scheme.equals("https", ignoreCase = true) &&
+            uri.host.equals(APP_HOST, ignoreCase = true)
+
+    fun blockedResponse(): WebResourceResponse =
+        WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+
     fun serve(assets: AssetManager, url: String): WebResourceResponse? {
         return try {
+            val uri = Uri.parse(url)
+            if (!isAllowedUrl(uri)) return null
+            val path = uri.path ?: return null
             val marker = "/assets/"
-            val idx = url.indexOf(marker)
-            if (idx < 0) return null
-            val rel = url.substring(idx + marker.length)
+            if (!path.startsWith(marker)) return null
+            val rel = path.removePrefix(marker)
             if (rel.isBlank()) return null
             val stream = assets.open("web/$rel")
             WebResourceResponse(

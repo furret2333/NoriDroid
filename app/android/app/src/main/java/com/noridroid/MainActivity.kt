@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -34,8 +35,7 @@ class MainActivity : AppCompatActivity() {
     private var pauseGeneration = 0
 
     companion object {
-        
-        
+        private const val TAG = "MainActivity"
         private const val ENTRY_URL = "https://appassets.androidplatform.net/assets/web/index.html"
     }
 
@@ -102,7 +102,7 @@ class MainActivity : AppCompatActivity() {
         settings.allowFileAccess = true
         settings.allowContentAccess = true
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.databaseEnabled = true
         settings.setSupportZoom(false)
@@ -121,11 +121,33 @@ class MainActivity : AppCompatActivity() {
             }
         }
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val uri = request?.url ?: return true
+                if (!WebAssets.isAllowedUrl(uri.toString())) {
+                    view?.stopLoading()
+                    Log.w(TAG, "blocked navigation to $uri")
+                    return true
+                }
+                return false
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                if (url != null && !WebAssets.isAllowedUrl(url)) {
+                    view?.stopLoading()
+                    Log.w(TAG, "blocked page start to $url")
+                    return
+                }
+                super.onPageStarted(view, url, favicon)
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
+                if (!WebAssets.isAllowedUrl(url.toString()) &&
+                    url.scheme != "data" && url.scheme != "blob"
+                ) return WebAssets.blockedResponse()
                 
                 serveModelFile(url.toString())?.let { return it }
                 return assetLoader.shouldInterceptRequest(url)
@@ -265,9 +287,16 @@ class MainActivity : AppCompatActivity() {
                 //   ③ isChangingConfigurations → 正在为配置变化重建 (onDestroy 里也不启)
                 if (generation != pauseGeneration || isResumed || isChangingConfigurations) return@postDelayed
                 if (chatBridge.shouldStartFloatOnExit()) {
-                    startService(Intent(this, FloatService::class.java).setAction(FloatService.ACTION_SHOW))
+                    // 用 startForegroundService (封装在 FloatService.startShow): 此刻应用已在后台,
+                    // 若进程已 idle / 记录被回收, 普通 startService 会被拒并抛 IllegalStateException。
+                    // 本应用持有 SYSTEM_ALERT_WINDOW, 后台启动前台服务是被允许的 (见 startShow 注释)。
+                    FloatService.startShow(this)
                 }
-            } catch (_: Exception) { /* 忽略 */ }
+            } catch (e: Exception) {
+                // 以前这里是空 catch: 悬浮窗"静默不出现"时谁都查不出来。
+                Log.w(TAG, "start float service on background failed", e)
+                LifecycleLog.record(this, "floatStartFailed", "onPause: ${e.javaClass.simpleName}: ${e.message}")
+            }
         }, 1200)
     }
 
@@ -304,16 +333,25 @@ class MainActivity : AppCompatActivity() {
                     .setAction(FloatService.ACTION_SET_PAUSED)
                     .putExtra(FloatService.EXTRA_PAUSED, paused)
             )
-        } catch (_: Exception) { /* 忽略 */ }
+        } catch (e: Exception) {
+            // 保持"不影响主 App 前后台切换"的语义, 但不再完全静默
+            Log.w(TAG, "setFloatPaused($paused) failed", e)
+        }
     }
 
     /**
      * 销毁。
      *
-     * **重建路径必须短路**: Manifest 已声明键盘等配置变化自行处理, 但仍可能有未声明的字段
-     * (或系统主动重建) 走到这里。此时 Activity 正在被重建, WebView 却会被 destroy() 掉 ——
-     * 表现就是"应用重启 + 聊天状态全丢"。所以 `isChangingConfigurations == true` 时:
-     * 不销毁 WebView、不启悬浮窗, 让系统用同一份资源重建。
+     * **WebView 必须无条件销毁**, 配置重建时也一样。原因: 新 Activity 实例只会
+     * `findViewById` 拿到**新** WebView, 旧实例无法被接管 —— "让系统用同一份资源重建"对
+     * WebView 不成立。漏掉 destroy() 只有一个后果: 旧 WebView 连同它持有的 Activity、JS 引擎、
+     * 线程池和 Live2D 渲染循环一起泄漏, 并与新实例并存抢 GPU (作者自己实测过两个渲染器
+     * 并存时主界面 29fps → 9.5fps, 见 tmp-memcheck/probe-main-fps.mjs)。
+     *
+     * 聊天状态在重建时本来就会重载页面, 与是否 destroy() 无关; 真正要避免重建的手段是把
+     * 配置变化声明进 Manifest 的 `configChanges` (见那里补的 fontScale|locale|...)。
+     *
+     * 唯一保留的区分: **配置重建时不要启动悬浮窗** (那只是系统在换配置, 不是用户退出)。
      */
     override fun onDestroy() {
         val changing = isChangingConfigurations
@@ -322,18 +360,21 @@ class MainActivity : AppCompatActivity() {
             "onDestroy",
             "changingConfig=$changing finishing=$isFinishing"
         )
-        if (changing) {
-            super.onDestroy()
-            return
-        }
         webView.stopLoading()
         webView.destroy()
-        // 退出应用时: 若开启了悬浮窗且有权, 启动悬浮窗服务 (Nori 留在屏幕)
-        try {
-            if (chatBridge.shouldStartFloatOnExit()) {
-                startService(Intent(this, FloatService::class.java).setAction(FloatService.ACTION_SHOW))
+        // 退出应用时: 若开启了悬浮窗且有权, 启动悬浮窗服务 (Nori 留在屏幕)。
+        // 配置重建不算退出 → 该分支不启 (avoid 换配置时桌面突然冒出 Nori)。
+        if (!changing) {
+            try {
+                if (chatBridge.shouldStartFloatOnExit()) {
+                    FloatService.startShow(this)
+                }
+            } catch (e: Exception) {
+                // 以前这里是空 catch: 后台启动受限时悬浮窗"静默不出现", 谁都查不出来。
+                Log.w(TAG, "start float service on exit failed", e)
+                LifecycleLog.record(this, "floatStartFailed", "onDestroy: ${e.javaClass.simpleName}: ${e.message}")
             }
-        } catch (_: Exception) { /* 忽略 */ }
+        }
         super.onDestroy()
     }
 

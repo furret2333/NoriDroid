@@ -779,6 +779,8 @@ export interface ChatResult {
 	message?: string
 }
 
+/** Native non-stream calls share one callback; a missing callback must not stall the queue. */
+const CHAT_TOTAL_TIMEOUT_MS = 90_000
 
 export const sendChat = (
 	baseUrl: string,
@@ -794,11 +796,24 @@ export const sendChat = (
 	return enqueueChat(() => {
 		const payload = JSON.stringify(messages.map(({role, content}) => ({role, content})))
 		return new Promise<ChatResult>((resolve) => {
-			window.__noriChatRes = (json) => {
+			let settled = false
+			let timeout: ReturnType<typeof setTimeout> | null = null
+			const done = (result: ChatResult): void => {
+				if (settled) return
+				settled = true
+				if (timeout) { clearTimeout(timeout); timeout = null }
 				delete window.__noriChatRes
-				try { resolve(JSON.parse(json)) } catch { resolve({ok: false, message: "响应解析失败"}) }
+				resolve(result)
 			}
-			try { bridge().chat(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking)) } catch { resolve({ok: false, message: "请求失败"}) }
+			window.__noriChatRes = (json) => {
+				try { done(JSON.parse(json)) } catch { done({ok: false, message: "响应解析失败"}) }
+			}
+			timeout = setTimeout(() => done({ok: false, message: "请求超时, 请检查网络后重试"}), CHAT_TOTAL_TIMEOUT_MS)
+			try {
+				bridge().chat(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking))
+			} catch {
+				done({ok: false, message: "请求失败"})
+			}
 		})
 	})
 }

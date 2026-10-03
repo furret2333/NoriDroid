@@ -15,13 +15,15 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 社区项目声明：本项目为社区同好自发维护的非官方、非商业开源项目，与官方团队或母公司无商业关联与从属关系。
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Android%2010%2B-3ddc84)](#安装)
+[![Platform](https://img.shields.io/badge/Platform-Android%207%2B-3ddc84)](#安装)
 
 </div>
 
 > **本仓库只包含 Android 版**（`app/android`）。上游的桌面版（Tauri）与服务端（Go）不在本仓库内。
 
 仓库地址：<https://github.com/furret2333/NoriDroid>
+
+> **Current release preparation:** `v2.0.0` (`versionCode 2`). This repository builds the Android app only; release artifacts are prepared locally before publication.
 
 ---
 

@@ -264,17 +264,21 @@ export const writeTodayDiary = async (
 /** 删除某一天的日记 @returns 是否删了 */
 export const deleteDiaryEntry = (date: string): boolean => {
 	const store = load()
-	const before = store.entries.length
+	const before = store.entries
 	store.entries = store.entries.filter(e => e.date !== date)
-	if (store.entries.length === before) return false
-	persist()
-	return true
+	if (store.entries.length === before.length) return false
+	if (persist()) return true
+	store.entries = before
+	return false
 }
 
-/** 清空日记 */
-export const clearDiary = (): void => {
+/** 清空日记; 返回主文件是否真的写入成功。 */
+export const clearDiary = (): boolean => {
+	const before = cache ?? load()
 	cache = {...EMPTY, entries: []}
-	persist()
+	if (persist()) return true
+	cache = before
+	return false
 }
 
 /** 仅供测试: 丢弃日记与源缓冲的内存缓存, 让下一次调用重新从磁盘读

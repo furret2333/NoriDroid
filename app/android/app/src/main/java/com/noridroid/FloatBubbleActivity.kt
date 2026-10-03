@@ -191,7 +191,7 @@ class FloatBubbleActivity : Activity() {
         settings.allowContentAccess = true
         settings.setAllowFileAccessFromFileURLs(true)
         settings.setAllowUniversalAccessFromFileURLs(true)
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         settings.setSupportZoom(false)
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
@@ -210,11 +210,33 @@ class FloatBubbleActivity : Activity() {
         wv.setOnTouchListener { _, event -> handleBubbleTouch(event) }
 
         wv.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val uri = request?.url ?: return true
+                if (!WebAssets.isAllowedUrl(uri.toString())) {
+                    view?.stopLoading()
+                    Log.w(TAG, "blocked navigation to $uri")
+                    return true
+                }
+                return false
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                if (url != null && !WebAssets.isAllowedUrl(url)) {
+                    view?.stopLoading()
+                    Log.w(TAG, "blocked page start to $url")
+                    return
+                }
+                super.onPageStarted(view, url, favicon)
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url?.toString() ?: return null
+                if (!WebAssets.isAllowedUrl(url) && !url.startsWith("data:") && !url.startsWith("blob:")) {
+                    return WebAssets.blockedResponse()
+                }
                 return WebAssets.serve(assets, url)
             }
             override fun onReceivedError(

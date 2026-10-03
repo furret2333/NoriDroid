@@ -1,7 +1,7 @@
 <template>
 	<div
 		class="stage-root"
-		:class="uiSoft ? 'ui-soft' : 'ui-pixel'"
+		:class="uiSoft ? 'ui-soft' : 'ui-tide'"
 		@touchstart.passive="onTouchStart"
 		@touchmove.passive="onTouchMove"
 		@touchend.passive="onTouchEnd"
@@ -733,6 +733,35 @@
 							<div class="hint">专注记录永久保留（不再按 30 天滚动删除），超过 10 年的才会被裁掉。</div>
 						</template>
 						<template v-else-if="panel === 'settings'">
+							<div class="settings-shell">
+								<header class="settings-overview">
+									<div class="settings-overline">NORI CONTROL DECK</div>
+									<div class="settings-overview-row">
+										<div>
+											<h2>设置</h2>
+											<p class="settings-overview-subtitle">海的深处....</p>
+											<p class="settings-overview-quote">若记忆终将散落，请在呼唤中重新认识我一次。</p>
+										</div>
+										<div class="settings-overview-visual" aria-hidden="true">
+											<img :src="'images/cg-touch-her.webp'" alt="" />
+										</div>
+									</div>
+									<button class="settings-intro-entry btn ripple intro-open" @click="introOpen">
+										<span class="settings-intro-copy"><b>新手引导 / 致谢</b><small>第一次使用？从这里快速了解 Nori</small></span>
+										<span class="settings-entry-arrow" aria-hidden="true">→</span>
+									</button>
+									<nav class="settings-jumps" aria-label="设置分区">
+										<a href="#settings-connection">连接</a>
+										<a href="#settings-display">显示</a>
+										<a href="#settings-storage">存储</a>
+										<a href="#settings-sound">声音</a>
+										<a href="#settings-memory">记忆</a>
+										<a href="#settings-window">窗口</a>
+									</nav>
+								</header>
+								<details id="settings-connection" class="settings-section">
+									<summary><span><b>连接与人设</b><small>决定 Nori 如何理解和回应你</small></span><i aria-hidden="true"></i></summary>
+									<div class="settings-section-body">
 							<!-- 自定义人设（2026-10-01 用户要求）: 放在面板**最顶上** —— 内置人设已删除, 这份就是 Nori 的唯一设定,
 							     比 API Key/模型这些还靠前, 否则用户根本找不到 -->
 							<div class="settings-row">
@@ -764,6 +793,19 @@
 								</div>
 								<div v-if="modelLoadMsg" class="hint">{{ modelLoadMsg }}</div>
 							</div>
+																<div class="settings-row settings-tts-entry">
+																	<button class="settings-entry-button ripple" @click="openPanel('tts')">
+																		<span class="settings-entry-icon" aria-hidden="true">◌</span>
+																		<span class="settings-entry-copy"><b>语音合成</b><small>配置 Nori 的朗读服务、音色与试听效果</small></span>
+																		<span class="settings-entry-arrow" aria-hidden="true">→</span>
+																	</button>
+																</div>
+								</div>
+							</details>
+
+							<details id="settings-display" class="settings-section">
+								<summary><span><b>显示与性能</b><small>调整气泡阅读体验和 Live2D 流畅度</small></span><i aria-hidden="true"></i></summary>
+								<div class="settings-section-body">
 							<div class="settings-row">
 								<label>气泡字体 {{ bubbleScaleNum.toFixed(2) }}（推荐 1.00）</label>
 								<input type="range" min="0.7" max="1.8" step="0.05" v-model.number="cfg.bubbleScale" />
@@ -792,6 +834,12 @@
 									30/20/15 更省电但动作与背景会略跳。60Hz 屏只有设到低于 60 才有区别。选「不限」恢复原来的行为
 								</div>
 							</div>
+									</div>
+								</details>
+
+								<details id="settings-storage" class="settings-section">
+									<summary><span><b>数据与存储</b><small>查看文件位置和访问权限</small></span><i aria-hidden="true"></i></summary>
+									<div class="settings-section-body">
 							<div class="settings-row">
 								<label>聊天记录存储位置</label>
 								<!-- 2026-10-02 更正: 写在**公共下载目录**里的文件（聊天/记忆/日记）卸载后一般仍在（系统不按应用私有数据清理）；
@@ -813,6 +861,12 @@
 								<pre v-if="storageProbeMsg" class="store-probe">{{ storageProbeMsg }}</pre>
 								<div class="hint">列出公共目录里到底有没有文件、MediaStore 是否可见、能否直读 —— 卸载重装后排查"原有内容读不到"用</div>
 							</div>
+									</div>
+								</details>
+
+								<details id="settings-sound" class="settings-section">
+									<summary><span><b>声音与陪伴</b><small>背景音乐、音效和主动互动</small></span><i aria-hidden="true"></i></summary>
+									<div class="settings-section-body">
 							<div class="settings-row mem-block">
 								<label>背景音乐</label>
 								<div class="mem-sec">
@@ -892,6 +946,12 @@
 								</div>
 								<div class="hint">安静几分钟后，她可能会轻轻说一句（本地语料零 token、不进聊天记录；每次会话最多几条）；安静模式开启时不生效</div>
 							</div>
+									</div>
+								</details>
+
+								<details id="settings-memory" class="settings-section">
+									<summary><span><b>记忆与互动</b><small>记忆策略、表情驱动和头部跟随</small></span><i aria-hidden="true"></i></summary>
+									<div class="settings-section-body">
 							<div class="settings-row">
 								<div class="row-inline">
 									<label>命中区域调试（测试用）</label>
@@ -963,6 +1023,12 @@
 								<input type="range" min="0.1" max="0.5" step="0.05" v-model.number="cfg.lookSens" />
 								<div class="hint">手指方向不对就勾选反向；跟得太肉或太跳就调灵敏度（只影响摸头时的跟随紧致度；松手后按固定的"轻拨感"缓缓回正，不随此档位变化。改完点保存设置）</div>
 							</div>
+									</div>
+								</details>
+
+								<details id="settings-window" class="settings-section">
+									<summary><span><b>窗口与手势</b><small>控制悬浮窗和触摸行为</small></span><i aria-hidden="true"></i></summary>
+									<div class="settings-section-body">
 							<div class="settings-row">
 								<div class="row-inline">
 									<label>退出后显示悬浮窗 Nori</label>
@@ -979,20 +1045,26 @@
 								<div class="row-inline label-only">悬浮窗触摸手势</div>
 								<div class="hint">· 点 Nori 身体 → 弹出聊天气泡<br />· 在 Nori 身体上轻微滑动 → 抚摸反馈（开心表情 + 轻蹭）<br />· 按住 0.8 秒后再移动 → 移动悬浮窗（0.8 秒内移动不算拖动，防误拖）<br />· 手指快速大幅滑过 → 不弹气泡、不拖动（防误触）<br />· 双指捏合 → 调整悬浮窗大小（任意位置均可）<br />· 拖动、点按、抚摸都会重置待机小动作计时<br />· 对话框打开时：拖 ≡ 把手移动、双指捏合缩放、短按 ✕ 锁定、长按 ✕ 退出</div>
 							</div>
-							<button class="btn ripple" @click="openPanel('tts')">语音合成（TTS）</button>
+									</div>
+								</details>
+
+								<details class="settings-section settings-actions">
+									<summary><span><b>更多工具</b><small>动作、表情与外观工具</small></span><i aria-hidden="true"></i></summary>
+									<div class="settings-section-body">
 							<button class="btn ripple" @click="openPanel('motion')">动作列表</button>
 							<button class="btn ripple" @click="openPanel('expression')">表情列表</button>
-							<button class="btn ripple" @click="saveSettingsNow">保存设置</button>
-							<!-- 新手引导入口 (原「更新记录」已按用户要求移除) -->
-							<button class="btn ripple intro-open" @click="introOpen">新手引导 / 致谢</button>
-							<!-- 关于 / 隐私 / 开源许可（2026-10-02 用户要求）: 入口放设置面板最下面 ——
-							     最顶上那一行是刚做完的人设行, 一律不动。点开走**现有的 sheet 面板机制**
-							     (panel === 'about')，不另造窗口。 -->
-							<div class="settings-row about-row">
-								<button class="mini ripple about-open" @click="openAboutPage">关于 / 隐私 / 开源许可 · v{{ APP_VERSION }} ›</button>
+							<button class="btn ripple" @click="toggleUiStyle">外观风格：{{ uiSoft ? "柔和雾面" : "潮汐玻璃" }} ›</button>
+									</div>
+								</details>
+
+								<div class="settings-bottom-actions">
+									<button class="btn ripple primary settings-save-button" @click="saveSettingsNow">保存设置</button>
+									<button class="settings-license-link mini ripple about-open" @click="openAboutPage">
+										<span><b>开源许可 / 关于 / 隐私</b><small>NoriDroid · v{{ APP_VERSION }}</small></span>
+										<span aria-hidden="true">→</span>
+									</button>
+								</div>
 							</div>
-							<!-- 外观风格对比开关 (定稿后连同 uiSoft 一起删掉即可) -->
-							<button class="btn ripple" @click="toggleUiStyle">外观风格：{{ uiSoft ? "柔和（新色板）" : "像素风" }} ›</button>
 						</template>
 						<!-- 关于 / 隐私 / 开源许可（2026-10-02 用户要求）: 复用现有 sheet 面板（入口在设置面板里），
 						     四块内容缺一不可 —— 版本+上游声明 / 隐私说明 / 开源许可 / 反馈渠道。
@@ -1343,12 +1415,12 @@ const currentModel = computed(() => modelList.value.find((m) => m.id === current
  * WebView 走 WebViewAssetLoader（`/assets/web/index.html`）⇒ 正好命中 `assets/web/icons/`。
  */
 const DOCK_ICONS = {
-	diary: "./icons/dock-diary.png",
-	model: "./icons/dock-model.png",
-	touch: "./icons/dock-touch.png",
-	pomo: "./icons/dock-pomo.png",
-	settings: "./icons/dock-settings.png",
-	chat: "./icons/dock-chat.png",
+	diary: "./icons/dock-diary.svg",
+	model: "./icons/dock-model.svg",
+	touch: "./icons/dock-touch.svg",
+	pomo: "./icons/dock-pomo.svg",
+	settings: "./icons/dock-settings.svg",
+	chat: "./icons/dock-chat.svg",
 } as const
 
 const panelTitle = (p: P) => ({model: "选择模型", motion: "动作列表", expression: "表情列表", touch: "自定义触摸", settings: "设置", tts: "语音合成", diary: "Nori 的心情日记", memories: "记忆库", pomo: "番茄钟", pomoStats: "专注统计", about: "关于 / 隐私 / 开源许可"} as Record<string, string>)[p] ?? ""
@@ -2114,14 +2186,25 @@ const canvasCenter = (): {x: number; y: number} => {
 	return {x: el.clientWidth / 2, y: el.clientHeight / 2}
 }
 
+/** 当前 Live2D 未经过 CSS 缩放的模型框，所有视线目标都在这个坐标系里计算。 */
+const modelFrame = (): {x: number; y: number; w: number; h: number} | null => {
+	const el = l2d.canvas()
+	if (!el) return null
+	const w = el.clientWidth || window.innerWidth
+	const h = el.clientHeight || window.innerHeight
+	if (w <= 0 || h <= 0) return null
+	const ms = modelSize()
+	if (!ms?.w || !ms.h) return {x: 0, y: 0, w, h}
+	const s = Math.min(w / ms.w, h / ms.h)
+	return {x: (w - ms.w * s) / 2, y: (h - ms.h * s) / 2, w: ms.w * s, h: ms.h * s}
+}
+
 /**
  * 中立点 = 模型渲染框中心 (由 modelLayout 按当前缩放/偏移实时计算),
  * 比画布中心更贴近模型实际位置, 左右输入以它为轴绝对对称.
  */
 const lookNeutral = (): {x: number; y: number} => {
-	const el = l2d.canvas()
-	const ms = modelSize()
-	const L = el ? modelLayout(el, ms?.w ?? 0, ms?.h ?? 0) : null
+	const L = modelFrame()
 	if (L && L.w > 0 && L.h > 0) return {x: L.x + L.w / 2, y: L.y + L.h / 2}
 	return canvasCenter()
 }
@@ -2132,8 +2215,7 @@ const lookNeutral = (): {x: number; y: number} => {
  */
 const lookRangeRadius = (): number => {
 	const el = l2d.canvas()
-	const ms = modelSize()
-	const L = el ? modelLayout(el, ms?.w ?? 0, ms?.h ?? 0) : null
+	const L = modelFrame()
 	if (L && L.w > 0 && L.h > 0) return Math.min(L.w, L.h) * 0.4
 	if (!el) return 200
 	return Math.min(el.clientWidth, el.clientHeight) * 0.35
@@ -2151,13 +2233,13 @@ const lookRangeRadius = (): number => {
 const toLookTarget = (x: number, y: number): {x: number; y: number} => {
 	const el = l2d.canvas()
 	if (!el) return {x, y}
-	const ms = modelSize()
-	const L = el ? modelLayout(el, ms?.w ?? 0, ms?.h ?? 0) : null
+	const L = modelFrame()
 	const n = lookNeutral()
 	const halfW = (L && L.w > 0 ? L.w : el.clientWidth) / 2
 	const halfH = (L && L.h > 0 ? L.h : el.clientHeight) / 2
-	let dx = clamp((x - n.x) / halfW, -1, 1)
-	let dy = clamp((y - n.y) / halfH, -1, 1)
+	const p = canvasPointFromClient(x, y, canvasView())
+	let dx = clamp((p.x - n.x) / halfW, -1, 1)
+	let dy = clamp((p.y - n.y) / halfH, -1, 1)
 	// 方向翻转: 翻转偏移符号 (原点在画布中心, 翻转即绕零位镜像)
 	if (cfg.lookFlipX) dx = -dx
 	if (cfg.lookFlipY) dy = -dy
@@ -2461,7 +2543,7 @@ const loadModel = async () => {
 		lookInit = false
 		lookRaf = 0
 		await l2d.mount({directory: id, fileBase: entryBase}, {canvasWidth: "100%", canvasHeight: "100%", host: l2dHost.value})
-		scale.value = (await readModelConfig(id, "l2d_scale", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 1)) || 1
+		scale.value = (await readModelConfig(id, "l2d_scale", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 1.12)) || 1.12
 		offsetX.value = (await readModelConfig(id, "l2d_offset_x", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 0)) || 0
 		offsetY.value = (await readModelConfig(id, "l2d_offset_y", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 0)) || 0
 		await nextTick()
@@ -3020,14 +3102,15 @@ const uiSoft = ref(true)
 try {
 	const q = new URLSearchParams(location.search).get("ui")
 	const saved = localStorage.getItem("ui_style")
-	if (q === "soft" || q === "pixel") uiSoft.value = q === "soft"
+	if (q === "soft" || q === "tide" || q === "pixel") uiSoft.value = q === "soft"
 	else if (saved === "soft") uiSoft.value = true
+	else if (saved === "tide" || saved === "pixel") uiSoft.value = false
 } catch { /* 忽略 */ }
 const toggleUiStyle = (): void => {
 	uiSoft.value = !uiSoft.value
-	try { localStorage.setItem("ui_style", uiSoft.value ? "soft" : "pixel") } catch { /* 忽略 */ }
+	try { localStorage.setItem("ui_style", uiSoft.value ? "soft" : "tide") } catch { /* 忽略 */ }
 	playSfx()
-	triggerBubble(uiSoft.value ? "外观：柔和（新色板）" : "外观：像素风", 2200)
+	triggerBubble(uiSoft.value ? "外观：柔和雾面" : "外观：潮汐玻璃", 2200)
 }
 /** 存储自检结果 (原始 JSON, 便于直接截图/复制给开发者) */
 const storageProbeMsg = ref("")
@@ -5919,6 +6002,46 @@ onBeforeUnmount(async () => {
 	--ui-press: inset 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
+/* 潮汐玻璃：同一套控件的第二种观感，用更清晰的青色层次和柔和浮影区分层级。 */
+.ui-tide {
+	--ui-radius-panel: 18px;
+	--ui-radius-card: 14px;
+	--ui-radius-ctl: 9px;
+	--ui-radius-pill: 999px;
+	--ui-line-w: 1px;
+	--ui-line-c: rgba(127, 212, 230, 0.26);
+	--ui-line-c-soft: rgba(127, 212, 230, 0.14);
+	--ui-lift: 0px;
+	--ui-shadow: 0 14px 32px rgba(2, 8, 18, 0.34), 0 0 0 1px rgba(127, 212, 230, 0.05);
+	--ui-inner-glow: rgba(127, 212, 230, 0.08);
+	--ui-blur-dot: 4px;
+	--ui-blur-bubble: 10px;
+	--ui-blur-chip: 12px;
+	--ui-blur-mask: 5px;
+	--ui-hi: rgba(182, 245, 242, 0.14);
+	--ui-lo: rgba(0, 0, 0, 0.34);
+	--ui-press: inset 0 2px 10px rgba(0, 0, 0, 0.44), 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.ui-tide .sheet {
+	background: linear-gradient(155deg, rgba(18, 43, 61, 0.97), rgba(7, 20, 36, 0.97));
+	box-shadow: 0 -10px 34px rgba(2, 8, 18, 0.42), inset 0 1px 0 rgba(182, 245, 242, 0.08);
+}
+.ui-tide .dock {
+	background: linear-gradient(155deg, rgba(20, 48, 62, 0.86), rgba(7, 20, 35, 0.86));
+	border-color: rgba(127, 212, 230, 0.3);
+	box-shadow: 0 12px 34px rgba(2, 8, 18, 0.42), inset 0 1px 0 rgba(182, 245, 242, 0.12);
+}
+.ui-tide .fab:hover { background: rgba(127, 212, 230, 0.12); }
+.ui-tide .settings-section,
+.ui-tide .tts-sec {
+	background: linear-gradient(155deg, rgba(24, 51, 69, 0.72), rgba(10, 27, 44, 0.72));
+	border-color: rgba(127, 212, 230, 0.16);
+}
+.ui-tide .settings-entry-button {
+	background: linear-gradient(105deg, rgba(127, 212, 230, 0.18), rgba(126, 224, 194, 0.1));
+	border-color: rgba(127, 212, 230, 0.34);
+}
+
 /* 手指触摸追踪: 半透明磨砂小白点 */
 .touch-dot-host {
 	position: absolute;
@@ -6617,53 +6740,65 @@ onBeforeUnmount(async () => {
 
 .dock {
 	position: absolute;
-	left: 0; right: 0; bottom: 0;
-	padding: 10px 10px calc(12px + env(safe-area-inset-bottom));
+	left: 50%; right: auto; bottom: calc(8px + env(safe-area-inset-bottom));
+	transform: translateX(-50%);
+	width: min(96vw, 560px);
+	padding: 7px;
 	display: grid;
 	grid-template-columns: repeat(6, 1fr);
-	gap: 6px;
+	gap: 5px;
 	z-index: 5;
-	background: linear-gradient(180deg, rgba(4, 8, 18, 0) 0%, rgba(6, 13, 28, 0.5) 45%, rgba(6, 13, 28, 0.88) 100%);
+	background: rgba(7, 17, 31, 0.78);
+	border: 1px solid rgba(127, 212, 230, 0.22);
+	border-radius: 18px;
+	box-shadow: 0 10px 28px rgba(2, 8, 18, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
 }
-/* 底栏按钮 (2026-09-30 图标化): 面板样式**不变** (仍是像素面板 + 主题变量), 里面改成"图标在上、文字在下" */
+/* 底栏按钮：保留六个入口和点击逻辑，改为轻量的图标卡片。 */
 .fab {
+	min-width: 0;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 2px;
+	justify-content: center;
+	gap: 3px;
 	padding: 6px 2px 5px;
 	border-radius: var(--ui-radius-ctl);
-	background: var(--px-panel-2);
-	color: var(--px-white);
+	background: transparent;
+	color: var(--fg-2);
 	font-size: 12px;
-	border: var(--ui-line-w) solid var(--ui-line-c);
-	box-shadow: inset 2px 2px 0 0 var(--ui-hi), inset -2px -2px 0 0 var(--ui-lo), 0 var(--ui-lift) 0 0 var(--ui-lo), var(--ui-shadow);
-	transition: none;
+	border: 1px solid transparent;
+	transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+	&:hover {
+		background: rgba(127, 212, 230, 0.08);
+		border-color: rgba(127, 212, 230, 0.22);
+		color: var(--fg);
+	}
 	&:active {
-		transform: translateY(2px);
-		box-shadow: var(--ui-press), 0 calc(var(--ui-lift) / 2) 0 0 var(--ui-lo);
+		transform: translateY(1px) scale(0.97);
+		background: rgba(127, 212, 230, 0.16);
 	}
 	&:disabled { opacity: 0.4; pointer-events: none; }
 }
 .fab-ico {
-	width: 38px;
-	height: 38px;
+	width: 30px;
+	height: 30px;
 	display: block;
-	transition: transform 0.08s ease-out;
+	transition: transform 0.18s ease-out, filter 0.18s ease-out;
 }
-.fab:active .fab-ico { transform: translateY(1px) scale(0.95); }
+.fab:hover .fab-ico { filter: drop-shadow(0 0 5px rgba(127, 212, 230, 0.48)); }
+.fab:active .fab-ico { transform: scale(0.94); }
 .fab-label {
-	font-size: 12px;
+	font-size: 11px;
 	line-height: 1.1;
-	letter-spacing: 0.5px;
+	letter-spacing: 0.2px;
 }
 .fab.primary {
-	/* 受限色板的做法: 最亮那一档**只给一个地方** —— 这里的主按钮 */
-	background: var(--px-cyan-src);
-	color: var(--px-void);
-	box-shadow: inset 2px 2px 0 0 var(--px-hilite-src), inset -2px -2px 0 0 var(--px-cyan-dim), 0 4px 0 0 var(--px-void);
+	background: rgba(127, 212, 230, 0.16);
+	color: var(--accent);
+	border-color: rgba(127, 212, 230, 0.4);
 	font-weight: 600;
-	border-color: rgba(255,255,255,0.15);
 }
 
 
@@ -6712,6 +6847,264 @@ onBeforeUnmount(async () => {
 	flex-shrink: 0;
 }
 .sheet-body { overflow-y: auto; flex: 1; min-height: 0; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+
+/* 设置页：保持现有控件和业务事件，只用分组与层级降低长列表的阅读负担。 */
+.settings-shell {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 2px 0 14px;
+}
+.settings-overview {
+	padding: 4px 4px 2px;
+}
+.settings-overline {
+	font-size: 10px;
+	letter-spacing: 1.8px;
+	color: var(--accent);
+	font-weight: 700;
+}
+.settings-overview-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 5px;
+}
+.settings-overview-row > div:first-child {
+	min-width: 0;
+	flex: 1 1 auto;
+}
+.settings-overview h2 {
+	font-size: 23px;
+	line-height: 1.2;
+	font-weight: 650;
+	letter-spacing: 0.02em;
+	color: var(--fg);
+}
+.settings-overview p {
+	margin-top: 4px;
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--fg-dim);
+}
+.settings-overview-subtitle {
+	font-size: 13px !important;
+	color: var(--accent) !important;
+	letter-spacing: 0.08em;
+}
+.settings-overview-quote {
+	max-width: 250px;
+	font-size: 11px !important;
+	line-height: 1.6 !important;
+	color: var(--fg-dim) !important;
+}
+.settings-overview-visual {
+	position: relative;
+	flex: 0 0 clamp(132px, 34%, 210px);
+	height: 150px;
+	margin: -28px 0 -20px;
+	transform: translateX(-30px);
+	overflow: hidden;
+	pointer-events: none;
+}
+.settings-overview-visual img {
+	position: absolute;
+	inset: 0;
+	width: 150%;
+	height: 150%;
+	object-fit: contain;
+	object-position: right center;
+	transform: translate(-30%, -8%);
+	filter: drop-shadow(0 10px 20px rgba(7, 20, 38, 0.4));
+}
+.settings-intro-entry {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 12px;
+	padding: 10px 12px;
+	text-align: left;
+	background: rgba(127, 212, 230, 0.08);
+	border: 1px solid rgba(127, 212, 230, 0.25);
+	color: var(--fg);
+}
+.settings-intro-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
+.settings-intro-copy b { font-size: 13px; color: var(--accent); }
+.settings-intro-copy small { font-size: 11px; color: var(--fg-dim); }
+.settings-entry-arrow { flex: 0 0 auto; color: var(--accent); font-size: 18px; }
+.settings-jumps {
+	display: flex;
+	gap: 6px;
+	margin-top: 12px;
+	overflow-x: auto;
+	padding-bottom: 2px;
+	scrollbar-width: none;
+}
+.settings-jumps::-webkit-scrollbar { display: none; }
+.settings-jumps a {
+	flex: 0 0 auto;
+	padding: 6px 10px;
+	border: 1px solid var(--line-soft);
+	border-radius: var(--ui-radius-ctl);
+	background: rgba(15, 23, 42, 0.42);
+	color: var(--fg-2);
+	font-size: 11px;
+	text-decoration: none;
+}
+.settings-jumps a:active {
+	border-color: var(--accent-strong);
+	color: var(--accent);
+}
+.settings-section {
+	margin: 0;
+	border: 1px solid var(--line-soft);
+	border-radius: var(--ui-radius-card);
+	background: linear-gradient(180deg, rgba(19, 34, 57, 0.78), rgba(13, 25, 44, 0.74));
+	overflow: hidden;
+}
+.settings-section > summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 12px 13px;
+	list-style: none;
+	cursor: pointer;
+	user-select: none;
+}
+.settings-section > summary::-webkit-details-marker { display: none; }
+.settings-section > summary > span {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
+.settings-section > summary b {
+	font-size: 14px;
+	font-weight: 650;
+	color: var(--fg);
+}
+.settings-section > summary small {
+	font-size: 11px;
+	line-height: 1.35;
+	color: var(--fg-dim);
+}
+.settings-section > summary i {
+	width: 9px;
+	height: 9px;
+	flex: 0 0 auto;
+	border-right: 1.5px solid var(--accent);
+	border-bottom: 1.5px solid var(--accent);
+	transform: rotate(45deg) translateY(-2px);
+	transition: transform 0.2s ease;
+}
+.settings-section[open] > summary {
+	border-bottom: 1px solid var(--line-soft);
+	background: rgba(127, 212, 230, 0.055);
+}
+.settings-section[open] > summary i {
+	transform: rotate(225deg) translate(-1px, -1px);
+}
+.settings-section-body {
+	padding: 1px 12px 10px;
+}
+.settings-section-body > .settings-row + .settings-row {
+	border-top: 1px solid rgba(148, 163, 184, 0.09);
+}
+.settings-section-body > .settings-row {
+	padding-left: 0;
+	padding-right: 0;
+}
+.settings-actions .settings-section-body {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding-top: 9px;
+}
+.settings-actions .btn:first-child { margin-top: 0; }
+.settings-entry-row {
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.settings-entry-row > div { min-width: 0; }
+.settings-entry-button {
+	width: 100%;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 11px 12px;
+	text-align: left;
+	border-radius: var(--ui-radius-ctl);
+	color: var(--accent);
+	background: rgba(127, 212, 230, 0.08);
+	border-color: rgba(127, 212, 230, 0.32);
+	box-shadow: 0 8px 18px rgba(2, 8, 18, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.settings-tts-entry { padding-top: 12px; padding-bottom: 12px; }
+.settings-entry-icon {
+	width: 28px;
+	height: 28px;
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 9px;
+	background: rgba(127, 212, 230, 0.14);
+	color: var(--accent);
+	font-size: 19px;
+	line-height: 1;
+}
+.settings-entry-copy {
+	min-width: 0;
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.settings-entry-copy b { color: var(--fg); font-size: 13px; font-weight: 650; }
+.settings-entry-copy small { color: var(--fg-dim); font-size: 11px; line-height: 1.35; }
+.settings-entry-arrow { flex: 0 0 auto; color: var(--accent); font-size: 20px; line-height: 1; }
+.settings-bottom-actions {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 2px;
+	padding: 12px 10px 2px;
+	border-top: 1px solid var(--line-soft);
+}
+.settings-save-button { width: 100%; }
+.settings-license-link {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 12px;
+	text-align: left;
+	background: transparent;
+	color: var(--fg-2);
+	border-color: var(--line-soft);
+}
+.settings-license-link > span:first-child {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.settings-license-link b { color: var(--accent); font-size: 12px; }
+.settings-license-link small { color: var(--fg-dim); font-size: 10px; }
+.settings-license-link > span:last-child { flex: 0 0 auto; color: var(--accent); font-size: 17px; }
 
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .mc {
@@ -7359,8 +7752,9 @@ onBeforeUnmount(async () => {
 	}
 	/* 底部 dock: 内容限宽居中 (50%-280px 两侧收进), 不让按钮横跨整个屏幕; 兼容刘海左右安全区 */
 	.dock {
-		padding-left: calc(max(10px, 50% - 280px) + env(safe-area-inset-left, 0px));
-		padding-right: calc(max(10px, 50% - 280px) + env(safe-area-inset-right, 0px));
+		bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+		padding-left: 7px;
+		padding-right: 7px;
 	}
 	/* 底部弹层 (模型/动作/表情/日记/记忆库/设置): 限宽居中, 高度放宽 */
 	.sheet-mask {

@@ -1,9 +1,14 @@
 package com.noridroid
 
 import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -78,6 +83,44 @@ class FloatService : Service() {
         // ES Module 需要 https Origin (file:// 会被浏览器禁止),
         // 故用 appassets 虚拟域名, 再由 shouldInterceptRequest 兜底读取 assets
         private const val ENTRY_URL = "https://appassets.androidplatform.net/assets/float.html"
+
+        // ---- 前台服务 (B3) ----
+        // 常驻低优先级通知: 既是 Android 对前台服务的硬性要求, 也是"悬浮窗正在运行"的唯一
+        // 可信指示 —— 之前悬浮窗被系统收走时用户完全无从察觉。
+        // 注意: 46001/46002 已被 PomodoroEngine 用作通知 id 与 PendingIntent requestCode,
+        // 这里另取一组, 避免与番茄钟互相覆盖。
+        private const val FGS_NOTIF_ID = 46010
+        private const val FGS_PI_REQ = 46011
+        private const val FGS_CHANNEL = "float_overlay"
+
+        /**
+         * 让悬浮窗服务显示出来 —— **所有** ACTION_SHOW 的调用点都应走这里。
+         *
+         * 为什么用 startForegroundService (Android 8+): 后台 startService 在"应用空闲 (uid idle)
+         * 或没有进程记录"时会被直接拒掉 —— startServiceLocked → getAppStartModeLOSP →
+         * appRestrictedInBackgroundLOSP 对 targetSdk O+ 直接返回 DELAYED_RIGID, 于是返回
+         * "?" 组件名, ContextImpl 抛 IllegalStateException。这正是悬浮窗"多数时候能出来、
+         * 偶尔静默不出来"的来源, 而且 SYSTEM_ALERT_WINDOW 并不能豁免这条路径。
+         * (进程还活着且不 idle 时普通 startService 是能过的, 所以问题是间歇性的。)
+         *
+         * 为什么我们有资格用: AOSP ActiveServices.shouldAllowFgsStartForegroundNoBindingCheckLocked
+         * 明确把系统悬浮窗权限列为后台启动前台服务的豁免理由 (REASON_SYSTEM_ALERT_WINDOW_PERMISSION,
+         * android14-release L7909-7914), 而本应用正是持有 SYSTEM_ALERT_WINDOW 且只在
+         * canDrawOverlays() 通过后才启动悬浮窗。
+         *
+         * 代价: startForegroundService 要求在 ~5s 内调用 startForeground(), 否则
+         * bringDownServiceLocked 会以 ForegroundServiceDidNotStartInTimeException 杀掉进程
+         * (android14-release L5600)。所以 FloatService 在 ACTION_SHOW 分支里**第一件事**就是
+         * startForeground (见 onStartCommand/promoteToForeground), 绝不拖延。
+         */
+        fun startShow(ctx: Context) {
+            val intent = Intent(ctx, FloatService::class.java).setAction(ACTION_SHOW)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(intent)
+            } else {
+                ctx.startService(intent)
+            }
+        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -113,6 +156,8 @@ class FloatService : Service() {
     private var touchMoveY = 0f
     /** 快速滑出: 大幅快速滑动后抬起不弹气泡 (防误触) */
     private var touchMovedFar = false
+    /** 已提升为前台服务 (避免重复 startForeground / 重复移除通知) */
+    private var isForeground = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -164,7 +209,32 @@ class FloatService : Service() {
                 else webView?.evaluateJavascript(
                     "window.__noriSetPaused && window.__noriSetPaused($paused)", null)
             }
-            else -> showFloat()
+            else -> {
+                // 显示悬浮窗 (B3)。顺序是**被 AOSP 强制**的, 不能调换:
+                //
+                //  ① 先 startForeground()。ACTION_SHOW 现在由 startForegroundService 拉起,
+                //     系统要求 ~5s 内进入前台, 否则 bringDownServiceLocked 会以
+                //     ForegroundServiceDidNotStartInTimeException **崩掉整个进程**
+                //     (android14-release ActiveServices.java L5600-5626)。所以第一件事就是它。
+                //  ② 再 addView。万一失败, 此时 r.fgRequired 已被 startForeground 清掉
+                //     (同文件 L2070-2078), stopSelf() 是安全的; 反过来先 addView 后
+                //     startForeground 的话, addView 失败时的 stopSelf() 正好落进上面那个
+                //     崩溃分支 —— 等于把"悬浮窗没显示"升级成"应用崩溃"。
+                //
+                // 这里 stopSelf() 之所以一定安全: setServiceForegroundInnerLocked 里可能抛异常的
+                // 只有两处发生在清 r.fgRequired 的 L2070 **之前** —— L2025 enforcePermission(
+                // FOREGROUND_SERVICE) 与 L2053 "请求类型必须是 manifest 类型的子集" 检查。
+                // 这两条由 AndroidManifest.xml 保证满足 (已声明 FOREGROUND_SERVICE 且
+                // requested type == manifest type), 而 verify-floatservice-fgs.mjs 会盯住它们。
+                // 其余失败 (L2098 app op / L2297 bg 限制 / L2335 类型权限) 都在 L2070 之后,
+                // 届时 fgRequired 已清、超时消息已撤, stopSelf() 不会触发崩溃判定。
+                promoteToForeground()
+                if (!showFloat()) {
+                    Log.w(TAG, "showFloat failed → stopSelf (不留空转的前台服务)")
+                    LifecycleLog.record(this, "floatShowFailed", "addView 失败, 服务已停止")
+                    stopSelf()
+                }
+            }
         }
         // 不自动重启: 用户从最近任务划掉应用时悬浮窗应随之消失
         return START_NOT_STICKY
@@ -179,13 +249,24 @@ class FloatService : Service() {
 
     override fun onDestroy() {
         removeFloat()
+        // 所有 stopSelf 路径都汇到这里 (ACTION_HIDE / onTaskRemoved / 没有窗口时的
+        // ACTION_SET_PAUSED / showFloat 失败): 统一解除前台状态, 保证常驻通知不会变成
+        // "通知还在, 悬浮窗早没了" 的残留。
+        demoteFromForeground()
         super.onDestroy()
     }
 
     // ---------------- 窗口 ----------------
 
-    private fun showFloat() {
-        if (floatView != null) return
+    /**
+     * 显示悬浮窗。返回是否**真的**加上了窗口 —— 调用方据此决定要不要留在前台。
+     *
+     * 改动 (B3): 以前这里失败只 `Log.e` 一句就返回, 服务继续空转, 用户什么也看不到。
+     * 现在把成功与否回传, 失败时由 onStartCommand 结束服务并解除前台状态, 不再留下
+     * "前台通知挂着、屏幕上却没有 Nori" 的假象。
+     */
+    private fun showFloat(): Boolean {
+        if (floatView != null) return true
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val view = buildFloatView()
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -208,13 +289,110 @@ class FloatService : Service() {
             x = prefs.getInt(KEY_X, 80)
             y = prefs.getInt(KEY_Y, 200)
         }
-        try {
+        // 说明: 前台状态已由 onStartCommand 在调用本方法**之前**建立 (顺序不可调换, 见那里的
+        // 注释)。这里只负责把窗口加上, 并把成败回传 —— 失败时调用方会 stopSelf(), 此时
+        // startForeground 已清掉 r.fgRequired, 所以结束服务不会触发系统的崩溃判定。
+        return try {
             wm?.addView(view, params)
             floatView = view
             floatParams = params
             Log.d(TAG, "float view added ${winW}x$winH @(${params.x},${params.y})")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "addView failed", e)
+            // 窗口没加上: 把刚创建的 WebView 一起释放, 否则它留着 JS 引擎和渲染循环
+            try { webView?.destroy() } catch (_: Exception) { /* 忽略 */ }
+            webView = null
+            false
+        }
+    }
+
+    /**
+     * 提升为前台服务 (B3)。必须在处理 ACTION_SHOW 时**最优先**调用。
+     *
+     * 为什么不能吞异常: 本服务是被 startForegroundService 拉起的, 若不进入前台, 系统会在
+     * ~5s 后主动杀掉进程 (ForegroundServiceDidNotStartInTimeException)。所以这里尽力成功 ——
+     * 显式类型失败就退回 "按 Manifest 类型" 的旧重载再试一次, 并把原因记进 lifecycle.log。
+     *
+     * 已知无法从应用侧察觉的例外: 若系统的 OP_START_FOREGROUND app-op 被设为 IGNORED,
+     * AOSP (ActiveServices L2091-2096) 会**静默忽略**这次 startForeground —— 既不抛异常也不
+     * 真正进入前台。此时下面的 isForeground 会偏乐观。该 app-op 一般不由用户直接控制,
+     * 概率很低; 这里选择不额外探测 (例如查 getActiveNotifications() 在时序上有竞态,
+     * 会造成假告警), 代价仅是 demoteFromForeground() 多调一次无害的 stopForeground()。
+     */
+    private fun promoteToForeground() {
+        if (isForeground) return
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
+                // IMPORTANCE_LOW: 常驻但不发声、不弹横幅 (悬浮窗只是待在桌面上)
+                nm.createNotificationChannel(
+                    NotificationChannel(FGS_CHANNEL, "悬浮窗", NotificationManager.IMPORTANCE_LOW)
+                )
+            }
+            val n = buildForegroundNotification()
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    // Android 14+: 显式给出与 Manifest 一致的类型
+                    startForeground(FGS_NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                } else {
+                    startForeground(FGS_NOTIF_ID, n)
+                }
+            } catch (e: Exception) {
+                // 典型原因: 类型与 Manifest 不一致 (MissingForegroundServiceTypeException)。
+                // 退回两参重载 = FOREGROUND_SERVICE_TYPE_MANIFEST, 直接用 Manifest 里声明的类型。
+                Log.w(TAG, "startForeground(typed) failed, retry with manifest type", e)
+                startForeground(FGS_NOTIF_ID, n)
+            }
+            isForeground = true
+        } catch (e: Exception) {
+            // 前台状态没建立起来 (权限被拒 / ROM 限制 / 渠道被禁)。这里**不** stopSelf, 原因是
+            // 分两种情形, 两种都不该结束服务:
+            //   · 异常发生在系统清 r.fgRequired (ActiveServices L2070) 之后 —— 绝大多数情况
+            //     (L2098 app op 被拒 / L2297 后台限制 / L2335 specialUse 权限被拒): 此时
+            //     前台契约已解除, 服务只是"没进前台"而不是"违约"。结束它等于把悬浮窗也一起
+            //     关掉, 用户什么都没了; 留着至少在 Android 13 及以下仍能正常显示。
+            //     (Android 14+ 系统会在稍后收走非前台服务的 OVERLAY 窗口, 这是系统的行为,
+            //     不是我们能绕过的 —— 用户据此能看到"通知没了"从而知道没进前台。)
+            //   · 异常发生在 L2070 之前 (只有两处: L2025 缺 FOREGROUND_SERVICE 权限、
+            //     L2053 请求类型不是 manifest 类型的子集): 那种情况下 fgRequired 仍为 true,
+            //     系统超时后**一定**会杀掉进程, 我们停不停都救不回来。这两处由
+            //     AndroidManifest.xml 的声明保证不成立, 且 verify-floatservice-fgs.mjs 会盯住。
+            // 无论哪种, 都把原因落盘 —— 这是"悬浮窗静默不出现"唯一可查的证据。
+            Log.e(TAG, "startForeground failed", e)
+            LifecycleLog.record(this, "floatForegroundFailed", "${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /** 常驻通知: 点一下回到主界面 */
+    private fun buildForegroundNotification(): Notification {
+        val launch = packageManager.getLaunchIntentForPackage(packageName)
+        val pi = launch?.let {
+            PendingIntent.getActivity(
+                this, FGS_PI_REQ, it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+        val b = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            Notification.Builder(this, FGS_CHANNEL)
+        else
+            @Suppress("DEPRECATION") Notification.Builder(this)
+        b.setSmallIcon(R.drawable.ic_stat_nori)
+            .setContentTitle("NoriDroid")
+            .setContentText("悬浮窗运行中")
+            .setOngoing(true)
+        pi?.let { b.setContentIntent(it) }
+        return b.build()
+    }
+
+    /** 退出前台状态 (停服务前调用; 通知随之消失) */
+    private fun demoteFromForeground() {
+        if (!isForeground) return
+        isForeground = false
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (e: Exception) {
+            Log.e(TAG, "stopForeground failed", e)
         }
     }
 
@@ -270,7 +448,7 @@ class FloatService : Service() {
         settings.setAllowFileAccessFromFileURLs(true)
         settings.setAllowUniversalAccessFromFileURLs(true)
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         settings.setSupportZoom(false)
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
@@ -285,11 +463,33 @@ class FloatService : Service() {
         chatBridge.attach(wv)
 
         wv.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val uri = request?.url ?: return true
+                if (!WebAssets.isAllowedUrl(uri.toString())) {
+                    view?.stopLoading()
+                    Log.w(TAG, "blocked navigation to $uri")
+                    return true
+                }
+                return false
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                if (url != null && !WebAssets.isAllowedUrl(url)) {
+                    view?.stopLoading()
+                    Log.w(TAG, "blocked page start to $url")
+                    return
+                }
+                super.onPageStarted(view, url, favicon)
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url?.toString() ?: return null
+                if (!WebAssets.isAllowedUrl(url) && !url.startsWith("data:") && !url.startsWith("blob:")) {
+                    return WebAssets.blockedResponse()
+                }
                 serveModelFile(url, modelBridge)?.let { return it }
                 return WebAssets.serve(assets, url)
             }

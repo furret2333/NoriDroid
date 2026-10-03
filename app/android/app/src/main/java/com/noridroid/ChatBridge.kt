@@ -11,6 +11,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.util.Log
 import android.webkit.WebView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,11 +22,21 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.KeyStore
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.ZipInputStream
+import android.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 
 
 class ChatBridge(private val appContext: Context) {
@@ -33,6 +44,10 @@ class ChatBridge(private val appContext: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
     private val ioExecutor: ExecutorService = Executors.newCachedThreadPool()
+    private val securePrefs by lazy {
+        appContext.getSharedPreferences("secure_settings", Context.MODE_PRIVATE)
+    }
+    private val chatConnection = java.util.concurrent.atomic.AtomicReference<HttpURLConnection?>(null)
 
     private val cr get() = appContext.contentResolver
 
@@ -167,12 +182,28 @@ class ChatBridge(private val appContext: Context) {
     private fun writeFileDirect(n: String, content: String): String = runCatching {
         val dir = legacyDir()
         if (!dir.isDirectory) dir.mkdirs()
-        // 先写临时文件再改名: 中途被杀不会留下半截 JSON (MediaStore 那条路是覆盖写, 没有这个保护)
+        // Same-directory replace keeps the previous file until the replacement is ready.
         val tmp = File(dir, "$n.tmp")
         tmp.writeText(content)
         val dst = File(dir, n)
-        if (dst.exists()) dst.delete()
-        if (!tmp.renameTo(dst)) { tmp.copyTo(dst, overwrite = true); tmp.delete() }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching {
+                Files.move(
+                    tmp.toPath(), dst.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE,
+                )
+            }.getOrElse {
+                runCatching {
+                    Files.move(tmp.toPath(), dst.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }.getOrElse {
+                    if (!tmp.renameTo(dst)) tmp.copyTo(dst, overwrite = true).also { tmp.delete() }
+                }
+            }
+        } else if (!tmp.renameTo(dst)) {
+            tmp.copyTo(dst, overwrite = true)
+            tmp.delete()
+        }
         "ok"
     }.getOrElse { "err:${it.message}" }
 
@@ -255,23 +286,99 @@ class ChatBridge(private val appContext: Context) {
         return null
     }
 
+    /** API keys live in the app-private Keystore-backed preferences, never in Downloads. */
+    private fun settingsSecretKey(): SecretKey {
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    private fun encryptSetting(value: String): String {
+        if (value.isEmpty()) return ""
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, settingsSecretKey())
+        val iv = cipher.iv
+        val body = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(iv + body, Base64.NO_WRAP)
+    }
+
+    private fun decryptSetting(encoded: String): String = runCatching {
+        val packed = Base64.decode(encoded, Base64.NO_WRAP)
+        if (packed.size <= 12) return@runCatching ""
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, settingsSecretKey(), GCMParameterSpec(128, packed.copyOfRange(0, 12)))
+        String(cipher.doFinal(packed.copyOfRange(12, packed.size)), Charsets.UTF_8)
+    }.getOrDefault("")
+
+    private fun storeSettingsSecrets(obj: JSONObject) {
+        val editor = securePrefs.edit()
+        for (key in SENSITIVE_SETTINGS) {
+            if (!obj.has(key)) continue
+            val value = obj.opt(key).takeUnless { it == JSONObject.NULL }?.toString().orEmpty()
+            if (value.isBlank()) editor.remove(key) else editor.putString(key, encryptSetting(value))
+            obj.remove(key)
+        }
+        editor.apply()
+    }
+
+    private fun secureSettingsForWrite(content: String): String {
+        val obj = JSONObject(content)
+        storeSettingsSecrets(obj)
+        return obj.toString()
+    }
+
+    private fun secureSettingsForRead(content: String): String {
+        if (content.isBlank()) return content
+        return runCatching {
+            val obj = JSONObject(content)
+            val hadSecrets = SENSITIVE_SETTINGS.any { obj.has(it) }
+            if (hadSecrets) {
+                // Migrate settings written by v1, then remove the public copy.
+                storeSettingsSecrets(obj)
+                writeFile(SETTINGS_FILE, obj.toString())
+            }
+            for (key in SENSITIVE_SETTINGS) {
+                val encrypted = securePrefs.getString(key, null)
+                val value = encrypted?.let(::decryptSetting).orEmpty()
+                if (value.isNotEmpty()) obj.put(key, value)
+            }
+            obj.toString()
+        }.getOrElse {
+            // Never fall back to returning a public copy of a key when Keystore access fails.
+            runCatching {
+                JSONObject(content).apply { SENSITIVE_SETTINGS.forEach { remove(it) } }.toString()
+            }.getOrDefault("")
+        }
+    }
+
     @android.webkit.JavascriptInterface
     fun readFile(name: String): String {
         val n = safeName(name)
-        return runCatching {
+        val raw = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 // ⓪ 拿到「所有文件访问权限」→ 直接读文件路径。
                 //    这条路绕开 MediaStore 的所有者隔离, 是**卸载重装后把旧数据读回来**的唯一办法
                 //    (实机自检: 文件在磁盘上, 但 MediaStore 看不到、无权限时也读不到)。
                 if (useDirectFile()) {
                     val viaFile = readFileDirect(n)
-                    if (viaFile.isNotEmpty()) return viaFile
+                    if (viaFile.isNotEmpty()) return@runCatching viaFile
                 }
                 // ① 正常路径: 本应用自己的 MediaStore 行
                 val uri = findOwnFileUri(n)
                 if (uri != null) {
                     val txt = cr.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
-                    if (txt.isNotEmpty()) return txt
+                    if (txt.isNotEmpty()) return@runCatching txt
                 }
                 // ② 兜底: MediaStore 看不到 (卸载重装/别的包名写过/被系统清掉了行) 时直读公共目录
                 //    (无「所有文件访问权限」时这一步通常会被系统挡回空串 —— 自检里会如实显示)
@@ -286,6 +393,7 @@ class ChatBridge(private val appContext: Context) {
                 if (f.isFile) f.readText() else ""
             }
         }.getOrElse { "" }
+        return if (n == SETTINGS_FILE) secureSettingsForRead(raw) else raw
     }
 
     /** 退出应用时是否应启动悬浮窗 (原生开关标记 或 settings.json 的 floatEnabled) */
@@ -307,11 +415,12 @@ class ChatBridge(private val appContext: Context) {
     fun writeFile(name: String, content: String): String {
         val n = safeName(name)
         return runCatching {
+            val storedContent = if (n == SETTINGS_FILE) secureSettingsForWrite(content) else content
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val bytes = content.toByteArray(Charsets.UTF_8)
+                val bytes = storedContent.toByteArray(Charsets.UTF_8)
                 // ⓪ 拿到「所有文件访问权限」→ 直接写文件路径 (临时文件 + 改名, 防半截 JSON)。
                 //    读也走直读 (见 readFile), 两边同一份文件, 不会再出现"MediaStore 与磁盘两份副本"。
-                if (useDirectFile()) return writeFileDirect(n, content)
+                if (useDirectFile()) return writeFileDirect(n, storedContent)
                 // 1) 本应用目录里已有同名文件 → **原地覆盖**
                 //    不再"删了重建": 那既可能误删别人的同名行(抛 SecurityException → 表现为"保存失败"),
                 //    也会在删不掉时 insert 出 `xxx (1).json` 这种应用永远读不到的垃圾副本。
@@ -357,7 +466,7 @@ class ChatBridge(private val appContext: Context) {
             } else {
                 if (!isStorageReady()) return "err:perm"
                 val dir = legacyDir(); dir.mkdirs()
-                File(dir, n).writeText(content)
+                File(dir, n).writeText(storedContent)
                 "ok"
             }
         }.getOrElse { "err:${it.message}" }
@@ -422,7 +531,9 @@ class ChatBridge(private val appContext: Context) {
     )
 
     private fun safeName(name: String): String =
-        name.replace(Regex("[^A-Za-z0-9._-]"), "_").takeIf { it.isNotBlank() } ?: "data"
+        name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .takeIf { it.isNotBlank() && it != "." && it != ".." }
+            ?: "data"
 
     
 
@@ -447,6 +558,7 @@ class ChatBridge(private val appContext: Context) {
     @android.webkit.JavascriptInterface
     fun chatStream(baseUrl: String, apiKey: String, model: String, messagesJson: String, thinkingMode: String) {
         val token = chatToken.incrementAndGet()
+        chatConnection.getAndSet(null)?.disconnect()
         ioExecutor.execute {
             chatStreamSync(token, baseUrl, apiKey, model, messagesJson, thinkingMode)
         }
@@ -456,6 +568,8 @@ class ChatBridge(private val appContext: Context) {
     @android.webkit.JavascriptInterface
     fun chatStop() {
         chatToken.incrementAndGet()
+        chatConnection.getAndSet(null)?.disconnect()
+        postChatNow("__noriChatError", JSONObject().put("message", "已停止").toString())
     }
 
     
@@ -468,8 +582,18 @@ class ChatBridge(private val appContext: Context) {
         }
     }
 
+    private fun postChatNow(fn: String, json: String) {
+        mainHandler.post {
+            runCatching {
+                webView?.evaluateJavascript("window.$fn && window.$fn(${JSONObject.quote(json)})", null)
+            }
+        }
+    }
+
     
     private fun chatStreamSync(token: Long, baseUrl: String, apiKey: String, model: String, messagesJson: String, thinkingMode: String) {
+        var conn: HttpURLConnection? = null
+        var reader: BufferedReader? = null
         try {
             val base = normalizeBase(baseUrl)
             val req = JSONObject()
@@ -479,15 +603,20 @@ class ChatBridge(private val appContext: Context) {
             // DeepSeek 思考模式: 前端已按"端点含 deepseek"算好三态 (见 web 侧 resolveThinking)。
             // 「关」也要显式传 disabled —— DeepSeek 的默认是**打开**的, 不传等于不生效。
             putThinking(req, thinkingMode)
-            val conn = open(base + "/chat/completions", "POST", apiKey, "application/json", req.toString())
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                val msg = runCatching { conn.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) } }.getOrElse { "" }
-                postChat("__noriChatError", JSONObject().put("message", "HTTP $code ${msg.orEmpty().take(300)}").toString(), token)
-                conn.disconnect()
+            val active = open(base + "/chat/completions", "POST", apiKey, "application/json", req.toString())
+            conn = active
+            if (token != chatToken.get()) {
+                active.disconnect()
                 return
             }
-            val reader = BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8))
+            chatConnection.set(active)
+            val code = active.responseCode
+            if (code !in 200..299) {
+                val msg = runCatching { active.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) } }.getOrElse { "" }
+                postChat("__noriChatError", JSONObject().put("message", "HTTP $code ${msg.orEmpty().take(300)}").toString(), token)
+                return
+            }
+            reader = BufferedReader(InputStreamReader(active.inputStream, Charsets.UTF_8))
             var sse = false
             var first = true
             val full = StringBuilder()
@@ -550,6 +679,12 @@ class ChatBridge(private val appContext: Context) {
         } catch (e: Exception) {
             if (token == chatToken.get()) {
                 postChat("__noriChatError", JSONObject().put("message", e.message ?: "流式请求失败").toString(), token)
+            }
+        } finally {
+            runCatching { reader?.close() }
+            conn?.let {
+                chatConnection.compareAndSet(it, null)
+                runCatching { it.disconnect() }
             }
         }
     }
@@ -905,26 +1040,45 @@ class ChatBridge(private val appContext: Context) {
         }
     }
 
-    /** 启动悬浮窗服务 (应用上下文: 应用退出后悬浮窗内也可控制) */
+    /**
+     * 启动悬浮窗服务 (应用上下文: 应用退出后悬浮窗内也可控制)。
+     *
+     * 用 FloatService.startShow() 而非裸 startService: 后者在应用处于"空闲/待机"状态时会被
+     * 系统拒绝并抛 IllegalStateException, 而这正是"悬浮窗偶尔静默不出现"的原因 (B3)。
+     * 详见 FloatService.startShow 的注释。
+     */
     @android.webkit.JavascriptInterface
     fun showFloat() {
         mainHandler.post {
             try {
                 if (!android.provider.Settings.canDrawOverlays(appContext)) return@post
-                val intent = Intent(appContext, FloatService::class.java).setAction(FloatService.ACTION_SHOW)
-                appContext.startService(intent)
-            } catch (_: Exception) { /* 忽略 */ }
+                FloatService.startShow(appContext)
+            } catch (e: Exception) {
+                // 不吞: 悬浮窗起不来时留下可查的证据, 而不是"点了没反应"
+                Log.w(TAG, "showFloat failed", e)
+                LifecycleLog.record(appContext, "floatStartFailed", "showFloat: ${e.javaClass.simpleName}: ${e.message}")
+            }
         }
     }
 
-    /** 关闭悬浮窗服务 */
+    /**
+     * 关闭悬浮窗服务。
+     *
+     * 这里保持普通 startService (而非 startForegroundService): ACTION_HIDE 会 stopSelf(),
+     * 而 startForegroundService 拉起的服务若在进入前台前结束, 系统会判定
+     * "Context.startForegroundService() did not then call Service.startForeground()" 并杀掉进程
+     * (AOSP ActiveServices.bringDownServiceLocked)。服务已在运行时 startRequested 已为 true,
+     * 不受后台启动限制, 普通 startService 足够。
+     */
     @android.webkit.JavascriptInterface
     fun hideFloat() {
         mainHandler.post {
             try {
                 val intent = Intent(appContext, FloatService::class.java).setAction(FloatService.ACTION_HIDE)
                 appContext.startService(intent)
-            } catch (_: Exception) { /* 忽略 */ }
+            } catch (e: Exception) {
+                Log.w(TAG, "hideFloat failed", e)
+            }
         }
     }
 
@@ -971,7 +1125,10 @@ class ChatBridge(private val appContext: Context) {
                     .putExtra("emotion", emotion)
                     .putExtra("motion", motion)
                 appContext.startService(intent)
-            } catch (_: Exception) { /* 忽略 */ }
+            } catch (e: Exception) {
+                // 表演指令失败不影响主流程; 记一行日志, 免得"点了没反应"无从查起
+                Log.w(TAG, "playFloatMarker failed", e)
+            }
         }
     }
 
@@ -984,7 +1141,9 @@ class ChatBridge(private val appContext: Context) {
                     .setAction(FloatService.ACTION_PLAY_BY_TEXT)
                     .putExtra("text", text)
                 appContext.startService(intent)
-            } catch (_: Exception) { /* 忽略 */ }
+            } catch (e: Exception) {
+                Log.w(TAG, "playFloatByText failed", e)
+            }
         }
     }
 
@@ -997,7 +1156,9 @@ class ChatBridge(private val appContext: Context) {
                     .setAction(FloatService.ACTION_RENDER_SCALE)
                     .putExtra("scale", scale)
                 appContext.startService(intent)
-            } catch (_: Exception) { /* 忽略 */ }
+            } catch (e: Exception) {
+                Log.w(TAG, "setFloatRenderScale failed", e)
+            }
         }
     }
 
@@ -1186,6 +1347,11 @@ class ChatBridge(private val appContext: Context) {
         b = b.trimEnd('/')
         if (b.endsWith("/chat/completions")) b = b.removeSuffix("/chat/completions")
         if (!b.startsWith("http")) b = "https://$b"
+        val uri = Uri.parse(b)
+        val scheme = uri.scheme?.lowercase()
+        val host = uri.host?.lowercase()
+        if (scheme != "https") throw IllegalArgumentException("接口地址必须使用 HTTPS")
+        if (host.isNullOrBlank()) throw IllegalArgumentException("接口地址无效")
         return b
     }
 
@@ -1911,7 +2077,11 @@ class ChatBridge(private val appContext: Context) {
     }
 
     companion object {
+        private const val TAG = "ChatBridge"
         private const val MEMORY_FILE = "memory.txt"
+        private const val SETTINGS_FILE = "settings.json"
+        private const val KEY_ALIAS = "nori_settings_key"
+        private val SENSITIVE_SETTINGS = arrayOf("apiKey", "ttsApiKey", "cosyApiKey")
         private const val REQ_PICK_VOICE = 2001
         /** 选文本人设的请求码 (0x9A72 = 39538, 与上面的音频选择器离得够远, 不会撞) */
         private const val REQ_PICK_PERSONA = 0x9A72

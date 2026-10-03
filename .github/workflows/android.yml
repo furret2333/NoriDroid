@@ -71,8 +71,21 @@ jobs:
           SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           [ -x "$SM" ] || SM=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
           echo "sdkmanager: $SM"
+          if [ -z "$SM" ] || [ ! -x "$SM" ]; then
+            echo "sdkmanager was not found under $SDK" >&2
+            exit 1
+          fi
           yes | "$SM" --licenses > /dev/null 2>&1 || true
           "$SM" --install "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+
+      - name: Check Live2D Core input
+        working-directory: app/android/web-src
+        run: |
+          if [ -f public/live2dcubismcore.min.js ]; then
+            echo "Live2D Cubism Core supplied by the build environment"
+          else
+            echo "Live2D Cubism Core is absent; the app will use its documented runtime fallback"
+          fi
 
       # ---------- 前端构建 ----------
       # ⚠ 必须放在 gradle 之前：app/src/main/assets/web/ 是 gitignore 的产物目录，
@@ -82,7 +95,7 @@ jobs:
         run: pnpm build
 
       # ---------- 验证（与本地同一套脚本，纯 Node，约 1 分钟）----------
-      - name: 快速门禁（run-tests 502 条 + 纯 Node 探针）
+      - name: 快速门禁（run-tests 536+ 条 + 纯 Node 探针）
         if: ${{ !inputs.skip_tests }}
         working-directory: app/android/web-src
         run: node tmp-memcheck/run-all-gates.mjs --fast

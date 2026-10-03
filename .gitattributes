@@ -1,0 +1,22 @@
+# 换行符归一化 (CI 跑在 ubuntu 上)
+#
+# 为什么需要: gradlew 是 shell 脚本, CI 会 chmod +x 后直接执行。
+# 若它被存成 CRLF, Linux 上会报 "bad interpreter: /bin/sh^M"。
+# 当前 gradlew 恰好是纯 LF, 但没有 .gitattributes 兜底 —— 在 Windows 上编辑一次就可能变 CRLF。
+#
+# 只强制真正需要 LF 的脚本类文件; 其余交给 git 默认行为, 避免大规模改动。
+
+gradlew   text eol=lf
+*.sh      text eol=lf
+
+# 二进制文件: 不要做换行符转换, 也不要参与 diff
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.icns binary
+*.jar  binary
+*.wav  binary
+*.apk  binary
+*.jks  binary
+*.keystore binary

@@ -1,10 +1,22 @@
-blank_issues_enabled: false
+# 反馈入口 —— 2026-10-02 修正
+#
+# 原内容是从上游桌面项目（erhiolab/DeepEr）整目录照搬过来的：两条 contact_links 都指向
+# **上游仓库**的 discussions。用户点「提问」会被送到别人的仓库；而且本仓库的 Discussions
+# 是关闭的（Settings → Features → Discussions 未开），往自己这边指也是 404。
+#
+# 所以这里只列本仓库真实可用的入口。上游链接不必放在这里 —— 与上游的关系已经写在
+# README 的「许可与衍生声明」一节。
+#
+# ⚠ 不要再把 github.com/erhiolab/DeepEr/discussions/... 加回来。
+
+# Discussions 没开 ⇒ 必须留一条「非 bug、非功能请求」的路，否则用户有问题无处可提
+blank_issues_enabled: true
 
 contact_links:
   - name: ❓ 提问与求助 / Ask a Question
-    url: https://github.com/erhiolab/DeepEr/discussions/categories/%E9%97%AE%E7%AD%94-q-a
-    about: 如果你只是有疑问, 请在这里发帖, 而不是提 Issue.  / If you just have a question, please post here instead of opening an issue.
+    url: "https://github.com/furret2333/NoriDroid/issues/new?labels=question&title=%5BQuestion%5D%3A%20"
+    about: 只是想问个问题（既不是 bug 也不是功能建议）→ 开一条带 question 标签的 issue。/ Just a question? Open an issue with the question label.
 
-  - name: 💡 讨论新想法 / Discuss Ideas
-    url: https://github.com/erhiolab/DeepEr/discussions/categories/%E6%83%B3%E6%B3%95-ideas
-    about: 如果你的想法还不成熟, 想先和大家讨论, 请来这里.  / If your idea is not fully formed and you want to discuss it first, come here.
+  - name: 💬 反馈群 / Community & Feedback
+    url: "https://github.com/furret2333/NoriDroid/blob/main/README.md#反馈"
+    about: QQ 群 471419518（inori 一群）、1041616195（反馈群）—— 见 README 的「反馈」一节。/ See the 「反馈」 section in README.

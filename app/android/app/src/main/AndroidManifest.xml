@@ -29,6 +29,22 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- FloatService is now a FOREGROUND service (2026-10-03, fixes B3).
+         Why: as a plain background service it (a) failed silently when background
+         start was restricted, so the overlay never appeared, and (b) on Android 14+
+         the TYPE_APPLICATION_OVERLAY window of a non-foreground service is removed
+         after a short while, so Nori vanished on its own.
+         Android 14 (targetSdk 34) requires foregroundServiceType plus the matching
+         permission, otherwise startForeground throws MissingForegroundServiceTypeException
+         or SecurityException.
+         Note: this app holds SYSTEM_ALERT_WINDOW and only starts the overlay after
+         canDrawOverlays() passes; AOSP ActiveServices.shouldAllowFgsStartForegroundNoBindingCheckLocked
+         explicitly lists the system alert window permission as a background-FGS-start
+         exemption (REASON_SYSTEM_ALERT_WINDOW_PERMISSION), so promoting to foreground
+         from the background is permitted. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
     <application
         android:allowBackup="true"
         android:hasFragileUserData="true"
@@ -36,17 +52,17 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.DeepEr"
+        android:theme="@style/Theme.NoriDroid"
         android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|density|uiMode"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|density|uiMode|fontScale|locale|layoutDirection|colorMode"
             android:screenOrientation="fullSensor"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.DeepEr.Fullscreen">
+            android:theme="@style/Theme.NoriDroid.Fullscreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -56,7 +72,14 @@
         <!-- 閫€鍑哄悗鎮诞绐楁湇鍔?-->
         <service
             android:name=".FloatService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <!-- Android 14 requires the specialUse type to declare what the use case
+                 actually is; the value is shown during Play review. -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="desktop_pet_overlay" />
+        </service>
 
         <!-- 鐣寗閽熷厹搴曢椆閽? 杩涚▼琚潃鏃惰ˉ鍙戝畬鎴愰€氱煡 -->
         <receiver
@@ -70,7 +93,7 @@
             android:excludeFromRecents="true"
             android:taskAffinity=""
             android:launchMode="singleInstance"
-            android:theme="@style/Theme.DeepEr.FloatBubble"
+            android:theme="@style/Theme.NoriDroid.FloatBubble"
             android:windowSoftInputMode="adjustResize" />
 
     </application>

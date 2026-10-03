@@ -22,6 +22,10 @@ app/android/web-src/tmp-memcheck/_*.log
 app/android/web-src/tmp-memcheck/_*.txt
 app/android/web-src/tmp-memcheck/_*.png
 app/android/web-src/tmp-memcheck/.App.vue.*
+app/android/web-src/tmp-memcheck/_bundle/
+app/android/web-src/tmp-memcheck/_mock/
+*.hprof
+*.tsbuildinfo
 
 # ---- 系统垃圾 ----
 Thumbs.db

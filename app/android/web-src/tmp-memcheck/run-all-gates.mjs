@@ -34,6 +34,8 @@ const SUITES = [
 	{name: "run-marker-tests", kind: "unit"},
 	{name: "run-tts-tests", kind: "unit"},
 	{name: "run-chat-tests", kind: "unit"},
+	{name: "verify-habit-peak", kind: "unit"},        // B1: habitProfile().peakHour 必须落在真实高峰桶 (修前恒为 -1)
+	{name: "verify-floatservice-fgs", kind: "unit"},  // B3: 悬浮窗服务的前台服务契约 (manifest 类型/权限 + startForeground 先于 addView + 通知剪影图标)
 	{name: "probe-trim-skip", kind: "probe"},
 	{name: "probe-organize-cadence", kind: "probe"},
 	{name: "probe-mem-collapse-safety", kind: "probe"},

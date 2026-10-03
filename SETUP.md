@@ -19,7 +19,7 @@ App **不再内置**这些东西：
 
 | 内容 | 现在怎么来 | 存在哪 |
 |---|---|---|
-| **人设提示词** | 设置 → 最上面「人设文案（提示词）」→ 导入自己的 `.md` / `.txt` | 应用私有目录 `persona.md` |
+| **人设提示词** | 设置 → 最上面「人设文案（提示词）」→ 导入自己的 `.md` / `.txt` | `Download/NoriDroid/persona.md` |
 | **音效**（按键音 + 番茄钟 4 声） | 设置 →「下载音效」按钮 | 应用私有目录 |
 | **一键克隆的参考音频** | 一键克隆时自动联网下载 | 应用私有目录（有缓存） |
 
@@ -43,4 +43,7 @@ cd app/android/web-src
 node tmp-memcheck/run-tests.mjs                  # 单元测试
 node tmp-memcheck/run-all-gates.mjs --fast       # 快速档（不开浏览器）
 node tmp-memcheck/run-all-gates.mjs              # 全套（需要 Edge，约 18 分钟）
+
 ```
+
+完整门禁需要 Windows 上的 Edge 与 harness；没有 Edge 时使用 `--fast` 只运行 Node 门禁。API keys are kept in the Android Keystore-backed private store; other user data remains in `Download/NoriDroid/`.

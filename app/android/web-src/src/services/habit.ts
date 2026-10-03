@@ -108,7 +108,9 @@ export const habitProfile = (): HabitProfile | null => {
 	const max = Math.max(...buckets)
 	if (max <= 0) return null
 	const prob = buckets.map(b => b / max)
-	const peakBucket = prob.indexOf(max)
+	// 在**原始计数桶**上取峰值的下标: prob 已归一化到 ≤1, 拿它 indexOf(原始 max) 永远得 -1
+	// (除非峰值恰好等于 1), peakHour 会变成负数 → habitLateToday 近乎每天都判"迟到"。
+	const peakBucket = buckets.indexOf(max)
 	return {
 		daysOfData: days.length,
 		prob,

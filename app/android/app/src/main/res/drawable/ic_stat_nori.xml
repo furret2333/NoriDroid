@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  通知栏小图标 (Android 规范: 24dp / 纯白剪影 / 透明底)。
+
+  系统只取本图的 alpha 通道并统一染成白色, 所以:
+    · fillColor 必须是纯白 —— 若填彩色, 颜色会被丢弃, 只剩不透明区域变成白块;
+    · 背景必须透明 —— 若整幅不透明, 状态栏就是一个白色实心方块。
+  因此这里用「耳朵 + 头」的实心轮廓, 不要用启动图标(R.mipmap.ic_launcher, 彩色不透明)。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+
+    <!-- 左耳 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,8 L6.6,2.4 L10.2,7.4 Z" />
+
+    <!-- 右耳 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,8 L17.4,2.4 L13.8,7.4 Z" />
+
+    <!-- 头部 (实心圆) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,7.6 a7,7 0 1,0 0.01,0 Z" />
+
+</vector>
