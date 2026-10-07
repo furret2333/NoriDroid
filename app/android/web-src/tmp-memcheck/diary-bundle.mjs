@@ -1,4 +1,4 @@
-// src/services/chat/index.ts
+// ../src/services/chat/index.ts
 var bridge = () => {
   if (!window.NoriChat) throw new Error("NoriChat \u672A\u6CE8\u5165");
   return window.NoriChat;
@@ -63,7 +63,7 @@ var loadChat = () => {
 var chatQueue = Promise.resolve();
 var streamQueue = Promise.resolve();
 
-// src/services/nori-diary.ts
+// ../src/services/nori-diary.ts
 var FILE = "nori-diary.json";
 var FILE_BAK = "nori-diary.json.bak";
 var EMPTY = { entries: [] };

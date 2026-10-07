@@ -626,7 +626,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		check("时间块: 含时区偏移 UTC±hh:mm", /UTC[+-]\d{2}:\d{2}/.test(block), block.slice(0, 90))
 		check("时间块: 同一时刻输出稳定（纯函数）", chatSvc.localTimeBlock(t) === block)
 		check("时间块: 不同时刻输出不同（不是常量）", chatSvc.localTimeBlock(new Date(2026, 9, 1, 9, 13)) !== block)
-		check("时间块: 不传参数时用「现在」（格式仍对）", /^【当前时间】\d{4}-\d{2}-\d{2} 星期./.test(chatSvc.localTimeBlock()))
+		check("时间块: 不传参数时用「现在」（格式仍对）", /^【当前时间】\d{4}-\d{2}-\d{2} \d{2}:\d{2}（UTC[+-]\d{2}:\d{2}） 星期./.test(chatSvc.localTimeBlock()))
 		check("默认设置: timeAware 默认开", chatSvc.DEFAULT_SETTINGS.timeAware === true, String(chatSvc.DEFAULT_SETTINGS.timeAware))
 
 	}
@@ -816,7 +816,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		const s = ps.summarize(days, 7, NOW)
 		check("T20: 今日总分钟 = focusMin + countUpMin", s.todayMin === 120, `got=${s.todayMin}`)
 		check("T20: 完成率 = done/(done+abort)", Math.abs(s.todayRate - 4 / 5) < 1e-9, `got=${s.todayRate}`)
-		check("T20: 平均每段 = focusMin/done (四舍五入)", s.todayAvgMin === 25, `got=${s.todayAvgMin}`)
+		check("T20: 含中断的旧数据不编造完成段平均值", s.todayAvgMin === -1, `got=${s.todayAvgMin}`)
 		check("T20: 近 7 天窗口外的数据不计入", s.rangeMin === 120 + 50 + 150, `got=${s.rangeMin}`)
 		check("T20: 近 7 天最佳单日", s.rangeBest === 150, `got=${s.rangeBest}`)
 		check("T20: 近 7 天完成总数", s.rangeDone === 4 + 2 + 6, `got=${s.rangeDone}`)
@@ -1020,6 +1020,32 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		check("T21: 近 30 天含 20 天前", ps.summarize(days, 30, NOW).rangeMin === 30)
 		check("T21: 近 365 天含 200 天前", ps.summarize(days, 365, NOW).rangeMin === 60)
 	}
+
+	/* 精确时长、完成平均与本地日期边界 */
+	{
+		const now = new Date(2026, 9, 8, 0, 1)
+		const days = {
+			"2026-10-07": day({focusMin: 45, focusMs: 2700000, done: 1, abort: 1, completedFocusMin: 25, completedCount: 1}),
+			"2026-10-08": day({countUpMin: 0, countUpMs: 60000}),
+		}
+		const previous = ps.summarize(days, 7, new Date(2026, 9, 7, 23, 59))
+		const current = ps.summarize(days, 7, now)
+		check("T21: 完成平均排除中断时长", previous.todayAvgMin === 25)
+		check("T21: 跨午夜今日归新日期且保留累计范围", current.todayMin === 1 && current.todayDone === 0 && current.rangeMin === 46)
+		check("T21: 精确毫秒优先于旧分钟字段", ps.dayMinutes(days["2026-10-08"]) === 1)
+		const originalTZ = process.env.TZ
+		try {
+			process.env.TZ = "America/New_York"
+			const dstNow = new Date(2026, 2, 9, 0, 30)
+			const dstDays = {"2026-03-07": day({focusMin: 10}), "2026-03-08": day({focusMin: 20}), "2026-03-09": day({focusMin: 30})}
+			check("T21: 夏令时按日历取范围，不漏掉23小时的日期", ps.summarize(dstDays, 3, dstNow).rangeMin === 60 && ps.computeStreak(dstDays, dstNow) === 3)
+			const cells = ps.buildHeatmap(dstDays, 2, dstNow).cells.filter(Boolean)
+			check("T21: 夏令时热力图日期不重复", new Set(cells.map(c => c.date)).size === cells.length && cells.some(c => c.date === "2026-03-08"))
+		} finally {
+			if (originalTZ === undefined) delete process.env.TZ
+			else process.env.TZ = originalTZ
+		}
+	}
 }
 
 /* ============ T22 历史总结: 预算注入 / 软截断 / 归档折叠 ============ */
@@ -1063,6 +1089,27 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 			core.buildSummaryBlock(huge, {budget: 100}).includes("X"))
 	}
 
+	/* --- 时间标记只使用原始对话时间，兼容旧摘要 --- */
+	{
+		const fromTs = new Date(2026, 9, 6, 23, 0).getTime()
+		const toTs = new Date(2026, 9, 7, 0, 10).getTime()
+		const known = core.makeSummary("昨晚聊过睡觉。", 2, "known", {fromTs, toTs})
+		const old = core.makeSummary("以前的对话。", 2, "sum-2-26")
+		const marked = core.buildSummaryBlock([known, old], {timeAware: true})
+		check("T22: 摘要注入保留真实原对话时间范围", marked.includes("2026-10-06 23:00") && marked.includes("2026-10-07 00:10") && marked.includes("原对话发送时间"))
+		check("T22: 旧下标指纹不被当作日期、createdAt 不冒充对话时间", marked.includes("【原对话时间未记录】\n以前的对话。"))
+		check("T22: 关闭时间选项保留原摘要正文", !core.buildSummaryBlock([known, old]).includes("原对话发送时间"))
+		check("T22: 摘要标签不写回原摘要正文", known.content === "昨晚聊过睡觉。" && old.content === "以前的对话。")
+		const meta = core.foldDroppedSummaries([known, {...known, id: "known2", fromTs: toTs, toTs: toTs + 60000}])
+		check("T22: 归档传播完整的原对话范围", meta.fromTs === fromTs && meta.toTs === toTs + 60000)
+		const partial = core.foldDroppedSummaries([known, old])
+		check("T22: 归档中有未知时间时不伪造完整范围", partial.fromTs === undefined && core.buildSummaryBlock([], {metas: [partial], timeAware: true}).includes("原对话时间未记录"))
+		const invalid = {...known, fromTs: NaN, toTs: Infinity}
+		check("T22: 无效摘要时间安全降级", core.buildSummaryBlock([invalid], {timeAware: true}).includes("原对话时间未记录"))
+		const prompt = core.buildSummaryPrompt([{role: "user", content: "明天要出门", ts: fromTs}])
+		check("T22: 摘要输入保留发送时间并禁止用它猜测事件时间", prompt.includes("2026-10-06 23:00") && prompt.includes("不代表文中事件发生时间"))
+	}
+
 	/* --- ③ foldDroppedSummaries: 折叠归档 --- */
 	{
 		const mk = (id, content, createdAt) => ({id, content, createdAt, msgCount: 5, tokenCount: 1})
@@ -1074,7 +1121,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		check("T22: 折叠产出 meta", !!meta && typeof meta.content === "string")
 		check("T22: meta id 为区间指纹 (可跨实例去重)", meta.id === "meta-1000-2000", `got=${meta.id}`)
 		check("T22: meta.createdAt 取最早那条 (时间轴位置正确)", meta.createdAt === 1000, `got=${meta.createdAt}`)
-		check("T22: meta 含日期区间标记", /〔\d+\/\d+–\d+\/\d+〕/.test(meta.content), JSON.stringify(meta.content))
+		check("T22: meta 日期明确标为摘要归档时间", /〔摘要归档：\d+\/\d+–\d+\/\d+〕/.test(meta.content), JSON.stringify(meta.content))
 		check("T22: meta 内容为时间正序 (第一段在第二段前)",
 			meta.content.indexOf("第一段") < meta.content.indexOf("第二段"), JSON.stringify(meta.content))
 		check("T22: meta.msgCount 为各条之和", meta.msgCount === 10, `got=${meta.msgCount}`)

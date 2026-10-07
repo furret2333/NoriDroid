@@ -93,7 +93,12 @@ const seed = (): void => {
 
 const resize = (): void => {
 	if (!canvas) return
-	const dpr = Math.min(window.devicePixelRatio || 1, 2)
+	/* 分辨率跟着设置里的「渲染分辨率」旋钮走 (与 Live2D 同源, 都由 __noriRenderScale 决定)。
+	   此前这里写死 min(devicePixelRatio, 2) —— 于是用户把 renderScale 拉到 1 时, 背景仍按 2 倍全速画,
+	   唯一的那个手动减档旋钮只覆盖了形象, "卡了调低"调了个寂寞 (harness 实测: rs 3/2/1 背景画布都是 992x1616)。
+	   上限**仍保留 2**: 调高到 3 时背景不变(不给任何既有档位加成本), 只有"调低"才省钱。 */
+	const rs = Number((window as unknown as {__noriRenderScale?: number}).__noriRenderScale) || 0
+	const dpr = Math.min(rs > 0 ? rs : window.devicePixelRatio || 1, 2)
 	W = window.innerWidth
 	H = window.innerHeight
 	canvas.width = Math.round(W * dpr)
@@ -234,8 +239,14 @@ export const initDataseaBg = (canvasEl: HTMLCanvasElement): void => {
 export const setDataseaBgEnabled = (on: boolean): void => {
 	enabled = on
 	if (on) {
-		if (!ctx && canvas) initDataseaBg(canvas)
-		else startLoop()
+		if (!ctx && canvas) initDataseaBg(canvas)   // initDataseaBg 内部已经 resize()
+		else {
+			// ⚠ 必须 resize: 用户可能"关掉背景 → 改了渲染分辨率 → 再打开背景"。
+			// resizeDataseaBg() 在 enabled=false 时是空操作，所以那期间画布一直停在旧尺寸；
+			// 不在这里补一次，背景就会按旧分辨率跑（曾经的真 bug）。
+			resize()
+			startLoop()
+		}
 	} else if (raf) {
 		cancelAnimationFrame(raf)
 		raf = 0

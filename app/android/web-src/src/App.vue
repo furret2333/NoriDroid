@@ -1,7 +1,9 @@
 <template>
 	<div
 		class="stage-root"
-		:class="uiSoft ? 'ui-soft' : 'ui-tide'"
+		:class="[uiSoft ? 'ui-soft' : 'ui-tide', {portrait: portraitLayout, 'keyboard-open': keyboardOpen}]"
+		:style="{'--chat-keyboard-inset': keyboardInset + 'px'}"
+		@pointerdown="closeChatMenusOutside"
 		@touchstart.passive="onTouchStart"
 		@touchmove.passive="onTouchMove"
 		@touchend.passive="onTouchEnd"
@@ -27,10 +29,10 @@
 					<button class="pw-mini-btn" title="收起" @click="pomoMini = true; pomoPosSave()">—</button>
 				</div>
 				<div class="pw-time">{{ pomoFmt }}</div>
-				<div class="pw-bar"><i :style="{width: pomoPct + '%'}"></i></div>
+				<div v-if="pomo.phase !== 'countUp'" class="pw-bar"><i :style="{width: pomoPct + '%'}"></i></div>
 				<div class="pw-btns">
 					<button @click="pomoPauseBtn">{{ pomo.paused ? '继续' : '暂停' }}</button>
-					<button class="warn" @click="pomoStopBtn">{{ pomo.phase === 'break' ? '跳过' : '放弃' }}</button>
+					<button class="warn" @click="pomoStopBtn">{{ pomo.phase === 'break' ? '跳过' : pomo.phase === 'countUp' ? '停止并保存' : '放弃' }}</button>
 				</div>
 				<i class="pw-grip" @pointerdown="onPomoRzDown" @pointermove="onPomoRzMove" @pointerup="onPomoRzUp" @pointercancel="onPomoRzUp"></i>
 			</template>
@@ -50,57 +52,125 @@
 
 		
 		<transition name="ai">
-			<div v-if="aiBubble" class="ai-bubble">
+			<div v-if="!portraitLayout && aiBubble" class="ai-bubble">
 				<div class="ai-bubble-head"><span class="ai-bubble-dot"></span>Nori</div>
 				<div class="ai-bubble-txt">{{ aiBubble }}</div>
 			</div>
 		</transition>
 
 		<div class="topbar" v-show="panel !== 'touch' && panel !== 'tts'">
-			<div class="tag" @click="panel = panel === 'model' ? '' : 'model'">{{ currentModel?.name ?? "—" }}</div>
+			<button
+				type="button"
+				class="tag"
+				:class="{locked: canvasLocked}"
+				:title="canvasLocked ? '点击选择模型；长按或按空格解锁画布' : '点击选择模型；长按或按空格锁定画布'"
+				@pointerdown="onModelTagDown"
+				@pointermove="onModelTagMove"
+				@pointerup="cancelModelTagPress()"
+				@pointercancel="cancelModelTagPress(true)"
+				@lostpointercapture="cancelModelTagPress(true)"
+				@contextmenu.prevent
+				@keydown.space.prevent="onModelTagSpace"
+				@keyup.space.prevent
+				@click="onModelTagClick"
+			>
+				<span>{{ currentModel?.name ?? "—" }}</span>
+				<span class="tag-hint">{{ canvasLocked ? '已锁定 · 长按解锁' : '长按锁定画布' }}</span>
+			</button>
 			<div v-if="error" class="err" @click="error = ''">{{ error }} ✕</div>
 			<div v-else-if="loading" class="loading">{{ loadingMsg }}</div>
 		</div>
 
 		
 		<transition name="chat">
-			<div v-if="chatOpen" class="chat-panel">
+			<div v-if="portraitLayout || chatOpen" v-show="!portraitLayout || !panel" class="chat-panel" :class="{'history-open': chatOpen}">
+				<transition name="ai">
+					<button v-if="portraitLayout && !chatOpen && portraitReply" class="portrait-reply" type="button" title="点击展开聊天记录" @click="openPortraitHistory">
+						<span class="portrait-reply-text">{{ bubbleText(portraitReply) }}</span>
+					</button>
+				</transition>
+				<button v-if="portraitLayout" class="history-toggle" type="button" :aria-expanded="chatOpen" aria-controls="chat-history" :aria-label="chatOpen ? '收起聊天记录' : '展开聊天记录'" @click="toggleChat">
+					<svg viewBox="0 0 24 24" aria-hidden="true" :class="{expanded: chatOpen}"><path d="m6 15 6-6 6 6" /></svg>
+				</button>
+				<div id="chat-history" class="chat-history" v-show="chatOpen">
 				<div class="chat-head">
 					<span class="chat-title">对话 · {{ curModelName }}</span>
 					<button v-if="chatStreaming || touchStreaming" class="x stop" @click="stopGenerate">■ 停止生成</button>
 					<button v-if="speaking" class="x stop" @click="stopTTS()">■ 停止</button>
-					<button class="x" @click="chatOpen = false">✕</button>
+					<button class="x" aria-label="收起聊天记录" @click="chatOpen = false">✕</button>
 				</div>
-				<div ref="chatScroll" class="chat-msgs" :style="{ fontSize: chatFontPX, '--bubble-w': bubbleWidthNum + '%' }">
+				<div ref="chatScroll" class="chat-msgs" :style="{ fontSize: chatFontPX, '--bubble-w': bubbleWidthNum + '%' }" @click="imageMenu = false">
 					<div v-if="!messages.length" class="chat-empty">和我说点什么吧</div>
 					<div
 						v-for="m in messages"
 						:key="msgKey(m)"
 						class="bubble-wrap"
 						:class="m.role"
+						:data-message-ts="m.ts"
 					>
+						<div v-if="m.role === 'user' && messageImageUrl(m)" class="message-image-wrap">
+							<img class="message-image" :src="messageImageUrl(m) ?? ''" alt="已发送图片" />
+						</div>
 						<!-- 存储/历史: 一条消息; 显示: assistant 按句拆多气泡, user 保持整条 -->
 						<div
-							v-for="(seg, j) in (m.role === 'assistant' ? bubbleSegments(m.content) : [m.content])"
+							v-for="(seg, j) in messageSegments(m)"
 							:key="j"
 							class="bubble"
 						>{{ bubbleText(seg) }}</div>
 					</div>
-					<div v-if="typing && !chatStreaming" class="bubble-wrap assistant"><div class="bubble typing sea-dots"><span></span><span></span><span></span></div></div>
+					<div v-if="(typing && !chatStreaming) || (touchStreaming && messages[messages.length - 1]?.role === 'user')" class="bubble-wrap assistant"><div class="bubble typing sea-dots"><span></span><span></span><span></span></div></div>
+				</div>
 				</div>
 				<div v-if="pendingQueue.length" class="queue-hint">已排队 {{ pendingQueue.length }} 条</div>
+				<div v-if="pendingImage" class="image-preview-row">
+					<img class="image-preview" :src="pendingImage.dataUrl" alt="待发送图片" />
+					<div class="image-preview-meta"><span>已选图片 · 仅随本条发送</span><button class="image-remove" title="移除图片" aria-label="移除图片" @click="pendingImage = null">✕</button></div>
+				</div>
 				<div class="chat-input">
 					<input
 						v-model="draft"
 						:placeholder="modelReady ? '输入消息…' : '请先在设置里配置 API Key 和模型'"
-						@keydown.enter="send"
+						@focus="onComposerFocus"
+						@blur="onComposerBlur"
+						@keydown.enter="onInputEnter"
 					/>
-					<button class="send" @click="send" :disabled="!draft.trim()">发送</button>
+					<div v-if="portraitLayout" class="image-entry composer-more">
+						<button class="chat-tool" type="button" title="图片与戳戳" aria-label="图片与戳戳" aria-haspopup="menu" :aria-expanded="imageMenu" @click="imageMenu = !imageMenu">＋</button>
+						<div v-show="imageMenu" class="image-menu" role="menu" @keydown.esc="imageMenu = false">
+							<button role="menuitem" :disabled="imagePicking" @click="chooseImage('album')">{{ imagePicking ? '选图中…' : '从相册选图' }}</button>
+							<button role="menuitem" :disabled="imagePicking" @click="chooseImage('camera')">直接拍摄</button>
+							<button class="poke" role="menuitem" :disabled="!modelReady || typing || chatStreaming || touchStreaming" @click="imageMenu = false; pokeNori()">戳戳 Nori</button>
+						</div>
+					</div>
+					<button class="send" :class="{stop: portraitLayout && (chatStreaming || touchStreaming)}" @click="portraitLayout && (chatStreaming || touchStreaming) ? stopGenerate() : send()" :disabled="!(portraitLayout && (chatStreaming || touchStreaming)) && !draft.trim() && !pendingImage">{{ portraitLayout && (chatStreaming || touchStreaming) ? '停止' : '发送' }}</button>
+				</div>
+				<div v-if="!portraitLayout" class="chat-tools">
+					<div class="image-entry">
+						<button class="chat-tool" title="添加图片" aria-haspopup="menu" :aria-expanded="imageMenu" :disabled="imagePicking" @click="imageMenu = !imageMenu">{{ imagePicking ? '选图中…' : '图片' }}</button>
+						<div v-if="imageMenu" class="image-menu" role="menu" @keydown.esc="imageMenu = false">
+							<button role="menuitem" @click="chooseImage('album')">从相册选图</button>
+							<button role="menuitem" @click="chooseImage('camera')">直接拍摄</button>
+						</div>
+					</div>
+					<button class="chat-tool poke" title="戳戳 Nori，聊一句" @click="pokeNori" :disabled="!modelReady || typing || chatStreaming || touchStreaming">戳戳</button>
+					<span class="chat-tool-hint">识图需模型支持</span>
 				</div>
 			</div>
 		</transition>
 
-		<div class="dock" v-show="panel !== 'touch' && panel !== 'tts'" @pointerdown="onDockPress">
+		<div v-if="portraitLayout && !panel" v-show="sideRailOpen" class="side-rail-mask" @pointerdown.stop="sideRailOpen = false"></div>
+		<nav v-if="portraitLayout && !panel" class="side-rail" :class="{open: sideRailOpen}" aria-label="功能菜单" @pointerdown="onDockPress" @keydown.esc="sideRailOpen = false">
+			<button class="side-rail-handle" type="button" :aria-expanded="sideRailOpen" aria-controls="side-rail-items" :aria-label="sideRailOpen ? '收起功能菜单' : '展开功能菜单'" @click="sideRailOpen = !sideRailOpen; imageMenu = false">
+				<svg viewBox="0 0 24 24" aria-hidden="true" :class="{expanded: sideRailOpen}"><path d="m14 6-6 6 6 6" /></svg>
+			</button>
+			<div id="side-rail-items" v-show="sideRailOpen" class="side-rail-items">
+				<button v-for="item in portraitActions" :key="item.panel" class="side-action ripple" @click="item.panel === 'diary' ? openDiary() : openPanel(item.panel)">
+					<img :src="item.icon" alt="" draggable="false" /><span>{{ item.label }}</span>
+				</button>
+			</div>
+		</nav>
+
+		<div class="dock" v-show="!portraitLayout && panel !== 'touch' && panel !== 'tts'" @pointerdown="onDockPress">
 			<button class="fab ripple" @click="openDiary">
 				<img class="fab-ico" :src="DOCK_ICONS.diary" alt="" draggable="false" />
 				<span class="fab-label">日记</span>
@@ -649,15 +719,15 @@
 								     不放进 Nori 的台词里 —— 那是"自我批评"类数据, 适合给你自己看 -->
 								<div class="pomo-sub" v-if="pomoSummary.todayRate >= 0 || pomoSummary.todayAvgMin > 0">
 									<span v-if="pomoSummary.todayRate >= 0">完成率 {{ Math.round(pomoSummary.todayRate * 100) }}%</span>
-									<span v-if="pomoSummary.todayAvgMin > 0">平均每段 {{ pomoSummary.todayAvgMin }} 分钟</span>
+									<span v-if="pomoSummary.todayAvgMin > 0">平均完成段 {{ pomoSummary.todayAvgMin }} 分钟</span>
 								</div>
 							</div>
 							<div class="settings-row">
-								<label>近 7 天</label>
+								<label>近 {{ pomoRange }} 天</label>
 								<span class="pomo-today">
-									{{ pomoSummary.rangeMin }} 分钟 · 完成 {{ pomoSummary.rangeDone }}
-									<span v-if="pomoSummary.rangeBest > 0"> · 最佳 {{ pomoSummary.rangeBest }} 分钟</span>
-									<span v-if="pomoSummary.streak > 1"> · 连续 {{ pomoSummary.streak }} 天 🔥</span>
+									{{ pomoRangeSummary.rangeMin }} 分钟 · 完成 {{ pomoRangeSummary.rangeDone }}
+									<span v-if="pomoRangeSummary.rangeBest > 0"> · 最佳 {{ pomoRangeSummary.rangeBest }} 分钟</span>
+									<span v-if="pomoRangeSummary.streak > 1"> · 连续 {{ pomoRangeSummary.streak }} 天 🔥</span>
 								</span>
 							</div>
 							<!-- 范围切换: 7 / 30 / 365 天。柱旁"全部"按钮进入独立统计页 (热力图 + 点选某天) -->
@@ -680,9 +750,9 @@
 							</div>
 							<div class="pomo-act">
 								<button class="pomo-go" @click="pomoGoBtn">{{ pomoGoLabel }}</button>
-								<button class="pomo-go alt" @click="pomoCountUpBtn">{{ pomo.phase === 'countUp' ? '停止正向' : '正向计时' }}</button>
+								<button class="pomo-go alt" @click="pomoCountUpBtn">{{ pomo.phase === 'countUp' ? '停止正向' : pomo.phase === 'idle' ? '正向计时' : '保存并转正向' }}</button>
 							</div>
-							<div class="hint">计时本体在应用进程内，离开界面照走；完成会响铃、播报并发系统通知（依赖悬浮窗等保活，进程被杀时仍有通知兜底）。专注中 Nori 不主动搭话。</div>
+							<div class="hint">离开界面仍会计时，重新打开会补齐统计。到点通知受上方开关与系统权限控制，后台提醒可能受系统省电策略影响。计时及休息期间 Nori 不主动搭话。</div>
 						</template>
 						<template v-else-if="panel === 'pomoStats'">
 							<!-- 独立统计页: 一年热力图 (点格子看某天) + 终身累计 + 月度汇总 -->
@@ -716,7 +786,7 @@
 									<span v-if="(pomoStats.total?.countUpMin || 0) > 0"> · 正向 {{ fmtTotalMin(pomoStats.total?.countUpMin || 0) }}</span>
 								</span>
 								<div class="pomo-sub">
-									<span>最好的一天 {{ pomoStats.best?.dayMin || 0 }} 分钟</span>
+									<span>最好的一天 {{ Math.round(pomoStats.best?.dayMin || 0) }} 分钟</span>
 									<span>最长连续 {{ pomoStats.best?.streak || 0 }} 天</span>
 								</div>
 							</div>
@@ -816,9 +886,9 @@
 								<div class="hint">越窄，每行字数越少，标点更容易单独成行；觉得句号/问号落单就调宽一点</div>
 							</div>
 							<div class="settings-row">
-								<label>渲染分辨率 {{ renderScaleNum.toFixed(1) }}x（推荐用手机原生 {{ nativeDpr.toFixed(1) }}x）</label>
+								<label>渲染分辨率 {{ renderScaleNum.toFixed(1) }}x（原生清晰度 {{ nativeDpr.toFixed(1) }}x）</label>
 								<input type="range" min="0.5" max="3.0" step="0.1" v-model.number="cfg.renderScale" @change="applyRenderScale" />
-								<div class="hint">越接近手机原生分辨率越清晰，耗电和发热越高；卡顿时调低即可</div>
+								<div class="hint">越高越清晰、越耗电，拉到「原生清晰度」最清楚</div>
 							</div>
 							<div class="settings-row">
 								<label>渲染帧率上限 {{ l2dFpsNum === 0 ? "不限制" : `${l2dFpsNum} fps` }}（形象 + 背景）</label>
@@ -922,7 +992,7 @@
 									<label>让 Nori 知道时间</label>
 									<input type="checkbox" v-model="cfg.timeAware" @change="persistSettings" />
 								</div>
-								<div class="hint">每次对话都会告诉她当前时间（年月日 + 星期 + 时分 + 时区），这样她能回答「现在几点」、算得清「下周三」；关掉就回到以前（她会答不上时间）</div>
+								<div class="hint">发送时提供设备时间与当前时段，让问候和作息话题更贴合当下，并区分历史对话的时间。请确保手机时间、时区正确。</div>
 							</div>
 							<div class="settings-row">
 								<label>安静模式</label>
@@ -1023,6 +1093,13 @@
 								<input type="range" min="0.1" max="0.5" step="0.05" v-model.number="cfg.lookSens" />
 								<div class="hint">手指方向不对就勾选反向；跟得太肉或太跳就调灵敏度（只影响摸头时的跟随紧致度；松手后按固定的"轻拨感"缓缓回正，不随此档位变化。改完点保存设置）</div>
 							</div>
+							<div class="settings-row">
+								<div class="row-inline">
+									<label>启用 Live2D 口型</label>
+									<input type="checkbox" v-model="cfg.lipSyncEnabled" @change="persistSettings" />
+								</div>
+								<div class="hint">默认关闭；开启后按实际播放音频振幅驱动口型，无法取得可靠振幅时保持闭嘴</div>
+							</div>
 									</div>
 								</details>
 
@@ -1043,7 +1120,7 @@
 							</div>
 							<div class="settings-row">
 								<div class="row-inline label-only">悬浮窗触摸手势</div>
-								<div class="hint">· 点 Nori 身体 → 弹出聊天气泡<br />· 在 Nori 身体上轻微滑动 → 抚摸反馈（开心表情 + 轻蹭）<br />· 按住 0.8 秒后再移动 → 移动悬浮窗（0.8 秒内移动不算拖动，防误拖）<br />· 手指快速大幅滑过 → 不弹气泡、不拖动（防误触）<br />· 双指捏合 → 调整悬浮窗大小（任意位置均可）<br />· 拖动、点按、抚摸都会重置待机小动作计时<br />· 对话框打开时：拖 ≡ 把手移动、双指捏合缩放、短按 ✕ 锁定、长按 ✕ 退出</div>
+								<div class="hint">· 轻点 Nori 身体 → 弹出聊天气泡<br />· 轻微滑动 → 不触发表情、动作或聊天气泡<br />· 按住 0.8 秒后再移动 → 移动悬浮窗（0.8 秒内移动不算拖动，防误拖）<br />· 双指捏合 → 调整悬浮窗大小（任意位置均可）<br />· 拖动、点按都会重置待机小动作计时<br />· 对话框打开时：拖 ≡ 把手移动、双指捏合缩放、短按 ✕ 锁定、长按 ✕ 退出</div>
 							</div>
 									</div>
 								</details>
@@ -1210,6 +1287,7 @@ import {
 	writeModelConfig,
 	L2D_FPS_OPTIONS,
 	normalizeFps,
+	normalizeRenderScale,
 	type MotionGroup,
 } from "./services/live2d"
 import {applyCanvasLayout, canvasPointFromClient, clientFromCanvasPoint} from "./services/live2d/stage"
@@ -1240,11 +1318,12 @@ import {
 	loadCustomPersona,
 	saveCustomPersona,
 	personaPrompt,
-	localTimeBlock,
 	getStorageDir,
 	probePublicFiles,
 	hasAllFilesAccess,
 	requestAllFilesAccess,
+	pickImageFile,
+	captureImage,
 	checkFishBalance,
 	checkDeepSeekBalance,
 	checkCosyBalance,
@@ -1252,6 +1331,7 @@ import {
 	sendChatStream,
 	cancelChatStream,
 	type ChatMsg,
+	type ImagePickedResult,
 	type VoiceInfo,
 	type CosyCloneVoice,
 	normalizeCloneVoices,
@@ -1338,6 +1418,8 @@ import {
 	monthlyRollup,
 	migrateStats,
 	addToStore,
+	dayMinutes,
+	shiftDay,
 	dayKey as pomoStatDayKey,
 	type PomoStatsFile,
 	type PomoSummary,
@@ -1369,6 +1451,7 @@ import {applyPetExpression, petExpressionName, petExpressionShowing, petExpressi
 import {maybePetSpeechLine, petSpeechCount, petSpeechLastLine, petSpeechWaitMs} from "./services/live2d/petSpeech"
 // 眨眼: 库内置的 CubismEyeBlink 被 model3.json 的空 EyeBlink 名单废掉了, 这里自己做
 import {installBlink, blinkCount, blinkClosureNow} from "./services/live2d/blink"
+import {installLipSync} from "./services/live2d/lipSync"
 
 type P = "model" | "motion" | "expression" | "touch" | "settings" | "tts" | "diary" | "memories" | "pomo" | "pomoStats" | "about" | ""
 
@@ -1526,7 +1609,7 @@ const hideThumb = (e: Event) => { (e.currentTarget as HTMLElement).style.visibil
  * 版本号：与 app/android/app/build.gradle 的 versionName 保持一致（前端随 APK 一起发版）。
  * ⚠ 别拿 web-src/package.json 的 version（脚手架留下的 0.1.0）当版本号 —— 那不是用户看到的版本。
  * 上游声明与许可清单同步自仓库根的 THIRD-PARTY.md（App 里只放要点 + 指向它）。 */
-const APP_VERSION = "2.0.0"
+const APP_VERSION = "2.1.0"
 const UPSTREAM_REPO_URL = "https://github.com/erhiolab/DeepEr"
 const LIVE2D_EULA_URL = "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
 /** 通用外链打开：与 openRepo / openSteamWishlist 同款（优先原生 openExternal，桥不支持时退回 window.open）。
@@ -1682,12 +1765,33 @@ const triggerBubble = (msg: string, ms = 2000) => {
 const aiBubble = ref("")
 let aiBubbleTimer: ReturnType<typeof setTimeout> | null = null
 
+// 竖屏回复独立于历史展开状态；只保存本次展示，不改聊天持久化。
+const portraitReply = ref("")
+let portraitReplyTimer: ReturnType<typeof setTimeout> | null = null
+const clearPortraitReplyTimer = (): void => {
+	if (portraitReplyTimer) clearTimeout(portraitReplyTimer)
+	portraitReplyTimer = null
+}
+const schedulePortraitReplyClear = (ms?: number): void => {
+	clearPortraitReplyTimer()
+	if (!portraitReply.value || typing.value || chatStreaming.value || touchStreaming.value || speaking.value) return
+	portraitReplyTimer = setTimeout(() => {
+		portraitReply.value = ""
+		portraitReplyTimer = null
+	}, ms ?? Math.min(16000, Math.max(9000, portraitReply.value.length * 80)))
+}
+const showPortraitReply = (text: string, ms?: number): void => {
+	portraitReply.value = text
+	schedulePortraitReplyClear(ms)
+}
+
 /** 展示一条 "Nori 说话" 气泡。
  *  `ms` 默认 9s（AI 回复 / ambient 搭话沿用原行为）。
  *  摸头台词传更长的值：它的收尾自己做（说完即收 + 兜底），**必须**保证这里的定时器
  *  不会更早把字抹掉（否则"她还没说完，字就没了"）。 */
 const showAiBubble = (t: string, ms = 9000) => {
 	aiBubble.value = t
+	showPortraitReply(t, ms)
 	if (aiBubbleTimer) clearTimeout(aiBubbleTimer)
 	aiBubbleTimer = setTimeout(() => { aiBubble.value = "" }, ms)
 }
@@ -1703,37 +1807,62 @@ const TOUCH_DIRECTIVE = [
 	"3. AI 不要把「什么被摸」这件事机械地复述成一成不变的固定台词, 当作一次自然发生的互动来回应。",
 ].join("\n")
 
+const POKE_DIRECTIVE = [
+	"用户轻轻戳了戳你。顺着这个小动作，从提供的时间、近况、记忆或目标里选一个合适的点，自然闲聊 1～3 句；也可以撒娇、吐槽、关心或只回应当下。",
+	"不硬塞背景，不机械复述动作，避免重复套路。",
+].join("\n")
+
 
 const surface = (content: string) => {
 	// 显示原文 (带标点, 更稳定)
 	messages.value.push({role: "assistant", content, ts: Date.now()})
+	showPortraitReply(content)
 	persistChat(messages.value)
 	if (chatOpen.value) scrollChatBottom()
 	else showAiBubble(content)
 }
 
-const handleTouchTrigger = async (area: TouchArea, type: "tap" | "swipe") => {
+const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt">, type: "tap" | "swipe", poke = false) => {
 	const desc = (area.prompt && area.prompt.trim()) ? area.prompt.trim() : (area.name || "未知")
 	const pool = type === "swipe" ? SWIPE_VERBS : TAP_VERBS
 	const verb = pool[Math.floor(Math.random() * pool.length)]
-	const text = `用户 ${verb} Nori的 ${desc}`
+	const text = poke ? "用户正在轻轻戳戳 Nori" : `用户 ${verb} Nori的 ${desc}`
 	if (!modelReady.value) { surface("请先在「设置」里配置 API Key 和模型"); return }
 	// 防重入: 触摸触发对话进行中, 再次触发直接忽略 (避免并发流互相踩踏)
 	if (touchStreaming.value) return
+	if (poke && (typing.value || chatStreaming.value)) return
+	if (poke) {
+		ambientTouch()
+		stopTTS()
+	}
 	if (!chatOpen.value) showAiBubble("…")
 	const memoryBlock = recallForQuery(text)
-	const summary = summaryBlock()
+	const summary = summaryBlock(cfg.timeAware)
 	const context: ChatMsg[] = []
 	const personaText = personaPrompt()
 	if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
-	context.push({role: "system", content: TOUCH_DIRECTIVE} as ChatMsg)
+	context.push({role: "system", content: poke ? POKE_DIRECTIVE : TOUCH_DIRECTIVE} as ChatMsg)
 	if (summary) context.push({role: "system", content: summary} as ChatMsg)
 	if (memoryBlock) context.push({role: "system", content: memoryBlock} as ChatMsg)
-	// 当前时间（2026-10-01）: 放在**人格与其它 system 块之后** —— 越靠后越不伤提示词缓存
-	if (cfg.timeAware) context.push({role: "system", content: localTimeBlock()} as ChatMsg)
-	const hist = messages.value.filter(m => !m.error).slice(-14).map(({role, content}) => ({role, content}) as ChatMsg)
+	if (poke) {
+		const recent = recentTopicsBlock()
+		if (recent) context.push({role: "system", content: recent} as ChatMsg)
+		const goalCare = goalCarePrompt()
+		if (goalCare) context.push({role: "system", content: goalCare} as ChatMsg)
+		else {
+			const goals = listGoals().slice(0, 2).map((g) => g.content.slice(0, 120))
+			if (goals.length) context.push({role: "system", content: `【用户在做的事】${goals.join("；")}。仅供闲聊参考，不必问进度。`} as ChatMsg)
+		}
+		if (pomo.value.phase !== "idle") context.push({role: "system", content: `【当前状态】用户${pomoPhaseText.value}，可以轻轻回应，别催促或打断。`} as ChatMsg)
+	}
+	const hist = messages.value.filter(m => !m.error).slice(-14).map(({role, content, ts}) => ({role, content, ts}) as ChatMsg)
 	
 	const payload: ChatMsg[] = [...context, ...hist, {role: "user", content: text, ts: Date.now()}]
+	if (poke) {
+		messages.value.push({role: "user", content: "（戳戳）", ts: Date.now()})
+		persistChat(messages.value)
+		scrollChatBottom()
+	}
 
 	// 与聊天输入一致: 流式生成 + 逐句 TTS
 	const ttsOn = isTtsReady(cfg)
@@ -1784,6 +1913,7 @@ const handleTouchTrigger = async (area: TouchArea, type: "tap" | "swipe") => {
 					} else {
 						liveBubble.content = reply
 					}
+					showPortraitReply(reply)
 					if (chatOpen.value) scrollChatBottom()
 				},
 				onDone: (content) => {
@@ -1805,11 +1935,13 @@ const handleTouchTrigger = async (area: TouchArea, type: "tap" | "swipe") => {
 					}
 					touchMarkerBuf.value = ""
 					if (liveBubble) liveBubble.content = reply
+					showPortraitReply(reply)
 					persistChat(messages.value)
 					resolve()
 				},
 				onError: (msg) => {
 					const cancelled = stopRequested || msg === "已停止"
+					if (cancelled) showPortraitReply(reply)
 					if (!cancelled && !reply.trim()) {
 						if (liveBubble) {
 							const idx = messages.value.indexOf(liveBubble)
@@ -1817,13 +1949,14 @@ const handleTouchTrigger = async (area: TouchArea, type: "tap" | "swipe") => {
 							liveBubble = null
 						}
 						messages.value.push({role: "assistant", content: `⚠ ${msg}`, ts: Date.now(), error: true})
+						showPortraitReply(`⚠ ${msg}`)
 					} else if (liveBubble) {
 						liveBubble.content = reply
 					}
 					persistChat(messages.value)
 					resolve()
 				},
-			}, cfg.deepseekThinking, chatAbort.signal)
+			}, cfg.deepseekThinking, chatAbort.signal, {timeAware: cfg.timeAware})
 		})
 
 		// 收尾: 剩余文本 + 结束朗读会话
@@ -1849,6 +1982,12 @@ const handleTouchTrigger = async (area: TouchArea, type: "tap" | "swipe") => {
 		if (activeTouchAbort === chatAbort) activeTouchAbort = null
 		touchStreaming.value = false
 	}
+}
+
+const pokeNori = (): void => {
+	if (!modelReady.value || typing.value || touchStreaming.value || chatStreaming.value) return
+	petAudioTouch()
+	void handleTouchTrigger({name: "戳戳", prompt: "戳戳互动"}, "tap", true)
 }
 
 
@@ -2126,6 +2265,10 @@ const clearPetLineBubble = (): void => {
 	if (petLineBubbleTimer) { clearTimeout(petLineBubbleTimer); petLineBubbleTimer = null }
 	if (petLineVoiceTailTimer) { clearTimeout(petLineVoiceTailTimer); petLineVoiceTailTimer = null }
 	if (petLineBubble && aiBubble.value === petLineBubble) aiBubble.value = ""
+	if (petLineBubble && portraitReply.value === petLineBubble) {
+		clearPortraitReplyTimer()
+		portraitReply.value = ""
+	}
 	petLineBubble = ""
 	petLineSpoke = false
 	petLineExtend = 0
@@ -2298,7 +2441,7 @@ const lookLoop = (ts?: number) => {
 	// 库的拖拽映射按画布 attribute 尺寸 (宽×renderScale) 归一化, 但输入按 ×DPR;
 	// 乘以 renderScale/DPR 使比例恒为 1, 任何渲染分辨率下跟手都一致。
 	// 系数与命中钩子/resizeCanvas 同源: 优先读库实际生效的 __noriRenderScale
-	const rs = Number(window.__noriRenderScale) || Number(cfg.renderScale) || 1
+	const rs = normalizeRenderScale(window.__noriRenderScale, normalizeRenderScale(cfg.renderScale, 1))
 	const dpr = window.devicePixelRatio || 1
 	const K = rs / dpr
 	const distT = Math.hypot(lookTarget.x - lookCur.x, lookTarget.y - lookCur.y)
@@ -2434,7 +2577,7 @@ const onStagePointerDown = (e: PointerEvent) => {
 	ambientTouch()
 	habitRecord("touch")
 	const onUI = (elm: EventTarget | null): boolean =>
-		!!(elm as HTMLElement)?.closest?.(".sheet, .dock, .topbar, .pet-fab, .chat-panel, .touch-editor, .touch-top, .pomo-widget")
+		!!(elm as HTMLElement)?.closest?.(".sheet, .dock, .topbar, .pet-fab, .chat-panel, .touch-editor, .touch-top, .pomo-widget, .side-rail, .side-rail-mask")
 
 	if (touchDrawing.value || touchAdjusting.value) {
 		if (onUI(e.target)) return
@@ -2543,7 +2686,27 @@ const loadModel = async () => {
 		lookInit = false
 		lookRaf = 0
 		await l2d.mount({directory: id, fileBase: entryBase}, {canvasWidth: "100%", canvasHeight: "100%", host: l2dHost.value})
-		scale.value = (await readModelConfig(id, "l2d_scale", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 1.12)) || 1.12
+		/* WebGL 上下文丢失恢复。规范: **只有** webglcontextlost 被 preventDefault(), 浏览器才会尝试恢复上下文。
+		   主界面此前零处理 (全库 4 处全在 FloatApp.vue) ⇒ harness 实测: 丢失事件 defaultPrevented=false,
+		   且**连显式 restoreContext() 都没能恢复** = 只能重启 App。
+		   真机上息屏/切后台/内存压力都会触发, 概率远高于桌面 —— 这跳照 FloatApp.vue 补齐。
+		   每次 mount 都是新画布, 旧画布的监听随它一起被移除, 不会累积。 */
+		try {
+			const cv = l2d.canvas()
+			cv?.addEventListener("webglcontextlost", (e) => e.preventDefault())
+			/* ⚠ 不能直接调 loadModel(): 它开头有 `if (modelSwitching) return` 守卫。
+			   若上下文恢复时正好有一次模型切换在途，这次恢复会被**静默吞掉**、之后再也不会重试
+			   ⇒ 形象一直黑着。所以这里等守卫释放后再重挂（最多等 10s，超时就放弃这一轮）。 */
+			cv?.addEventListener("webglcontextrestored", () => {
+				const retry = (n: number): void => {
+					if (!modelSwitching) { loadModel(); return }
+					if (n < 20) setTimeout(() => retry(n + 1), 500)
+				}
+				retry(0)
+			})
+		} catch { /* 忽略 */ }
+		// 读了就夹一次: 下限 0.6（与双指缩放同一区间）—— 否则以前存过 0.3 的机器还会照旧加载 0.3
+		scale.value = clamp((await readModelConfig(id, "l2d_scale", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 1.12)) || 1.12, 0.6, 3)
 		offsetX.value = (await readModelConfig(id, "l2d_offset_x", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 0)) || 0
 		offsetY.value = (await readModelConfig(id, "l2d_offset_y", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 0)) || 0
 		await nextTick()
@@ -2615,6 +2778,8 @@ const refreshMemFromDisk = () => {
 }
 
 const openPanel = (p: P) => {
+	sideRailOpen.value = false
+	imageMenu.value = false
 	// 打开/关闭任何面板都重置"记忆库入口"的连击计数 —— 否则计数会跨场景累积
 	// (用户点两下入口、去别的面板逛一圈、回来点一下就直接进去了)
 	resetMemEntryGate()
@@ -2632,11 +2797,62 @@ const openPanel = (p: P) => {
 const gesture = reactive<Record<number, {x: number; y: number}>>({})
 let pinchBase = {dist: 0, midX: 0, midY: 0, scale: 1, ox: 0, oy: 0}
 
+// 主画布只锁位置与缩放，保留抚摸和聊天互动；不影响独立悬浮窗。
+const CANVAS_LOCK_KEY = "l2d_canvas_locked"
+const canvasLocked = ref((() => {
+	try { return localStorage.getItem(CANVAS_LOCK_KEY) === "1" } catch { return false }
+})())
+let modelTagTimer: ReturnType<typeof setTimeout> | null = null
+let modelTagPointer: {id: number; x: number; y: number} | null = null
+let modelTagClickSuppressed = false
+
+const toggleCanvasLock = (): void => {
+	canvasLocked.value = !canvasLocked.value
+	for (const id of Object.keys(gesture)) delete gesture[Number(id)]
+	pinchBase = {dist: 0, midX: 0, midY: 0, scale: 1, ox: 0, oy: 0}
+	flushTransformSave()
+	try { localStorage.setItem(CANVAS_LOCK_KEY, canvasLocked.value ? "1" : "0") } catch { /* 保留本次状态 */ }
+}
+
+const cancelModelTagPress = (suppressClick = false): void => {
+	if (suppressClick && modelTagPointer) modelTagClickSuppressed = true
+	if (modelTagTimer) clearTimeout(modelTagTimer)
+	modelTagTimer = null
+	modelTagPointer = null
+}
+
+const onModelTagDown = (event: PointerEvent): void => {
+	if (!event.isPrimary || event.button !== 0) { cancelModelTagPress(true); return }
+	cancelModelTagPress()
+	modelTagClickSuppressed = false
+	modelTagPointer = {id: event.pointerId, x: event.clientX, y: event.clientY}
+	;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+	modelTagTimer = setTimeout(() => {
+		modelTagTimer = null
+		modelTagClickSuppressed = true
+		toggleCanvasLock()
+	}, 700)
+}
+
+const onModelTagMove = (event: PointerEvent): void => {
+	const press = modelTagPointer
+	if (press && event.pointerId === press.id && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) cancelModelTagPress(true)
+}
+
+const onModelTagSpace = (event: KeyboardEvent): void => {
+	if (!event.repeat) { cancelModelTagPress(); modelTagClickSuppressed = false; toggleCanvasLock() }
+}
+
+const onModelTagClick = (): void => {
+	if (modelTagClickSuppressed) { modelTagClickSuppressed = false; return }
+	openPanel("model")
+}
 
 const isUI = (t: Touch): boolean =>
-	!!(t.target as HTMLElement)?.closest?.(".sheet, .chat-panel, .dock, .topbar")
+	!!(t.target as HTMLElement)?.closest?.(".sheet, .chat-panel, .dock, .topbar, .side-rail, .side-rail-mask")
 
 const onTouchStart = (e: TouchEvent) => {
+	if (canvasLocked.value) return
 	for (const t of Array.from(e.touches)) {
 		if (isUI(t)) continue
 		gesture[t.identifier] = {x: t.clientX, y: t.clientY}
@@ -2655,7 +2871,11 @@ const onTouchStart = (e: TouchEvent) => {
 }
 
 const onTouchMove = (e: TouchEvent) => {
-	for (const t of Array.from(e.touches)) gesture[t.identifier] = {x: t.clientX, y: t.clientY}
+	if (canvasLocked.value) return
+	// 只更新起手时登记的画布触点，不能把 UI 上的手指重新算进捏合。
+	for (const t of Array.from(e.touches)) {
+		if (gesture[t.identifier]) gesture[t.identifier] = {x: t.clientX, y: t.clientY}
+	}
 	const pts = Object.values(gesture)
 	if (pts.length !== 2) return
 	const [a, b] = pts
@@ -2663,7 +2883,11 @@ const onTouchMove = (e: TouchEvent) => {
 	const midX = (a.x + b.x) / 2
 	const midY = (a.y + b.y) / 2
 	if (pinchBase.dist > 0) {
-		scale.value = clamp(pinchBase.scale * (dist / pinchBase.dist), 0.3, 3)
+		/* 缩放下限从 0.3 提到 0.6（2026-10-05）。0.3 时角色只占屏幕约 1%，
+		   而 Live2D 画布**始终是整个视口**、不跟着缩放变 ⇒ 那种情况下等于为 99% 的空白
+		   照价付"每帧清屏 + 合成"。实际也没有缩到那么小的需求，所以直接把下限抬上来，
+		   从源头上不出现那个画面。要回退就把 0.6 改回 0.3。 */
+		scale.value = clamp(pinchBase.scale * (dist / pinchBase.dist), 0.6, 3)
 	}
 	
 	offsetX.value = clamp(pinchBase.ox + (midX - pinchBase.midX), -500, 500)
@@ -2680,6 +2904,10 @@ const onTouchEnd = (e: TouchEvent) => {
 	}
 	if (Object.keys(gesture).length !== 2) pinchBase = {dist: 0, midX: 0, midY: 0, scale: 1, ox: 0, oy: 0}
 	// 手势结束: 把节流期间挂起的变换立即落盘 (拖动/缩放的最终位置不丢)
+	flushTransformSave()
+}
+
+const flushTransformSave = (): void => {
 	if (transformSaveTimer) { clearTimeout(transformSaveTimer); transformSaveTimer = null }
 	if (transformDirty) { transformDirty = false; saveTransform() }
 }
@@ -2732,6 +2960,23 @@ const spawnRipple = (e: Event) => {
 
 
 const chatOpen = ref(false)
+const physicalViewportAvailable = (): boolean =>
+	(navigator.maxTouchPoints > 0 || window.matchMedia("(pointer: coarse)").matches) && Math.abs(window.screen.width - window.innerWidth) <= 2 && window.screen.height >= window.innerHeight
+const readPortraitLayout = (): boolean =>
+	(physicalViewportAvailable() ? window.screen.height : window.innerHeight) >= window.innerWidth
+const portraitLayout = ref(readPortraitLayout())
+const sideRailOpen = ref(false)
+const keyboardOpen = ref(false)
+const keyboardInset = ref(0)
+let layoutWidth = window.innerWidth
+let layoutFullHeight = window.innerHeight
+const portraitActions: {panel: P; label: string; icon: string}[] = [
+	{panel: "diary", label: "日记", icon: DOCK_ICONS.diary},
+	{panel: "model", label: "模型", icon: DOCK_ICONS.model},
+	{panel: "touch", label: "触摸", icon: DOCK_ICONS.touch},
+	{panel: "pomo", label: "番茄", icon: DOCK_ICONS.pomo},
+	{panel: "settings", label: "设置", icon: DOCK_ICONS.settings},
+]
 const draft = ref("")
 const typing = ref(false)
 /** 是否正在流式生成回复 (用于隐藏重复的"…"气泡) */
@@ -2958,6 +3203,12 @@ const petStrokeDebug = (): string => {	const line = headZoneLine(petHeadBox, pet
 ;(window as unknown as {__noriPetFxSpawned?: unknown}).__noriPetFxSpawned = () => petFxSpawned()
 // 眨眼: 装上"库 update() 之前"的钩子 (由 beforeUpdate 调度器统一分发)
 installBlink()
+/* 口型：默认关闭。开启后只以播放器状态作为活动闸门；真实振幅可用时按 RMS 开口，振幅缺失或超时则安全收口。
+   惰性读取: 每帧现取 speaking.value, 所以注册一次就够, 不用管 model 重挂。 */
+installLipSync(() =>
+	cfg.lipSyncEnabled
+	&& (speaking.value || (window as unknown as {__noriLipForce?: boolean}).__noriLipForce === true),
+)
 /** 模型实体命中测试 (补丁钩子 __noriHitTest): hit=落在模型实体上, err=钩子内部异常 (调试透传), null=钩子未就绪 */
 const noriHitTest = (x: number, y: number): {hit: boolean; err?: string} | null => {
 	try {
@@ -3009,6 +3260,7 @@ const cfg = reactive({
 	/** Live2D 渲染帧率档位 (0 = 不限制)。档位定义见 services/live2d/frameCap.ts */
 	l2dFps: 60,
 	ttsEnabled: false,
+	lipSyncEnabled: false,
 	ttsProvider: "fish" as "fish" | "cosyvoice",
 	ttsApiKey: "",
 	ttsBaseUrl: "https://api.fish.audio",
@@ -3062,12 +3314,16 @@ const bubbleScaleNum = computed(() => Number(cfg.bubbleScale) || 1)
 
 const bubbleWidthNum = computed(() => Number(cfg.bubbleWidth) || 82)
 
-const renderScaleNum = computed(() => Number(cfg.renderScale) || 1)
+const renderScaleNum = computed(() => normalizeRenderScale(cfg.renderScale, 1))
 
 const nativeDpr = computed(() => Math.max(1.5, Math.min(window.devicePixelRatio || 2, 3)))
 
 
-const applyRenderScale = () => l2d.setRenderScale(renderScaleNum.value)
+const applyRenderScale = () => {
+	cfg.renderScale = normalizeRenderScale(cfg.renderScale, 1)
+	l2d.setRenderScale(renderScaleNum.value)   // 先写 __noriRenderScale (库与命中钩子都读它)
+	resizeDataseaBg()                          // 背景吃同一个旋钮: 上限 2, 只降不升 (见 datasea-bg.resize)
+}
 
 /* ---- 渲染帧率档位（Live2D 形象 + 数据海背景，同一个旋钮） ---- */
 /** 当前档位 (非法值回落默认档)。0 显示为"不限" */
@@ -3214,8 +3470,16 @@ const doResetPersona = () => {
 
 const modelReady = computed(() => !!cfg.apiKey.trim() && !!cfg.model)
 const toggleChat = () => {
+	imageMenu.value = false
+	sideRailOpen.value = false
 	chatOpen.value = !chatOpen.value
 	if (chatOpen.value) scrollChatBottom()
+}
+const openPortraitHistory = (): void => {
+	chatOpen.value = true
+	imageMenu.value = false
+	sideRailOpen.value = false
+	scrollChatBottom()
 }
 
 const scrollChatBottom = () => {
@@ -3234,8 +3498,87 @@ const refreshModels = async () => {
 	modelLoadMsg.value = `找到 ${modelOptions.value.length} 个模型`
 }
 
+type PendingImage = Pick<ImagePickedResult, "dataUrl" | "mime" | "width" | "height" | "size">
+type PendingChat = {text: string; image?: PendingImage}
+const imageMenu = ref(false)
+const imagePicking = ref(false)
+const pendingImage = ref<PendingImage | null>(null)
+// 图片不进入历史/记忆；本次页面只保留最近 6 张缩略预览，避免长聊累积 base64。
+const imagePreviews = reactive(new Map<number, string>())
+watch(chatOpen, (open) => { if (!open) imageMenu.value = false })
+watch(panel, () => { sideRailOpen.value = false; imageMenu.value = false })
+
+/** 输入法通常只缩短高度；宽度变化才视为旋转，避免键盘把竖屏切成横屏。 */
+const syncChatLayout = (): void => {
+	const width = window.innerWidth
+	const viewport = window.visualViewport
+	const height = viewport?.height ?? window.innerHeight
+	const widthChanged = Math.abs(width - layoutWidth) > 2
+	const physicalViewport = physicalViewportAvailable()
+	// 设置页也能唤起键盘；回到聊天时不能把已缩短的高度当作完整视口。
+	const fullHeight = physicalViewport ? window.screen.height : (widthChanged ? window.innerHeight : layoutFullHeight)
+	const inputFocused = !!document.activeElement?.matches(".chat-input input")
+	const keyboard = height < fullHeight * 0.78 && (inputFocused || keyboardOpen.value) && (!widthChanged || physicalViewport)
+	keyboardOpen.value = keyboard
+	keyboardInset.value = keyboard ? Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0)) : 0
+	if (!keyboard || widthChanged) {
+		portraitLayout.value = readPortraitLayout()
+		layoutWidth = width
+		// 键盘动画逐帧缩短高度时也保留完整高度，不能逐帧把判断基线缩小。
+		layoutFullHeight = keyboard ? fullHeight : (inputFocused && !widthChanged ? Math.max(layoutFullHeight, window.innerHeight) : window.innerHeight)
+	}
+}
+const onComposerFocus = (): void => {
+	imageMenu.value = false
+	sideRailOpen.value = false
+	syncChatLayout()
+}
+const onComposerBlur = (): void => { syncChatLayout() }
+const closeChatMenusOutside = (event: PointerEvent): void => {
+	if (!(event.target as HTMLElement)?.closest?.(".image-entry")) imageMenu.value = false
+}
+watch(portraitLayout, () => { sideRailOpen.value = false; imageMenu.value = false; scrollChatBottom() })
+
+const messageImageUrl = (message: ChatMsg): string | null => imagePreviews.get(message.ts) ?? null
+
+const messageSegments = (message: ChatMsg): string[] => {
+	if (message.role === "assistant") return bubbleSegments(message.content)
+	// 有预览时不再显示历史占位符；纯图片没有文字气泡。
+	const text = messageImageUrl(message) && message.content.startsWith("[图片]")
+		? message.content.slice("[图片]".length).trimStart()
+		: message.content
+	return text ? [text] : []
+}
+
+const chooseImage = async (source: "album" | "camera"): Promise<void> => {
+	if (imagePicking.value) return
+	imageMenu.value = false
+	imagePicking.value = true
+	try {
+		const result = source === "camera" ? await captureImage() : await pickImageFile()
+		if (!result.ok || !result.dataUrl) {
+			if (result.message && result.message !== "未选择图片") triggerBubble(result.message, 2200)
+			return
+		}
+		pendingImage.value = {
+			dataUrl: result.dataUrl,
+			mime: result.mime,
+			width: result.width,
+			height: result.height,
+			size: result.size,
+		}
+	} finally {
+		imagePicking.value = false
+	}
+}
+
+const onInputEnter = (event: KeyboardEvent): void => {
+	if (event.isComposing || event.keyCode === 229) return
+	void send()
+}
+
 /** 输入排队: 上一条还在生成 (含触摸触发的对话) 时, 新消息先进队列, 空闲后依次发出 */
-const pendingQueue = ref<string[]>([])
+const pendingQueue = ref<PendingChat[]>([])
 let draining = false
 const drainQueue = async (): Promise<void> => {
 	if (draining || typing.value || chatStreaming.value || touchStreaming.value) return
@@ -3243,7 +3586,7 @@ const drainQueue = async (): Promise<void> => {
 	try {
 		while (pendingQueue.value.length && !typing.value && !chatStreaming.value && !touchStreaming.value) {
 			const next = pendingQueue.value.shift()
-			if (next) await runSend(next)
+			if (next) await runSend(next.text, next.image)
 		}
 	} finally {
 		draining = false
@@ -3255,29 +3598,39 @@ watch([typing, chatStreaming, touchStreaming], () => {
 
 const send = async (): Promise<void> => {
 	const text = draft.value.trim()
-	if (!text) return
+	const image = pendingImage.value
+	if (!text && !image) return
 	if (!modelReady.value) {
 		panel.value = "settings"
 		return
 	}
 	draft.value = ""
+	pendingImage.value = null
 	// 正忙时入队 (watch 会在空闲时触发 drain), 空闲时立即发送
-	pendingQueue.value.push(text)
+	pendingQueue.value.push({text, image: image ?? undefined})
 	await drainQueue()
 }
 
-const runSend = async (text: string): Promise<void> => {
+const runSend = async (text: string, image?: PendingImage): Promise<void> => {
+	const userText = text || (image ? "请看看这张图片" : "")
 	// 朗读打断 (barge-in): 消息真正发出时才停朗读 (打字不打断);
 	// stop() 会关闭朗读会话并置 aborted, 之前回复里排队未读的句子全部丢弃, 不会"复活".
 	// 排队场景: 每条消息在实际发出那一刻才打断, 生成中的回复会先读完
 	ambientTouch()
 	habitRecord("msg")
 	stopTTS()
-	messages.value.push({role: "user", content: text, ts: Date.now()})
+	const imagePart: ChatMsg["parts"] = image?.dataUrl ? [{type: "text", text: userText}, {type: "image_url", image_url: {url: image.dataUrl}}] : undefined
+	const userMessage: ChatMsg = {role: "user", content: imagePart ? (text ? `[图片] ${text}` : "[图片]") : userText, ts: Date.now()}
+	messages.value.push(userMessage)
+	if (image?.dataUrl) {
+		imagePreviews.set(userMessage.ts, image.dataUrl)
+		while (imagePreviews.size > 6) imagePreviews.delete(imagePreviews.keys().next().value!)
+	}
 	persistChat(messages.value)
 	scrollChatBottom()
 
 	typing.value = true
+	showPortraitReply("…")
 	try {
 		// 记忆系统: 按当前消息召回长期记忆 + 读取历史总结, 注入上下文
 		// smartRecall 开 → LLM 语义召回 (更准); 关 → 关键词召回 (免费快)
@@ -3292,17 +3645,17 @@ const runSend = async (text: string): Promise<void> => {
 			])
 			return r.ok ? (r.content ?? "") : ""
 		}
-		if (cfg.smartRecall && cfg.apiKey.trim() && cfg.model.trim() && !shouldSkipLlmExtract(text)) {
-			const smart = recallForQuerySmart(text, llmRecallCall).catch(() => "")
+		if (cfg.smartRecall && cfg.apiKey.trim() && cfg.model.trim() && !shouldSkipLlmExtract(userText)) {
+			const smart = recallForQuerySmart(userText, llmRecallCall).catch(() => "")
 			const fast = new Promise<string>((resolve) =>
-				setTimeout(() => resolve(recallForQuery(text)), RECALL_BUDGET_MS)
+				setTimeout(() => resolve(recallForQuery(userText)), RECALL_BUDGET_MS)
 			)
 			memoryBlock = await Promise.race([smart, fast])
 			void smart.catch(() => { /* 已用关键词兜底, 后台自行收尾 */ })
 		} else {
-			memoryBlock = recallForQuery(text)
+			memoryBlock = recallForQuery(userText)
 		}
-		const summary = summaryBlock()
+		const summary = summaryBlock(cfg.timeAware)
 		const context: ChatMsg[] = []
 		const personaText = personaPrompt()
 		if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
@@ -3320,16 +3673,17 @@ const runSend = async (text: string): Promise<void> => {
 		// 用去报数字就把陪伴变成打卡提醒了。注入文本自带"最多提这一件事"的克制约束,
 		// 因为 persona 已反复强调 2~3 句上限 (不去放宽那条规则)。
 		if (focusHintFresh()) {
-			const fh = buildFocusHint(pomoSummary.value, text, pomoStats.celebrated ?? {})
+			const fh = buildFocusHint(pomoSummary.value, userText, pomoStats.celebrated ?? {})
 			if (fh.hint) {
 				context.push({role: "system", content: fh.hint} as ChatMsg)
 				markFocusHinted()
 				if (fh.milestoneKey) markCelebrated(fh.milestoneKey)
 			}
 		}
-		const hist = contextHistory(messages.value).map(({role, content}) => ({role, content}) as ChatMsg)
-		// 当前时间（2026-10-01）: 追加在人格/摘要/记忆/近况/目标/专注这些 system 块之后
-		if (cfg.timeAware) context.push({role: "system", content: localTimeBlock()} as ChatMsg)
+		const hist: ChatMsg[] = contextHistory(messages.value).map(({role, content, ts}) => ({role, content, ts}))
+		// 只给本次用户消息附图；后续对话继续使用纯文字历史。
+		if (imagePart) hist[hist.length - 1] = {...userMessage, parts: imagePart}
+		// 当前时间由发送层在实际发出请求时追加。
 		const payload = [...context, ...hist]
 
 		// 流式 TTS: 启用时开"逐句朗读会话", 边生成边出音
@@ -3401,6 +3755,7 @@ const runSend = async (text: string): Promise<void> => {
 					} else {
 						liveBubble.content = reply
 					}
+					showPortraitReply(reply)
 					throttledScroll()
 				},
 				onDone: (content) => {
@@ -3426,6 +3781,7 @@ const runSend = async (text: string): Promise<void> => {
 					// 兜底: 流式路径若仍有残留未闭合的【(缓冲里), 说明标记不完整, 丢弃不显示
 					chatMarkerBuf.value = ""
 					if (liveBubble) liveBubble.content = reply
+					showPortraitReply(reply)
 					persistChat(messages.value)
 					resolve()
 				},
@@ -3433,6 +3789,7 @@ const runSend = async (text: string): Promise<void> => {
 					chatStreaming.value = false
 					// 用户主动停止: 不显示错误气泡; 其他失败且无内容时显示
 					const cancelled = stopRequested || msg === "已停止"
+					if (cancelled) showPortraitReply(reply)
 					if (!cancelled && !reply.trim()) {
 						if (liveBubble) {
 							const idx = messages.value.indexOf(liveBubble)
@@ -3440,6 +3797,7 @@ const runSend = async (text: string): Promise<void> => {
 							liveBubble = null
 						}
 						messages.value.push({role: "assistant", content: `⚠ ${msg}`, ts: Date.now(), error: true})
+						showPortraitReply(`⚠ ${msg}`)
 					} else if (liveBubble) {
 						// 已收到部分内容: 保留为一条消息
 						liveBubble.content = reply
@@ -3447,7 +3805,7 @@ const runSend = async (text: string): Promise<void> => {
 					persistChat(messages.value)
 					resolve()
 				},
-			}, cfg.deepseekThinking, chatAbort.signal)
+			}, cfg.deepseekThinking, chatAbort.signal, {timeAware: cfg.timeAware})
 		})
 		if (activeChatAbort === chatAbort) activeChatAbort = null
 		if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = null }
@@ -3469,7 +3827,7 @@ const runSend = async (text: string): Promise<void> => {
 				pickMotionByKeyword(reply)
 			}
 			// 记忆提取: 规则法免费 + LLM 可选增强 (表情分析已并入主回复标记, 不再单独调用)
-			void analyzeAfterReply(text, reply)
+			void analyzeAfterReply(userText, reply)
 			// 记忆系统: 历史过长时生成摘要 (用带标点的原文压缩, 质量更好)
 			void (async () => {
 				const summarized = await summarizeIfNeeded(messages.value, async (prompt) => {
@@ -4221,6 +4579,7 @@ const doPruneMemories = () => {
 
 /* ---------------- Fish Audio 流式 TTS UI 状态 ---------------- */
 const speaking = ref(false)
+watch([typing, chatStreaming, touchStreaming, speaking], () => schedulePortraitReplyClear())
 const ttsTesting = ref(false)
 const ttsMsg = ref("")
 const ttsMsgOk = ref(false)
@@ -4334,7 +4693,7 @@ const doDownloadSfx = (): void => {
 
 /** 底部 dock 按键音 (按到按钮上才响, 点空白处不响); 安静模式也保留按键音 */
 const onDockPress = (e: PointerEvent): void => {
-	if ((e.target as HTMLElement)?.closest?.(".fab")) playSfx()
+	if ((e.target as HTMLElement)?.closest?.(".fab, .side-action")) playSfx()
 }
 const onDataseaBgToggle = (): void => {
 	setDataseaBgEnabled(cfg.dataseaBg)
@@ -4372,13 +4731,11 @@ const applyQuiet = (): void => {
 }
 const onQuietModeChange = (): void => {
 	pomoSulkCancelByUser()
-	clearFocusMuteSnapshot()   // 用户显式改了静音设置 → 作废专注静音快照 (以用户为准)
 	applyQuiet()
 	persistSettings()
 }
 const onQuietToggle = (): void => {
 	pomoSulkCancelByUser()
-	clearFocusMuteSnapshot()
 	applyQuiet()
 	persistSettings()
 }
@@ -4386,9 +4743,9 @@ const onQuietToggle = (): void => {
 /* ---------------- 番茄钟 ----------------
  * 计时本体在原生 PomodoroEngine (进程存活即准点触发, 完成发系统通知);
  * 这里是遥控器 + 悬浮窗视图 + 联动: 播报(sfx/TTS)/每日统计(pomo.json)/放弃静音惩罚/ambient 抑制。
- * 状态以 epoch 时间戳为准 (endAt/startedAt), WebView 端不做累加计数, 无漂移。 */
+ * 时长以原生单调时钟快照为准；页面只展示，旧桥兼容 epoch 时间戳。 */
 type PomoPhase = "idle" | "focus" | "break" | "countUp"
-interface PomoStateT {phase: PomoPhase; paused: boolean; endAt: number; remainMs: number; focusMin: number; breakMin: number; autoBreak: boolean; startedAt: number}
+interface PomoStateT {phase: PomoPhase; paused: boolean; endAt: number; remainMs: number; focusMin: number; breakMin: number; autoBreak: boolean; startedAt: number; elapsedMs?: number; remainingMs?: number}
 interface PomoDay {focusMin: number; done: number; abort: number; countUpMin: number}
 interface PomoBridgeT {
 	readFile?: (n: string) => string
@@ -4400,6 +4757,9 @@ interface PomoBridgeT {
 	pomoStop?: () => string
 	pomoState?: () => string
 	pomoRequestNotify?: () => void
+	pomoSetNotify?: (enabled: boolean) => void
+	pomoStats?: () => string
+	pomoMarkCelebrated?: (key: string) => string
 }
 const noriB = (): PomoBridgeT | null => (window as unknown as {NoriChat?: PomoBridgeT}).NoriChat ?? null
 
@@ -4424,6 +4784,7 @@ const pomoStats = reactive<PomoStatsFile>({v: 1, days: {}})
 
 // 日期键统一用 services/pomo-stats 里的 dayKey (原此处另有一份同实现, 已删, 避免两处漂移)
 const pomoDayKey = pomoStatDayKey
+const pomoDate = ref(new Date())
 const pomoDay = (): PomoDay => {
 	const k = pomoDayKey()
 	if (!pomoStats.days[k]) pomoStats.days[k] = {focusMin: 0, done: 0, abort: 0, countUpMin: 0}
@@ -4431,14 +4792,15 @@ const pomoDay = (): PomoDay => {
 }
 const pomoStatsLoad = (): void => {
 	try {
-		const raw = noriB()?.readFile?.("pomo.json") || ""
+		const b = noriB()
+		const raw = b?.pomoStats ? b.pomoStats() : b?.readFile?.("pomo.json") || ""
 		const parsed = raw ? JSON.parse(raw) : null
 		// 原地替换内容 (不能 pomoStats = parsed: 它是 reactive, 换掉引用会丢掉响应性)
 		if (parsed && parsed.days) Object.assign(pomoStats, parsed)
 	} catch { /* 忽略 */ }
 	// 迁移: 补 total/best (旧文件没有), 并按 10 年防御上限裁剪。
 	// 注意这里**不再**按 30 天滚动删除 —— 用户要求永久保留往日数据。
-	if (migrateStats(pomoStats)) pomoStatsSave()
+	if (!noriB()?.pomoStats && migrateStats(pomoStats)) pomoStatsSave()
 }
 const pomoStatsSave = (): void => {
 	try { noriB()?.writeFile?.("pomo.json", JSON.stringify(pomoStats)) } catch { /* 忽略 */ }
@@ -4456,21 +4818,25 @@ watch(pomoCfg, () => {
 	try { localStorage.setItem("pomo_cfg", JSON.stringify(pomoCfg)) } catch { /* 忽略 */ }
 }, {deep: true})
 
+let pomoSnapshotAt = performance.now()
+
 const pomoStateSet = (json: string): void => {
 	try {
 		const s = JSON.parse(json)
-		if (!s || !s.phase) return
-		pomo.value = {phase: s.phase, paused: !!s.paused, endAt: Number(s.endAt) || 0, remainMs: Number(s.remainMs) || 0, focusMin: Number(s.focusMin) || 25, breakMin: Number(s.breakMin) || 5, autoBreak: !!s.autoBreak, startedAt: Number(s.startedAt) || 0}
+		if (!s || !["idle", "focus", "break", "countUp"].includes(s.phase)) return
+		const finiteMs = (v: unknown): number => Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0
+		pomo.value = {phase: s.phase, paused: !!s.paused, endAt: finiteMs(s.endAt), remainMs: finiteMs(s.remainMs), focusMin: finiteMs(s.focusMin), breakMin: finiteMs(s.breakMin), autoBreak: !!s.autoBreak, startedAt: finiteMs(s.startedAt),
+			...(s.elapsedMs !== undefined ? {elapsedMs: finiteMs(s.elapsedMs), remainingMs: finiteMs(s.remainingMs)} : {})}
+		pomoSnapshotAt = performance.now()
 	} catch { /* 忽略 */ }
 }
 const pomoSyncFocus = (): void => {
-	const f = pomo.value.phase === "focus" || pomo.value.phase === "countUp"
+	const f = pomo.value.phase !== "idle"
 	if (f !== pomoFocus.value) {
 		pomoFocus.value = f
 		// 专注开始 → 立即静音 (等价于在设置里打开"立即静音", 但带快照, 专注结束自动还原);
 		// 专注结束 → 还原进专注前的安静设置。
-		// 注: 进入休息时 f 仍为 true, 所以静音会一直持续到整个番茄跑完或放弃 ——
-		// 与"惩罚静音"的时长语义一致, 不会在专注到点那一刻把音乐放出来。
+		// 包括休息、暂停；整个周期结束后还原，用户手动接管优先。
 		if (f) pomoFocusMuteStart()
 		else pomoFocusMuteEnd()
 		setAmbientEnabled(ambientAllowed())
@@ -4482,178 +4848,217 @@ const pomoSyncFocus = (): void => {
 	try {
 		const e = JSON.parse(json)
 		if (!e || e.type !== "end") return
+		if (e.seq && e.seq <= pomoLastAnnounced) { pomoRefresh(); return }
+		if (e.seq) pomoLastAnnounced = e.seq
 		const b = noriB()
 		if (b?.pomoState) pomoStateSet(b.pomoState())
 		pomoSyncFocus()
-		const day = pomoDay()
+		pomoStatsLoad()
+		pomoUpdateDisplay()
+		// 已结束很久的后台事件只补账，避免重新打开时连续播报旧提示。
+		if (e.reason && e.reason !== "complete" || e.endedAt && Date.now() - e.endedAt > 15000) return
 		if (e.phase === "focus") {
 			// 专注到点后进入休息 —— 仍在一个番茄周期内, 保持静音, 不在这里还原
-			day.done++; day.focusMin += pomo.value.focusMin
-			addToStore(pomoStats, {focusMin: pomo.value.focusMin, done: 1})
-			pomoStatsSave()
+			if (!b?.pomoStats) {
+				const day = pomoDay()
+				day.done++; day.focusMin += pomo.value.focusMin
+				addToStore(pomoStats, {focusMin: pomo.value.focusMin, done: 1})
+				pomoStatsSave()
+			}
 			playSfxFile(POMO_SFX.complete)
-			if (pomo.value.phase === "break") window.setTimeout(() => playSfxFile(POMO_SFX.ret), 1200)
 			if (isTtsReady(cfg)) { try { void speakTTS(cfg, "专注完成，做得很好。休息一下吧，我看着时间。") } catch { /* 忽略 */ } }
 		} else {
 			// 休息结束 = 一个完整番茄跑完 → 还原进专注前的安静设置 (BGM 恢复)
-			pomoFocusMuteEnd()
-			pomoSulkRestoreIfAny()
 			playSfxFile(POMO_SFX.ret)
 			if (isTtsReady(cfg)) { try { void speakTTS(cfg, "休息够了？回来吧，我陪着你。") } catch { /* 忽略 */ } }
 		}
 	} catch { /* 忽略 */ }
 }
+let pomoLastAnnounced = 0
 
-/* 显示计时 (500ms 轮询, 剩余由 epoch 推算) */
+/* 只在可见且运行时每秒同步原生，展示在单调时钟快照上推算。 */
 const pomoFmt = ref("00:00")
 const pomoPct = ref(0)
-const pomoFmtOf = (sec: number, plus = false): string => {
+const pomoFmtOf = (sec: number): string => {
 	const h = Math.floor(sec / 3600)
 	const m = Math.floor((sec % 3600) / 60)
 	const s2 = sec % 60
 	const core = h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s2).padStart(2, "0")}` : `${String(m).padStart(2, "0")}:${String(s2).padStart(2, "0")}`
-	return plus ? "+" + core : core
+	return core
 }
 const pomoTick = (): void => {
 	const s = pomo.value
 	if (s.phase === "idle") { pomoFmt.value = "00:00"; pomoPct.value = 0; return }
 	const now = Date.now()
+	const delta = s.paused ? 0 : Math.max(0, performance.now() - pomoSnapshotAt)
 	if (s.phase === "countUp") {
-		const el = Math.max(0, s.paused ? s.remainMs : now - s.startedAt)
-		pomoFmt.value = pomoFmtOf(Math.floor(el / 1000), true)
-		pomoPct.value = 100
+		const el = Math.max(0, s.elapsedMs !== undefined ? s.elapsedMs + delta : s.paused ? s.remainMs : now - s.startedAt)
+		pomoFmt.value = pomoFmtOf(Math.floor(el / 1000))
+		pomoPct.value = 0
 		return
 	}
 	const total = (s.phase === "focus" ? s.focusMin : s.breakMin) * 60
-	const left = s.paused ? Math.ceil(s.remainMs / 1000) : Math.max(0, Math.ceil((s.endAt - now) / 1000))
+	const left = s.remainingMs !== undefined ? Math.max(0, Math.ceil((s.remainingMs - delta) / 1000))
+		: s.paused ? Math.ceil(s.remainMs / 1000) : Math.max(0, Math.ceil((s.endAt - now) / 1000))
 	pomoFmt.value = pomoFmtOf(left)
 	pomoPct.value = total > 0 ? Math.min(100, Math.round(((total - left) / total) * 100)) : 0
 }
 let pomoTickTimer = 0
-
-/* ---------------- 番茄钟静音 (专注开始即静音) ----------------
- * 快照进专注前的安静设置 → 立即静音; 专注结束 (跑完/正向停止) 还原。
- * 与"放弃静音惩罚"共用同一套快照与 UI, 但两者**互不覆盖**:
- *   - pomoFocusMuteOn: 专注期静音是否生效 (由专注状态驱动, 覆盖整个番茄周期含休息);
- *   - pomoSulk:        放弃惩罚的快照 (由 pomoSulkStart/Restore 驱动)。
- * 放弃时 pomoFocusMuteOn 仍为真 → pomoSulkStart 保留已有快照不再新建,
- * 于是"开始即静音、放弃后继续安静"是同一个快照, 行为与原方案一致。
- * 注: pomoFocusMuteOn 的声明在使用点之前 (见 applyQuiet/bgmHeld 附近)。
- */
-/** 专注开始: 立即静音。
- *  已是"手动静音"态时**只维持、不建快照** —— 因为无法区分这两种情形:
- *    ① 用户本来就开着立即静音 (结束时应保持静音);
- *    ② App 在专注中途被重启, 页面重载后 pomoFocusMuteOn 归零、而 quietMode 已是
- *       manual+on (原生计时器仍在跑) —— 此时若建快照, 记下的就是"静音中",
- *       专注结束后会还原成静音, 音乐再也不恢复。
- *  两种情形下"保持静音"都不会做错, 所以选择不建快照。 */
-const pomoFocusMuteStart = (): void => {
-	if (pomoFocusMuteOn) return
-	pomoFocusMuteOn = true
-	if (cfg.quietMode === "manual" && cfg.quietOn) return
-	const snap = {mode: cfg.quietMode as "off" | "auto" | "manual", on: cfg.quietOn}
-	pomoSulk = {...snap, timer: 0}
-	saveFocusMuteSnapshot(snap)   // 落盘: 专注期间被杀也能在下次启动还原
-	cfg.quietMode = "manual"
-	cfg.quietOn = true
-	applyQuiet()
+let pomoDateTimer = 0
+const pomoRefresh = (stats = true): void => {
+	const previousPhase = pomo.value.phase
+	try { const b = noriB(); if (b?.pomoState) pomoStateSet(b.pomoState()) } catch { /* 下次前台同步重试 */ }
+	pomoSyncFocus()
+	// 原生完成回调即使未送达，轮询发现阶段变化时也立即同步账本。
+	if (stats || previousPhase !== pomo.value.phase) pomoStatsLoad()
+	pomoUpdateDisplay()
 }
-/** 专注结束: 还原进专注前的安静设置 */
-const pomoFocusMuteEnd = (): void => {
-	if (!pomoFocusMuteOn) return
-	pomoFocusMuteOn = false
-	pomoSulkRestoreIfAny()
+const pomoUpdateDisplay = (): void => {
+	pomoTick()
+	if (pomoTickTimer) { clearInterval(pomoTickTimer); pomoTickTimer = 0 }
+	if (!document.hidden && pomo.value.phase !== "idle" && !pomo.value.paused)
+		pomoTickTimer = window.setInterval(() => pomoRefresh(false), 1000)
+}
+const pomoRefreshDate = (): void => {
+	pomoDate.value = new Date()
+	if (pomoDateTimer) clearTimeout(pomoDateTimer)
+	if (document.hidden) { pomoDateTimer = 0; return }
+	const midnight = new Date()
+	midnight.setHours(24, 0, 0, 20)
+	pomoDateTimer = window.setTimeout(pomoRefreshDate, Math.max(1, midnight.getTime() - Date.now()))
 }
 
-/* 专注静音快照的持久化 (localStorage)。
- * 为什么必须持久化: 进入专注会把 quietMode 改成 manual+on 并 persistSettings() 写进磁盘,
- * 而快照(模块级 pomoSulk/pomoFocusMuteOn)随进程消失。若 App 在专注期间被杀再重开:
- *   pomoFocusMuteOn=false 但 quietMode 已是 manual+on
- *   → pomoFocusMuteStart 的"已是静音态就提前 return"命中 → 永远没有快照
- *   → 专注结束后 pomoSulkRestoreIfAny() 无物可还原 → 静音永久卡住
- *     (表现: BGM 再也不响、Nori 再也不主动搭话)
- * 所以把"进入专注前是什么状态"落盘, 启动时据此自愈。 */
+/* ---------------- 番茄钟静音：周期/放弃保持/用户接管 ---------------- */
 const FOCUS_MUTE_KEY = "pomo_focus_mute_snapshot"
 type QuietSnapshot = {mode: "off" | "auto" | "manual"; on: boolean}
-const saveFocusMuteSnapshot = (snap: QuietSnapshot): void => {
-	try { localStorage.setItem(FOCUS_MUTE_KEY, JSON.stringify(snap)) } catch { /* 忽略 */ }
+type PomoQuiet = QuietSnapshot & {stage: "cycle" | "sulk"; until: number; timer: number}
+let pomoSulk: PomoQuiet | null = null
+let pomoQuietUser = false
+const saveFocusMuteSnapshot = (): void => {
+	try {
+		const value = pomoQuietUser ? {stage: "user"} : pomoSulk
+		if (value) localStorage.setItem(FOCUS_MUTE_KEY, JSON.stringify({...value, timer: 0}))
+		else localStorage.removeItem(FOCUS_MUTE_KEY)
+	} catch { /* 忽略 */ }
 }
 const clearFocusMuteSnapshot = (): void => {
 	try { localStorage.removeItem(FOCUS_MUTE_KEY) } catch { /* 忽略 */ }
 }
-/** 启动自愈: 存在残留快照 = 上次专注期间被中断 → 还原之后再 applyQuiet。
- *  必须在 onMounted 的 applyQuiet() 之前调用, 否则会先按"卡住的静音态"应用一次。 */
-const recoverFocusMuteIfNeeded = (): void => {
-	try {
-		const raw = localStorage.getItem(FOCUS_MUTE_KEY)
-		if (!raw) return
-		const snap = JSON.parse(raw) as QuietSnapshot
-		if (snap && (snap.mode === "off" || snap.mode === "auto" || snap.mode === "manual")) {
-			cfg.quietMode = snap.mode
-			cfg.quietOn = !!snap.on
-		}
-	} catch { /* 忽略 */ }
-	clearFocusMuteSnapshot()
-}
-
-/* 放弃静音惩罚: 快照当前安静设置 → manual+on; 期间用户动过开关则由用户接管, 恢复写回设置 */
-let pomoSulk: {mode: "off" | "auto" | "manual"; on: boolean; timer: number} | null = null
-const pomoSulkStart = (): void => {
-	// 专注期静音的快照还挂着 → 它就是"进专注前"的快照, 保留即可, 不要覆盖
-	if (pomoFocusMuteOn) return
-	if (cfg.quietMode === "manual" && cfg.quietOn) return
-	const sulk: {mode: "off" | "auto" | "manual"; on: boolean; timer: number} = {mode: cfg.quietMode as "off" | "auto" | "manual", on: cfg.quietOn, timer: 0}
-	pomoSulk = sulk
-	cfg.quietMode = "manual"
-	cfg.quietOn = true
+/** 开始/恢复整个周期，原安静设置只保存一次；放弃保持可无缝转入新周期。 */
+const pomoFocusMuteStart = (): void => {
+	if (pomoQuietUser || pomoFocusMuteOn) return
+	pomoFocusMuteOn = true
+	if (!pomoSulk) pomoSulk = {mode: cfg.quietMode as QuietSnapshot["mode"], on: cfg.quietOn, stage: "cycle", until: 0, timer: 0}
+	if (pomoSulk.timer) clearTimeout(pomoSulk.timer)
+	pomoSulk.stage = "cycle"; pomoSulk.until = 0; pomoSulk.timer = 0
+	saveFocusMuteSnapshot()
+	cfg.quietMode = "manual"; cfg.quietOn = true
 	applyQuiet()
-	if (pomoCfg.sulkMin > 0) sulk.timer = window.setTimeout(pomoSulkRestore, pomoCfg.sulkMin * 60000)
+	persistSettings()
+}
+const pomoFocusMuteEnd = (): void => {
+	pomoFocusMuteOn = false
+	if (pomoSulk?.stage === "cycle") pomoSulkRestore()
+	if (pomoQuietUser) { pomoQuietUser = false; clearFocusMuteSnapshot() }
+	applyQuiet()
 }
 const pomoSulkRestore = (): void => {
 	if (!pomoSulk) return
 	if (pomoSulk.timer) clearTimeout(pomoSulk.timer)
-	cfg.quietMode = pomoSulk.mode
-	cfg.quietOn = pomoSulk.on
+	const snap = pomoSulk
+	pomoSulk = null
+	pomoFocusMuteOn = false
+	cfg.quietMode = snap.mode; cfg.quietOn = snap.on
+	clearFocusMuteSnapshot()
 	applyQuiet()
 	persistSettings()
-	pomoSulk = null
-	clearFocusMuteSnapshot()   // 已还原: 清掉落盘快照, 避免下次启动误自愈
 }
-/** 惩罚期内用户手动碰了静音 → 撤销自动恢复 (保留用户的选择) */
-const pomoSulkCancelByUser = (): void => {
-	if (!pomoSulk) return
+const pomoArmSulk = (): void => {
+	if (!pomoSulk || pomoSulk.stage !== "sulk" || !pomoSulk.until) return
 	if (pomoSulk.timer) clearTimeout(pomoSulk.timer)
-	pomoSulk = null
-	// 用户接管了静音状态: 落盘快照必须作废, 否则下次启动自愈会把他的选择改回去
-	clearFocusMuteSnapshot()
+	const left = pomoSulk.until - Date.now()
+	if (left <= 0) { pomoSulkRestore(); return }
+	pomoSulk.timer = window.setTimeout(pomoSulkRestore, left)
 }
-/** 恢复快照 (若存在): 专注结束 / 惩罚到点 / 正向计时结束共用 */
-const pomoSulkRestoreIfAny = (): void => { if (pomoSulk) pomoSulkRestore() }
+/** 放弃时直接交接快照，不先恢复音乐；0 分钟表示等待用户手动恢复。 */
+const pomoSulkStart = (): void => {
+	pomoFocusMuteOn = false
+	if (pomoQuietUser) return
+	if (!pomoSulk) pomoSulk = {mode: cfg.quietMode as QuietSnapshot["mode"], on: cfg.quietOn, stage: "sulk", until: 0, timer: 0}
+	pomoSulk.stage = "sulk"
+	pomoSulk.until = pomoCfg.sulkMin > 0 ? Date.now() + pomoCfg.sulkMin * 60000 : 0
+	saveFocusMuteSnapshot()
+	cfg.quietMode = "manual"; cfg.quietOn = true
+	applyQuiet()
+	persistSettings()
+	pomoArmSulk()
+}
+/** 用户手动修改静音后，以用户选择为准，重载也不重新覆盖。 */
+const pomoSulkCancelByUser = (): void => {
+	if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
+	pomoSulk = null
+	pomoFocusMuteOn = false
+	pomoQuietUser = pomo.value.phase !== "idle"
+	saveFocusMuteSnapshot()
+}
+/** 在应用音乐设置前恢复，依据原生状态决定继续安静还是还原。 */
+const recoverFocusMuteIfNeeded = (): void => {
+	try {
+		const raw = localStorage.getItem(FOCUS_MUTE_KEY)
+		const snap = raw ? JSON.parse(raw) : null
+		if (snap?.stage === "user") pomoQuietUser = pomo.value.phase !== "idle"
+		else if (snap && ["off", "auto", "manual"].includes(snap.mode)) {
+			pomoSulk = {...snap, on: !!snap.on, stage: snap.stage === "sulk" ? "sulk" : "cycle", until: Number(snap.until) || 0, timer: 0}
+		}
+	} catch { clearFocusMuteSnapshot() }
+	pomoFocus.value = pomo.value.phase !== "idle"
+	if (pomoFocus.value) pomoFocusMuteStart()
+	else if (pomoSulk?.stage === "cycle") pomoSulkRestore()
+	else if (pomoSulk?.stage === "sulk") {
+		cfg.quietMode = "manual"; cfg.quietOn = true
+		pomoArmSulk()
+	} else clearFocusMuteSnapshot()
+	setAmbientEnabled(ambientAllowed())
+}
 
 /* 操作 */
 const pomoStartImpl = (f: number, b: number): void => {
 	const b2 = noriB()
 	if (!b2?.pomoStart) return
+	pomoQuietUser = false
+	b2.pomoSetNotify?.(pomoCfg.notify)
 	pomoStateSet(b2.pomoStart(Math.min(120, Math.max(1, Math.round(f))), Math.min(30, Math.max(1, Math.round(b))), pomoCfg.autoBreak))
 	pomoWidgetOn.value = true
 	pomoSyncFocus()
+	pomoFocusMuteStart()
+	pomoStatsLoad()
+	pomoUpdateDisplay()
 	playSfxFile(POMO_SFX.start)
 	if (pomoCfg.notify) b2.pomoRequestNotify?.()
 }
 const pomoCountUpImpl = (): void => {
 	const b = noriB()
 	if (!b?.pomoStartCountUp) return
+	pomoQuietUser = false
+	b.pomoSetNotify?.(pomoCfg.notify)
 	pomoStateSet(b.pomoStartCountUp())
 	pomoWidgetOn.value = true
 	pomoSyncFocus()
+	pomoFocusMuteStart()
+	pomoStatsLoad()
+	pomoUpdateDisplay()
 	playSfxFile(POMO_SFX.start)
 	if (pomoCfg.notify) b.pomoRequestNotify?.()
 }
 const pomoPauseBtn = (): void => {
 	const b = noriB()
 	if (!b) return
+	const previousPhase = pomo.value.phase
 	if (pomo.value.paused) pomoStateSet(b.pomoResume?.() || "")
 	else pomoStateSet(b.pomoPause?.() || "")
+	pomoSyncFocus()
+	if (previousPhase !== pomo.value.phase) pomoStatsLoad()
+	pomoUpdateDisplay()
 }
 const pomoStopBtn = (): void => {
 	const b = noriB()
@@ -4661,48 +5066,62 @@ const pomoStopBtn = (): void => {
 	let r: PomoStateT & {endedPhase?: PomoPhase; elapsedMs?: number}
 	try { r = JSON.parse(b.pomoStop()) } catch { return }
 	pomoStateSet(JSON.stringify(r))
+	if (r.endedPhase === "focus") pomoSulkStart()
 	pomoSyncFocus()
-	const day = pomoDay()
+	pomoUpdateDisplay()
+	if (b.pomoStats) pomoStatsLoad()
 	if (r.endedPhase === "focus") {
-		const elMin = Math.round((r.elapsedMs || 0) / 60000)
-		day.abort++; day.focusMin += elMin
-		addToStore(pomoStats, {focusMin: elMin})
-		pomoStatsSave()
+		if (!b.pomoStats) {
+			const day = pomoDay()
+			const elMin = (r.elapsedMs || 0) / 60000
+			day.abort++; day.focusMin += elMin
+			addToStore(pomoStats, {focusMin: elMin})
+			pomoStatsSave()
+		}
 		playSfxFile(POMO_SFX.abandon)
 		if (isTtsReady(cfg)) { try { void speakTTS(cfg, "……好吧。") } catch { /* 忽略 */ } }
-		pomoSulkStart()
 	} else if (r.endedPhase === "countUp") {
-		pomoSulkRestoreIfAny()
-		const elMin = Math.round((r.elapsedMs || 0) / 60000)
-		day.countUpMin += elMin
-		addToStore(pomoStats, {countUpMin: elMin})
-		pomoStatsSave()
+		if (!b.pomoStats) {
+			const day = pomoDay()
+			const elMin = (r.elapsedMs || 0) / 60000
+			day.countUpMin += elMin
+			addToStore(pomoStats, {countUpMin: elMin})
+			pomoStatsSave()
+		}
 	}
 }
 const pomoGoBtn = (): void => {
+	pomoRefresh()
 	if (pomo.value.phase === "focus" || pomo.value.phase === "break") { pomoStopBtn(); return }
 	pomoStartImpl(pomoCfg.focusMin, pomoCfg.breakMin)
 }
 const pomoCountUpBtn = (): void => {
+	pomoRefresh()
 	if (pomo.value.phase === "countUp") { pomoStopBtn(); return }
 	pomoCountUpImpl()
 }
-const pomoOnNotifyChange = (): void => { if (pomoCfg.notify) noriB()?.pomoRequestNotify?.() }
+const pomoOnNotifyChange = (): void => {
+	noriB()?.pomoSetNotify?.(pomoCfg.notify)
+	if (pomoCfg.notify) noriB()?.pomoRequestNotify?.()
+}
 
 /* 面板文案 */
 const pomoPhaseText = computed((): string => {
 	if (pomo.value.phase === "focus") return pomo.value.paused ? "已暂停 · 专注" : "专注中"
 	if (pomo.value.phase === "break") return pomo.value.paused ? "已暂停 · 休息" : "休息中"
-	return "正向计时"
+	if (pomo.value.phase === "countUp") return pomo.value.paused ? "已暂停 · 正向计时" : "正向计时"
+	return "未开始"
 })
 const pomoGoLabel = computed((): string => {
 	const p = pomo.value.phase
-	if (p === "focus" || p === "break" || p === "countUp") return "放弃当前"
+	if (p === "countUp") return "保存并转倒计时"
+	if (p === "focus") return "放弃当前"
+	if (p === "break") return "结束休息"
 	return `开始专注 ${pomoCfg.focusMin} 分钟`
 })
 const pomoTodayText = computed((): string => {
-	const d = pomoStats.days[pomoDayKey()]
-	return `${(d?.focusMin || 0) + (d?.countUpMin || 0)} 分钟 · 完成 ${d?.done || 0} · 中断 ${d?.abort || 0}`
+	const d = pomoStats.days[pomoDayKey(pomoDate.value)]
+	return `${Math.round(dayMinutes(d))} 分钟 · 完成 ${d?.done || 0} · 中断 ${d?.abort || 0}`
 })
 // 注: 原先这里还有一个固定的 7 天 pomoBars, 已被 pomoRangeBars (7/30/365 可切) 取代并删除
 
@@ -4711,7 +5130,7 @@ const pomoTodayText = computed((): string => {
  *   - 面板给出全部客观数据, 包括完成率/中断这类"自我批评"指标, 是给你自己看的;
  *   - Nori 嘴里最多提一件**正向且话题相关**的事, 且一天一次 (见 buildFocusHint)。
  * 汇总计算与注入判定都在 services/pomo-stats.ts (纯逻辑, 有单测)。 */
-const pomoSummary = computed<PomoSummary>(() => pomoSummarize(pomoStats.days, 7))
+const pomoSummary = computed<PomoSummary>(() => pomoSummarize(pomoStats.days, 7, pomoDate.value))
 
 /* ---- 统计范围切换 (柱状图: 7 / 30 / 365 天) ---- */
 const pomoRange = ref<7 | 30 | 365>(7)
@@ -4722,9 +5141,9 @@ const pomoRangeBars = computed(() => {
 	// 柱子太密时只标部分标签 (30 天每 5 天一个, 365 天只标月份首日)
 	const labelStep = n <= 7 ? 1 : n <= 30 ? 5 : 30
 	for (let i = n - 1; i >= 0; i--) {
-		const d = new Date(Date.now() - i * 86400000)
+		const d = shiftDay(pomoDate.value, -i)
 		const k = pomoDayKey(d)
-		const min = (pomoStats.days[k]?.focusMin || 0) + (pomoStats.days[k]?.countUpMin || 0)
+		const min = Math.round(dayMinutes(pomoStats.days[k]))
 		if (min > max) max = min
 		const showLabel = i === 0 || (labelStep > 1 && i % labelStep === 0)
 		out.push({
@@ -4737,12 +5156,12 @@ const pomoRangeBars = computed(() => {
 	for (const o of out) o.h = Math.max(4, Math.round((o.min / max) * 100))
 	return out
 })
-const pomoRangeSummary = computed<PomoSummary>(() => pomoSummarize(pomoStats.days, pomoRange.value))
+const pomoRangeSummary = computed<PomoSummary>(() => pomoSummarize(pomoStats.days, pomoRange.value, pomoDate.value))
 
 /* ---- 独立统计页: 热力图 + 点选某天 + 月度汇总 ---- */
 const pomoSelectedDay = ref<{date: string; min: number; done: number; abort: number} | null>(null)
-const pomoHeat = computed<Heatmap>(() => buildHeatmap(pomoStats.days, 52))
-const pomoMonths = computed(() => monthlyRollup(pomoStats.days, 12))
+const pomoHeat = computed<Heatmap>(() => buildHeatmap(pomoStats.days, 52, pomoDate.value))
+const pomoMonths = computed(() => monthlyRollup(pomoStats.days, 12, pomoDate.value))
 const pomoHeatCanvas = ref<HTMLCanvasElement | null>(null)
 
 /** 画热力图: 静态重绘 (数据变化才画), 不参与逐帧 ——
@@ -4799,7 +5218,10 @@ watch([pomoHeat, () => panel.value], () => {
 	if (panel.value === "pomoStats") void nextTick(() => drawHeatmap())
 })
 /** 累计时长的人话格式 */
-const fmtTotalMin = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} 小时 ${m % 60} 分` : `${m} 分钟`)
+const fmtTotalMin = (m: number): string => {
+	const min = Math.round(m)
+	return min >= 60 ? `${Math.floor(min / 60)} 小时 ${min % 60} 分` : `${min} 分钟`
+}
 
 /** "今天已经跟 Nori 提过专注"的日期标记 (每天最多提一次, 避免连着聊工作就句句提) */
 const POMO_HINT_DAY_KEY = "pomo_hint_day"
@@ -4816,6 +5238,12 @@ const markFocusHinted = (): void => {
 /** 里程碑"只庆祝一次"的标记持久化 (与 pomo.json 的 celebrated 同步) */
 const markCelebrated = (key: string): void => {
 	try {
+		const b = noriB()
+		if (b?.pomoMarkCelebrated) {
+			const raw = b.pomoMarkCelebrated(key)
+			if (raw) Object.assign(pomoStats, JSON.parse(raw))
+			return
+		}
 		pomoStats.celebrated = {...(pomoStats.celebrated ?? {}), [key]: Date.now()}
 		pomoStatsSave()
 	} catch { /* 忽略 */ }
@@ -4864,13 +5292,14 @@ const onPomoRzMove = (e: PointerEvent): void => {
 const onPomoRzUp = (): void => { if (pomoRzSt) { pomoRzSt = null; pomoPosSave() } }
 
 /* 初始化 (setup 期): 统计/配置/组件位置/桥状态/显示节拍 */
-pomoStatsLoad()
 pomoCfgLoad()
+noriB()?.pomoSetNotify?.(pomoCfg.notify)
+pomoStatsLoad()
 pomoPosLoad()
 try { const b0 = noriB(); if (b0?.pomoState) pomoStateSet(b0.pomoState()) } catch { /* 忽略 */ }
 if (pomo.value.phase !== "idle") pomoWidgetOn.value = true   // 计时中刷新/重载: 组件自动回来
-pomoTick()
-pomoTickTimer = window.setInterval(pomoTick, 500)
+pomoUpdateDisplay()
+pomoRefreshDate()
 window.addEventListener("resize", pomoClampPos)
 
 /* ---------------- CosyVoice 声音克隆 ---------------- */
@@ -5503,6 +5932,7 @@ const persistSettings = (): string => {
 		renderScale: renderScaleNum.value,
 		l2dFps: l2dFpsNum.value,
 		ttsEnabled: !!cfg.ttsEnabled,
+		lipSyncEnabled: !!cfg.lipSyncEnabled,
 		bgmEnabled: !!cfg.bgmEnabled,
 		bgmTrack: cfg.bgmTrack || "random",
 		ttsProvider: cfg.ttsProvider === "cosyvoice" ? "cosyvoice" : "fish",
@@ -5542,7 +5972,7 @@ const persistSettings = (): string => {
 		lookSens: Number(cfg.lookSens) || 0.2,
 		floatEnabled: !!cfg.floatEnabled,
 		floatBubbleW: Number(cfg.floatBubbleW) || 82,
-		floatRenderScale: Number(cfg.floatRenderScale) || nativeDpr.value,
+		floatRenderScale: normalizeRenderScale(cfg.floatRenderScale, nativeDpr.value),
 	})
 	if (raw !== "ok") console.error("[settings] 写盘失败:", raw)
 	return raw
@@ -5581,9 +6011,10 @@ const onFloatToggle = () => {
 
 /** 悬浮窗: 渲染分辨率设置 → 保存 + 实时通知悬浮窗页面 */
 const onFloatRenderScale = () => {
+	cfg.floatRenderScale = normalizeRenderScale(cfg.floatRenderScale, nativeDpr.value)
 	persistSettings()
 	try {
-		window.NoriChat?.setFloatRenderScale?.(Number(cfg.floatRenderScale) || 2)
+		window.NoriChat?.setFloatRenderScale?.(cfg.floatRenderScale)
 	} catch { /* 忽略 */ }
 }
 
@@ -5604,6 +6035,7 @@ watch(() => cfg.ttsReferenceId, saveVoicesDebounced)
 watch([() => cfg.cosyModel, () => cfg.cosyVoice], saveVoicesDebounced)
 
 const onResize = () => {
+	syncChatLayout()
 	relayout()
 	resizeDataseaBg()
 }
@@ -5613,6 +6045,11 @@ const refreshStorage = () => {
 	// 「所有文件访问权限」可能是在系统设置里刚授予的 —— 每次回前台都刷新一次,
 	// 用户授权返回后设置页的「已授权 ✓」会立刻变绿, 不用重开面板。
 	allFilesAccess.value = hasAllFilesAccess()
+	if (!document.hidden) {
+		pomoRefreshDate()
+		pomoRefresh()
+		pomoArmSulk()
+	}
 }
 
 /**
@@ -5637,6 +6074,8 @@ const onVisibility = () => {
 	refreshStorage()
 	// 切后台: 立即落盘防抖中的聊天记录, 避免丢最后一次写入
 	if (document.hidden) {
+		pomoUpdateDisplay()
+		pomoRefreshDate()
 		flushChatPersist()
 		stopTTS()
 		pauseBgm()
@@ -5656,6 +6095,8 @@ const onVisibility = () => {
 
 onMounted(async () => {
 	window.addEventListener("resize", onResize)
+	window.visualViewport?.addEventListener("resize", syncChatLayout)
+	window.visualViewport?.addEventListener("scroll", syncChatLayout)
 	
 	document.addEventListener("pointerdown", onStagePointerDown)
 	document.addEventListener("pointermove", onStagePointerMove)
@@ -5678,10 +6119,14 @@ onMounted(async () => {
 	cfg.live2dModel = s.live2dModel ?? ""
 	cfg.bubbleScale = s.bubbleScale || 1
 	cfg.bubbleWidth = Number(s.bubbleWidth) || 82
-	cfg.renderScale = s.renderScale || nativeDpr.value
+	// 默认封顶 1.5x（2026-10-05 从 2 下调）: 台式/大屏上两层合计填充 3.206 → 1.297 MP(−60%)。
+	// 用户显式设置过的值不受影响。真正生效的倍率还会被"最长边上限"再夹一次(见 live2d/index.ts)。
+	cfg.renderScale = normalizeRenderScale(s.renderScale, Math.min(nativeDpr.value, 1.5))
 	// 旧设置文件没有 l2dFps → normalizeFps 回落到默认档 (60)
 	cfg.l2dFps = normalizeFps(s.l2dFps)
 	cfg.ttsEnabled = !!s.ttsEnabled
+	// 口型默认关闭；旧设置文件缺少该字段时必须保持关闭
+	cfg.lipSyncEnabled = s.lipSyncEnabled === true
 	cfg.bgmEnabled = !!s.bgmEnabled
 	cfg.bgmTrack = s.bgmTrack || "random"
 	cfg.ttsProvider = s.ttsProvider === "cosyvoice" ? "cosyvoice" : "fish"
@@ -5727,7 +6172,7 @@ onMounted(async () => {
 	cfg.lookSens = Number(s.lookSens) || 0.2
 	cfg.floatEnabled = !!s.floatEnabled
 	cfg.floatBubbleW = Number(s.floatBubbleW) || 82
-	cfg.floatRenderScale = Number(s.floatRenderScale) || nativeDpr.value
+	cfg.floatRenderScale = normalizeRenderScale(s.floatRenderScale, nativeDpr.value)
 	// 同步原生悬浮窗开关标记 (退出判断用, 不依赖 settings.json 读写时序)
 	try { window.NoriChat?.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 忽略 */ }
 	// 应用内朗读音量 (按设置初始化; 之后滑块可实时调整)
@@ -5746,6 +6191,7 @@ onMounted(async () => {
 	// "先响半秒再静音"。先还原成进专注前的配置, syncBgm 一开始就不会播。
 	// (自动模式的重估放在后面, 每分钟一次, 跨过 23:00/8:00 边界即时切换)
 	recoverFocusMuteIfNeeded()
+	pomoUpdateDisplay()
 	applyQuiet()
 	{
 		const bgmId = syncBgm(cfg)
@@ -5781,7 +6227,9 @@ onMounted(async () => {
 	quietTimer = window.setInterval(() => {
 		if (cfg.quietMode === "auto") applyQuiet()
 	}, 60_000)
-	window.__noriRenderScale = renderScaleNum.value
+	window.__noriRenderScale = normalizeRenderScale(renderScaleNum.value, 1)
+	// 背景画布按这个刻度重算一次: initDataseaBg(上面)跑在它之前, 那时还读不到 __noriRenderScale
+	resizeDataseaBg()
 	// 启动即应用帧率档位 (设置加载完成后才有效; l2d 的 installFrameCap 已给默认档)
 	applyL2dFps()
 	storagePath.value = getStorageDir()
@@ -5837,7 +6285,13 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(async () => {
+	cancelModelTagPress()
+	flushTransformSave()
 	window.removeEventListener("resize", onResize)
+	window.visualViewport?.removeEventListener("resize", syncChatLayout)
+	window.visualViewport?.removeEventListener("scroll", syncChatLayout)
+	clearPortraitReplyTimer()
+	if (aiBubbleTimer) clearTimeout(aiBubbleTimer)
 	document.removeEventListener("pointerdown", onStagePointerDown)
 	document.removeEventListener("pointermove", onStagePointerMove)
 	document.removeEventListener("pointerup", onStagePointerUp)
@@ -5864,6 +6318,7 @@ onBeforeUnmount(async () => {
 	if (quietTimer) { clearInterval(quietTimer); quietTimer = 0 }
 	if (pomoTickTimer) { clearInterval(pomoTickTimer); pomoTickTimer = 0 }
 	if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
+	if (pomoDateTimer) { clearTimeout(pomoDateTimer); pomoDateTimer = 0 }
 	window.removeEventListener("resize", pomoClampPos)
 	setTtsErrorHandler(null)
 	detector.destroy()
@@ -6357,6 +6812,23 @@ onBeforeUnmount(async () => {
 	color: var(--fg);
 	backdrop-filter: blur(var(--ui-blur-chip));
 }
+.tag {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 3px;
+	font-family: inherit;
+	text-align: left;
+	line-height: 1.2;
+	cursor: pointer;
+	-webkit-touch-callout: none;
+}
+.tag-hint {
+	font-size: 10px;
+	color: var(--fg-3);
+	font-weight: 400;
+}
+.tag.locked .tag-hint { color: var(--accent); }
 .err { color: #fecaca; border-color: rgba(248, 113, 113, 0.5); background: rgba(127, 29, 29, 0.5); }
 
 
@@ -6402,6 +6874,13 @@ onBeforeUnmount(async () => {
 	display: flex; justify-content: space-between; align-items: center;
 	padding: 10px 14px;
 	border-bottom: 1px solid var(--line-soft);
+}
+.chat-history {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
 }
 .chat-title { font-size: 14px; font-weight: 600; color: var(--fg); }
 .chat-msgs {
@@ -6465,8 +6944,87 @@ onBeforeUnmount(async () => {
 .bubble-wrap.assistant .bubble.typing { color: var(--fg-3); }
 .chat-input {
 	display: flex; gap: 8px;
-	padding: 10px 12px;
+	padding: 10px 12px 4px;
 	border-top: 1px solid var(--line-soft);
+}
+.chat-tools {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0 12px 8px;
+	flex-shrink: 0;
+}
+.chat-tool {
+	min-height: 40px;
+	padding: 0 12px;
+	border: 1px solid var(--line-soft);
+	border-radius: var(--ui-radius-ctl);
+	background: var(--surface);
+	color: var(--fg);
+	font-size: 13px;
+	white-space: nowrap;
+	&:disabled { opacity: 0.4; }
+}
+.chat-tool-hint {
+	margin-left: auto;
+	color: var(--fg-dim);
+	font-size: 11px;
+}
+.image-entry { position: relative; }
+.image-menu {
+	position: absolute;
+	bottom: calc(100% + 6px);
+	left: 0;
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	width: 160px;
+	padding: 4px;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--ui-radius-ctl);
+	background: rgba(15, 23, 42, 0.98);
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+	button {
+		min-height: 44px;
+		padding: 8px 12px;
+		text-align: left;
+		color: var(--fg);
+		font-size: 14px;
+		border-radius: var(--ui-radius-ctl);
+		&:active { background: rgba(56, 189, 248, 0.16); }
+	}
+}
+.image-preview-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 12px;
+	flex-shrink: 0;
+}
+.image-preview {
+	width: 56px;
+	height: 56px;
+	object-fit: cover;
+	border-radius: var(--ui-radius-ctl);
+}
+.image-preview-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex: 1;
+	min-width: 0;
+	color: var(--fg-3);
+	font-size: 12px;
+}
+.image-remove { min-width: 40px; min-height: 40px; color: var(--fg); }
+.message-image-wrap { max-width: var(--bubble-w, 82%); }
+.message-image {
+	display: block;
+	max-width: 100%;
+	width: 200px;
+	max-height: 180px;
+	object-fit: contain;
+	border-radius: var(--ui-radius-card);
 }
 .queue-hint {
 	padding: 5px 14px 0;
@@ -6476,6 +7034,7 @@ onBeforeUnmount(async () => {
 }
 .chat-input input {
 	flex: 1;
+	min-width: 0;
 	background: rgba(30, 41, 59, 0.9);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--ui-radius-ctl);
@@ -6485,6 +7044,7 @@ onBeforeUnmount(async () => {
 	outline: none;
 }
 .chat-input .send {
+	flex-shrink: 0;
 	padding: 0 16px;
 	border-radius: var(--ui-radius-ctl);
 	background: linear-gradient(135deg, var(--accent-strong) 0%, #6366f1 100%);
@@ -7741,8 +8301,8 @@ onBeforeUnmount(async () => {
 }
 .about-a-block { display: block; margin-top: 2px; font-size: 12px; }
 
-/* ---------------- 横屏适配 (竖屏外观完全不变) ---------------- */
-@media (orientation: landscape) {
+/* 由布局状态区分横竖屏，键盘缩短视口时不切换横屏样式。 */
+.stage-root:not(.portrait) {
 	/* 聊天面板: 不再全宽 (横屏下会横盖整个模型), 靠右限宽; 竖向空间小 → 面板放高 */
 	.chat-panel {
 		left: auto;
@@ -7768,6 +8328,160 @@ onBeforeUnmount(async () => {
 	.topbar {
 		padding-left: calc(14px + env(safe-area-inset-left, 0px));
 		padding-right: calc(14px + env(safe-area-inset-right, 0px));
+	}
+}
+
+/* 竖屏：常驻输入栏 + 短历史；新气泡沿用原模糊 token，独立调整填充。 */
+.portrait {
+	.chat-panel {
+		left: calc(12px + env(safe-area-inset-left, 0px));
+		right: calc(12px + env(safe-area-inset-right, 0px));
+		bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset, 0px));
+		max-height: none;
+		overflow: visible;
+		border-radius: 20px;
+	}
+	.history-toggle {
+		align-self: center;
+		width: 64px;
+		height: 30px;
+		flex-shrink: 0;
+		display: grid;
+		place-items: center;
+		border-radius: 12px 12px 0 0;
+		background: rgba(20, 32, 48, 0.22);
+		color: rgba(238, 245, 255, 0.8);
+		svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.18s ease; }
+		svg.expanded { transform: rotate(180deg); }
+	}
+	.chat-history {
+		flex: 0 1 auto;
+		height: min(28vh, 260px);
+		border: 1px solid rgba(228, 241, 255, 0.14);
+		border-radius: 16px 16px 0 0;
+		background: rgba(15, 26, 42, 0.22);
+	}
+	.chat-head { flex-shrink: 0; padding: 5px 10px; gap: 6px; }
+	.chat-title { font-size: 12px; margin-right: auto; }
+	.chat-head .x { font-size: 11px; padding: 4px 6px; }
+	.chat-msgs { min-height: 0; padding: 8px 10px; gap: 6px; }
+	.chat-input {
+		flex-shrink: 0;
+		align-items: stretch;
+		padding: 8px;
+		gap: 6px;
+		border: 1px solid rgba(228, 241, 255, 0.18);
+		border-radius: 18px;
+		background: rgba(22, 34, 51, 0.3);
+		backdrop-filter: blur(var(--ui-blur-chip));
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+	}
+	.chat-input input {
+		min-height: 42px;
+		padding: 8px 10px;
+		box-sizing: border-box;
+		border-color: rgba(228, 241, 255, 0.14);
+		border-radius: 12px;
+		background: rgba(16, 27, 44, 0.2);
+	}
+	.chat-input .send { padding: 0 12px; border-radius: 12px; font-size: 13px; }
+	.composer-more { display: flex; flex-shrink: 0; }
+	.composer-more > .chat-tool { width: 40px; padding: 0; border-radius: 12px; font-size: 23px; font-weight: 300; background: rgba(228, 241, 255, 0.09); }
+	.composer-more .image-menu { left: auto; right: 0; z-index: 3; }
+	.image-menu button:disabled { opacity: 0.4; }
+	.image-preview-row { padding: 5px 10px; background: rgba(16, 27, 44, 0.24); border-radius: 12px 12px 0 0; }
+	.image-preview { width: 36px; height: 36px; }
+	.image-preview-meta { font-size: 11px; }
+	.queue-hint { padding: 4px 10px; }
+	.portrait-reply {
+		position: absolute;
+		left: 50%;
+		bottom: calc(100% + clamp(24px, 8vh, 72px));
+		transform: translateX(-50%);
+		width: max-content;
+		max-width: calc(100% - 24px);
+		padding: 10px 16px;
+		border: 1px solid rgba(235, 245, 255, 0.16);
+		border-radius: 18px;
+		background: rgba(24, 35, 51, 0.3);
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+		backdrop-filter: blur(var(--ui-blur-bubble));
+		color: #f2f6fc;
+		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+		font-size: 14px;
+		line-height: 1.6;
+		text-align: center;
+		white-space: pre-wrap;
+		overflow-wrap: break-word;
+		line-break: strict;
+	}
+	.portrait-reply-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+	.portrait-reply.ai-enter-from, .portrait-reply.ai-leave-to { transform: translateX(-50%) translateY(8px); }
+	.side-rail-mask { position: absolute; inset: 0; z-index: 15; }
+	.side-rail {
+		position: absolute;
+		right: calc(12px + env(safe-area-inset-right, 0px));
+		top: clamp(70px, 18vh, 150px);
+		z-index: 16;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 8px;
+		filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.18));
+	}
+	.side-rail-handle {
+		width: 38px;
+		height: 38px;
+		border: 1px solid rgba(228, 241, 255, 0.13);
+		border-radius: 14px;
+		background: rgba(24, 39, 53, 0.46);
+		backdrop-filter: blur(var(--ui-blur-chip));
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+		color: rgba(238, 245, 255, 0.82);
+		transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+		&:active { transform: scale(0.96); }
+		&:focus-visible { outline: 2px solid rgba(167, 226, 255, 0.75); outline-offset: 2px; }
+		svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+		svg.expanded { transform: rotate(180deg); }
+	}
+	.side-rail-items {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 5px;
+		max-height: calc(100vh - 228px);
+		overflow-y: auto;
+		touch-action: pan-y;
+		border: 1px solid rgba(215, 241, 241, 0.12);
+		border-radius: 17px;
+		background: linear-gradient(160deg, rgba(28, 44, 55, 0.72), rgba(12, 23, 38, 0.66));
+		backdrop-filter: blur(var(--ui-blur-chip));
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+	}
+	.side-action {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-start;
+		gap: 8px;
+		width: 80px;
+		min-height: 44px;
+		padding: 9px 10px;
+		border: 1px solid transparent;
+		border-radius: 12px;
+		color: rgba(238, 248, 252, 0.88);
+		font-size: 12px;
+		letter-spacing: 0.04em;
+		transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+		img { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.85; }
+		&:hover, &:focus-visible { background: rgba(173, 225, 255, 0.1); border-color: rgba(196, 232, 255, 0.16); outline: none; }
+		&:active { background: rgba(173, 225, 255, 0.17); transform: scale(0.96); }
+	}
+	&.keyboard-open {
+		.chat-history { height: min(28vh, 120px); }
+		.portrait-reply { bottom: calc(100% + 8px); }
+		.side-rail { top: calc(12px + env(safe-area-inset-top, 0px)); }
+		.side-rail-items { max-height: calc(100vh - 160px); }
 	}
 }
 </style>

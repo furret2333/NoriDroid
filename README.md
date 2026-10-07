@@ -23,18 +23,18 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 
 仓库地址：<https://github.com/furret2333/NoriDroid>
 
-> **Current release preparation:** `v2.0.0` (`versionCode 2`). This repository builds the Android app only; release artifacts are prepared locally before publication.
+> **当前交付版本：** `v2.1.0`（`versionCode 3`）。更新说明见 [RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md)，APK 使用本地正式签名构建。
 
 ---
 
 ## 它能干什么
 
 - **Live2D 桌宠** —— 主窗口 / 悬浮窗 / 聊天气泡三个界面；触摸互动、头部跟随、渲染分辨率与帧率上限可调
-- **聊天 + 记忆** —— OpenAI 兼容接口（DeepSeek 等）流式对话；长期记忆 + 历史总结 + 语义召回，带「记忆库」面板
-- **心情日记 · 番茄钟** —— 日记面板；专注 / 休息自动接续、专注期间静音、7 / 30 / 365 天统计
-- **语音** —— Fish Audio / 千问 CosyVoice 双提供商、声音克隆、逐句流式朗读
-- 聊天 / 记忆 / 日记 / 设置存在公共目录 `Download/NoriDroid/`（**卸载不丢**）；
-  Live2D 模型在应用私有目录（**卸载需重新下载**）
+- **聊天 + 记忆** —— OpenAI 兼容接口（DeepSeek 等）流式对话；图片支持相册选择 / 拍摄（需模型支持识图），支持戳戳闲聊；长期记忆 + 历史总结 + 语义召回，带「记忆库」面板
+- **心情日记 · 番茄钟** —— 日记面板；倒计时 / 正向计时、专注 / 休息自动接续、整个计时周期静音、7 / 30 / 365 天统计
+- **语音** —— Fish Audio / 千问 CosyVoice 双提供商、声音克隆、逐句流式朗读；可选音频振幅口型，默认关闭
+- 聊天 / 记忆 / 日记 / 普通设置存在公共目录 `Download/NoriDroid/`，卸载通常保留文件，重装后读取受系统存储权限限制，重要记录请先备份；API Key 保存在 Android Keystore 保护的私有存储中。
+  番茄钟统计以应用私有账本为准，并同步公共目录兼容副本；Live2D 模型在应用私有目录（**卸载需重新下载**）。
 
 ---
 

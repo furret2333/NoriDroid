@@ -14,10 +14,20 @@ import {DEFAULT_FISH_TTS, cleanSpeechText, streamFishTTS, testFishTTS, type Fish
 import {streamCosyTTS, type CosyConfig} from "./cosyvoice"
 import {pickVoiceModel} from "./cosy-models"
 import {StreamPlayer} from "./player"
+import {
+	notifyPlaybackAmplitude,
+	resetVoiceAnalysis,
+	setPlaybackAmplitudeSource,
+	notifyVoiceAudio,
+	type VoiceChunkFormat,
+} from "../live2d/lipSync"
 
 export type {FishTTSConfig, CosyConfig}
 
 const player = new StreamPlayer()
+
+player.onPlaybackAmplitude = (rms) => notifyPlaybackAmplitude(rms)
+player.onPlaybackAmplitudeSource = (active) => setPlaybackAmplitudeSource(active)
 
 let currentAbort: AbortController | null = null
 
@@ -115,11 +125,18 @@ const streamTTS = async (
 	text: string,
 	onChunk: (bytes: Uint8Array) => void,
 	signal?: AbortSignal,
+	format: VoiceChunkFormat = "mp3",
 ): Promise<{ok: boolean; error?: string}> => {
-	if (providerOf(s) === "cosyvoice") {
-		return streamCosyTTS(text, cosyConfigOf(s), onChunk, signal)
+	/* 把音频块喂给 lipSync 做编码格式的备用振幅分析；实际播放器分析器可用时会屏蔽这条提前到达信号。
+	   在这里接而不是改 cosyvoice/fishaudio 两个文件：本函数是唯一分发入口，一处覆盖两条通道。 */
+	const wrapped = (bytes: Uint8Array): void => {
+		notifyVoiceAudio(bytes, format)
+		onChunk(bytes)
 	}
-	return streamFishTTS(text, fishConfigOf(s), onChunk, signal)
+	if (providerOf(s) === "cosyvoice") {
+		return streamCosyTTS(text, cosyConfigOf(s), wrapped, signal)
+	}
+	return streamFishTTS(text, fishConfigOf(s), wrapped, signal)
 }
 
 /**
@@ -187,7 +204,7 @@ export const speakAppend = (s: Settings, text: string): void => {
 			const fmt = providerOf(s) === "cosyvoice" ? "mp3" : (fishConfigOf(s).format === "pcm" ? "pcm" : "mp3")
 			const res = await streamTTS(s, clean, (chunk) => {
 				player.pushChunk(chunk, fmt)
-			}, abort.signal)
+			}, abort.signal, fmt)
 			// 单句失败不打断整体, 但透传给界面提示
 			if (!res.ok && res.error && res.error !== "已停止") {
 				notifyError(res.error)
@@ -235,6 +252,7 @@ export const stop = (): void => {
 	currentAbort?.abort()
 	currentAbort = null
 	player.stop()
+	resetVoiceAnalysis()
 	player.reset()
 	// 通知原生桥停止流式 HTTP 请求 (两个提供商都停, 无副作用)
 	try {

@@ -42,7 +42,7 @@ const PUBLIC_REMOTE = "https://github.com/furret2333/NoriDroid.git"
 const COMMIT_IDENTITY = {name: "HuiOVO", email: "317002734+furret2333@users.noreply.github.com"}
 
 /** 根级只保留这些（其余根级条目一律排除，并逐条打印原因） */
-const ROOT_KEEP_FILES = [".gitignore", ".gitattributes", "README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md"]
+const ROOT_KEEP_FILES = [".gitignore", ".gitattributes", "README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md", "RELEASE_NOTES_v2.1.0.md"]
 const ROOT_KEEP_DIRS = [".github", "app", "scripts"]
 /** 根级"内部文档"的命名（用户要求：这些是项目记忆，留在私有仓库，不进公开仓库） */
 const ROOT_DOC_PATTERNS = [/^交接-.*\.md$/, /^实机验证清单-.*\.md$/, /^待办清单-.*\.md$/,
@@ -403,7 +403,8 @@ if (dryRun) {
 log("[4/5] 生成快照提交（父提交 = 公开仓库当前 main ⇒ 带历史）")
 const g = (args) => git(args, {cwd: tmp, quiet: true})
 g(["init", "-q", "-b", "main"])
-g(["add", "-A"])
+// 公开快照统一保存文本换行，避免开发机 Git 配置把 CRLF 差异带进提交。
+g(["-c", "core.autocrlf=input", "add", "-A"])
 const tree = g(["write-tree"]).trim()
 log(`      tree ${tree.slice(0, 8)} · ${g(["ls-files"]).trim().split("\n").length} 个文件`)
 

@@ -5,6 +5,8 @@
 // 音色↔模型的纯逻辑放在零依赖的 cosy-models 里 (好让 Node 门禁直接测, 不拖进合成实现)。
 // 这里只做再导出, 保持既有调用方 (App.vue 等) 的 import 路径不变。
 import {normalizeCloneVoices, type CosyCloneVoice} from "../tts/cosy-models"
+import {normalizeRenderScale} from "../live2d/renderScale"
+import {formatLocalTime, isValidTimestamp} from "../time"
 export {normalizeCloneVoices, type CosyCloneVoice}
 
 
@@ -28,6 +30,8 @@ export interface Settings {
 	l2dFps?: number
 	
 	ttsEnabled: boolean
+	/** Live2D 口型：默认关闭，开启后按实际播放音频振幅驱动 */
+	lipSyncEnabled: boolean
 	/** 语音提供商: fish / cosyvoice */
 	ttsProvider: "fish" | "cosyvoice"
 	ttsApiKey: string
@@ -49,7 +53,7 @@ export interface Settings {
 	sfxVolume: number
 	/** 动态背景 (数据海: 星尘/星云漂移/网格, 纯程序渲染零素材) */
 	dataseaBg: boolean
-	/** 让 Nori 知道当前时间（默认开）。关掉后聊天提示词里不再带时间块 —— 她会答不上"现在几点"。 */
+	/** 让 Nori 知道当前设备时间（默认开）；关闭后不注入当前时间和历史发送时间。 */
 	timeAware: boolean
 	/** Nori 主动搭话 (安静间隔 + 冷却 + 会话预算, 本地语料零 token) */
 	ambientEnabled: boolean
@@ -138,13 +142,14 @@ export interface Settings {
  * 纯度：给定 `now` 输出稳定，便于门禁断言；**调用方必须每次重新调用**（别缓存成常量，否则时间会变旧）。
  */
 export const localTimeBlock = (now: Date = new Date()): string => {
-	const p = (n: number): string => String(n).padStart(2, "0")
 	const week = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"][now.getDay()]
-	const off = -now.getTimezoneOffset()          // 分钟, 东八区 = +480
-	const tz = `UTC${off >= 0 ? "+" : "-"}${p(Math.floor(Math.abs(off) / 60))}:${p(Math.abs(off) % 60)}`
-	return `【当前时间】${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${week} ${p(now.getHours())}:${p(now.getMinutes())}（${tz}）\n`
-		+ "这是设备的真实时间（不是猜测，可以直接用来回答时间类问题），也用它来换算「今天/明天/下周三」这类相对时间。"
-		+ "自然使用即可，不必每句话都提时间。"
+	const hour = now.getHours()
+	const period = hour < 5 ? "凌晨" : hour < 8 ? "清晨" : hour < 12 ? "上午" : hour < 14 ? "中午" : hour < 18 ? "下午" : "晚上"
+	return `【当前时间】${formatLocalTime(now)} ${week}\n当前时段：${period}。\n`
+		+ "这是本轮请求发出时的设备本地时间，是判断「现在、今天、明天、下周三」的依据。"
+		+ "即使用户没问时间，问候、作息建议和涉及「现在」的表达也要与本轮时间一致；自然聊天，不必每句话报时。"
+		+ "历史消息的发送时间和摘要的原对话时间只代表当时，其中的「今天、昨晚、晚安」不能当作现在；发送时间也不等于文中事件发生时间。"
+		+ "不要顺着旧的夜间对话认定现在还是晚上，也不要仅因用户说「困了、累了」就认定已到深夜。"
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -156,6 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	bubbleWidth: 82,
 	renderScale: 1,
 	ttsEnabled: false,
+	lipSyncEnabled: false,
 	ttsProvider: "fish",
 	ttsApiKey: "",
 	ttsBaseUrl: "https://api.fish.audio",
@@ -200,10 +206,26 @@ export interface ChatMsg {
 	role: "user" | "assistant" | "system"
 	content: string
 	ts: number
+	/** 多模态请求内容。仅用于本轮请求，落盘时会被剥离。 */
+	parts?: ChatContentPart[]
 	/** 界面错误提示气泡 (⚠ …): 只显示, 不落盘、不进模型上下文 */
 	error?: boolean
 	/** 裁剪占位符 (更早的对话已压缩…): 落盘且重启后保留 (FE-M4) */
 	placeholder?: boolean
+}
+
+export type ChatContentPart =
+	| {type: "text"; text: string}
+	| {type: "image_url"; image_url: {url: string}}
+
+export interface ImagePickedResult {
+	ok: boolean
+	dataUrl?: string
+	mime?: string
+	width?: number
+	height?: number
+	size?: number
+	message?: string
 }
 
 interface NoriChat {
@@ -232,6 +254,10 @@ interface NoriChat {
 	cosyTtsStop: () => void
 	/** 声音克隆: 系统文件选择器选音频 */
 	pickVoiceFile: () => void
+	/** 聊天图片：系统相册 */
+	pickImageFile: (requestId: number) => void
+	/** 聊天图片：调用系统相机 */
+	captureImage: (requestId: number) => void
 	/** 创建克隆音色 (内部完成上传) */
 	createCloneVoice: (apiKey: string, targetModel: string, prefix: string) => void
 	/** 查询克隆音色状态 */
@@ -271,6 +297,8 @@ export const loadSettings = (): Settings => {
 		if (!raw) return {...DEFAULT_SETTINGS}
 		const parsed = JSON.parse(raw)
 		const merged = {...DEFAULT_SETTINGS, ...parsed} as Settings
+		merged.renderScale = normalizeRenderScale((parsed as {renderScale?: unknown})?.renderScale, DEFAULT_SETTINGS.renderScale)
+		merged.floatRenderScale = normalizeRenderScale((parsed as {floatRenderScale?: unknown})?.floatRenderScale, DEFAULT_SETTINGS.floatRenderScale)
 		// 旧版是 string[], 读时统一归一化 (不能只靠类型断言)
 		merged.cosyCloneVoices = normalizeCloneVoices((parsed as {cosyCloneVoices?: unknown})?.cosyCloneVoices)
 		return merged
@@ -329,6 +357,50 @@ export const pickPersonaFile = (): Promise<PersonaPickedResult> =>
 		}
 		try { nori.pickPersonaFile() } catch (e) { resolve({ok: false, message: `发起选择失败: ${String(e)}`}) }
 	})
+
+let imagePickBusy = false
+let imagePickSeq = 0
+const pickImageViaBridge = (method: "pickImageFile" | "captureImage"): Promise<ImagePickedResult> =>
+	new Promise((resolve) => {
+		if (imagePickBusy) { resolve({ok: false, message: "正在等待上一张图片"}); return }
+		imagePickBusy = true
+		const requestId = ++imagePickSeq
+		const W = window as unknown as {
+			__noriImagePickedRes?: (json: string) => void
+			__noriImagePickTimeoutMs?: number
+		}
+		let settled = false
+		let timeout: ReturnType<typeof setTimeout> | null = null
+		const done = (result: ImagePickedResult): void => {
+			if (settled) return
+			settled = true
+			if (timeout) clearTimeout(timeout)
+			imagePickBusy = false
+			delete W.__noriImagePickedRes
+			resolve(result)
+		}
+		W.__noriImagePickedRes = (json) => {
+			try {
+				const result = JSON.parse(json) as ImagePickedResult & {requestId?: number}
+				// 迟到的旧选择结果不能覆盖新选择。
+				if (!result || result.requestId !== requestId) return
+				if (result.ok && (typeof result.dataUrl !== "string" || result.dataUrl.length > 2_000_100
+					|| !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(result.dataUrl))) {
+					done({ok: false, message: "图片格式无效或过大，请重新选择"})
+					return
+				}
+				done(result)
+			} catch { done({ok: false, message: "图片结果解析失败"}) }
+		}
+		const nori = window.NoriChat
+		if (!nori || typeof nori[method] !== "function") { done({ok: false, message: "原生桥不支持图片选择 (请升级应用)"}); return }
+		// 相册/相机需要用户操作，留足时间；桥丢回包时也能恢复按钮。
+		timeout = setTimeout(() => done({ok: false, message: "图片选择超时，请返回后重新选择"}), W.__noriImagePickTimeoutMs ?? 300_000)
+		try { nori[method](requestId) } catch (e) { done({ok: false, message: `发起图片选择失败: ${String(e)}`}) }
+	})
+
+export const pickImageFile = (): Promise<ImagePickedResult> => pickImageViaBridge("pickImageFile")
+export const captureImage = (): Promise<ImagePickedResult> => pickImageViaBridge("captureImage")
 
 let customPersonaCache: string | null = null
 
@@ -455,7 +527,12 @@ export const __resetChatCutoffForTest = (): void => { chatCutoff = 0 }
 export const persistChat = (messages: ChatMsg[]): void => {
 	// 真拷贝快照 (FE-M9): 逐条 {...m} 浅拷 (content 为不可变字符串) —— 防抖窗口内
 	// 调用方对消息对象的后续修改 (liveBubble 流式增量、错误路径 splice) 不会穿透到写盘内容
-	chatPersistPending = messages.map(m => ({...m}))
+	// 多模态图片只属于当前请求，不能把 base64 写进 chat.json。
+	chatPersistPending = messages.map(m => {
+		const copy = {...m}
+		delete copy.parts
+		return copy
+	})
 	if (chatPersistTimer) clearTimeout(chatPersistTimer)
 	chatPersistTimer = setTimeout(() => {
 		chatPersistTimer = null
@@ -521,6 +598,38 @@ const mergeChatLists = (disk: ChatMsg[], local: ChatMsg[]): ChatMsg[] => {
 
 /** 防抖重试间隔: 写盘失败后重排下一次尝试 (比常规防抖短, 尽快自愈) */
 const PERSIST_RETRY_MS = 1000
+
+/** 将内部消息统一转换为 OpenAI 兼容的文本/多模态消息。 */
+const toApiMessage = (message: ChatMsg): {role: ChatMsg["role"]; content: string | ChatContentPart[]} => ({
+	role: message.role,
+	content: message.parts?.length ? message.parts : message.content,
+})
+
+export interface ChatRequestOptions {
+	/** 只由用户对话入口启用；记忆、日记等辅助请求保持原有契约。 */
+	timeAware?: boolean
+}
+
+/** 在队列真正发起请求时组装，不改动 UI 消息或落盘正文。 */
+const buildApiMessages = (messages: ChatMsg[], options?: ChatRequestOptions): ReturnType<typeof toApiMessage>[] => {
+	if (!options?.timeAware) return messages.map(toApiMessage)
+	const result = messages.map(message => {
+		const api = toApiMessage(message)
+		if (message.role === "system") return api
+		const label = isValidTimestamp(message.ts)
+			? `【消息发送时间】${formatLocalTime(new Date(message.ts))}\n`
+			: "【消息发送时间未记录】\n"
+		if (typeof api.content === "string") return {...api, content: label + api.content}
+		const firstText = api.content.findIndex(part => part.type === "text")
+		const parts = api.content.map((part, i) => part.type === "text" && i === firstText ? {...part, text: label + part.text} : part)
+		if (firstText < 0) parts.unshift({type: "text", text: label.trimEnd()})
+		return {...api, content: parts}
+	})
+	// 动态时间位于人格及其他前置 system 块之后，保留稳定的提示词前缀。
+	const firstConversation = result.findIndex(m => m.role !== "system")
+	result.splice(firstConversation < 0 ? result.length : firstConversation, 0, {role: "system", content: localTimeBlock()})
+	return result
+}
 
 /**
  * 把待落盘快照归并成最终写入内容 (每次都重读磁盘, 不缓存结果).
@@ -788,13 +897,14 @@ export const sendChat = (
 	model: string,
 	messages: ChatMsg[],
 	thinking = false,
+	options?: ChatRequestOptions,
 ): Promise<ChatResult> => {
 	if (!apiKey.trim()) return Promise.resolve({ok: false, message: "请先在设置里填写 API Key"})
 	if (!model.trim()) return Promise.resolve({ok: false, message: "请先在设置里选择模型"})
 	// 串行队列: 非流式调用 (记忆提取/总结/日记/语义召回) 共用 __noriChatRes 单例回调,
 	// 并发会互相覆盖导致丢响应 → 排队逐个执行
 	return enqueueChat(() => {
-		const payload = JSON.stringify(messages.map(({role, content}) => ({role, content})))
+		const payload = JSON.stringify(buildApiMessages(messages, options))
 		return new Promise<ChatResult>((resolve) => {
 			let settled = false
 			let timeout: ReturnType<typeof setTimeout> | null = null
@@ -891,6 +1001,7 @@ export const sendChatStream = (
 	callbacks: StreamChatCallbacks,
 	thinking = false,
 	signal?: AbortSignal,
+	options?: ChatRequestOptions,
 ): void => {
 	if (!apiKey.trim()) { callbacks.onError("请先在设置里填写 API Key"); return }
 	if (!model.trim()) { callbacks.onError("请先在设置里选择模型"); return }
@@ -901,9 +1012,9 @@ export const sendChatStream = (
 				if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
 				resolveTask()
 			}
-			const payload = JSON.stringify(messages.map(({role, content}) => ({role, content})))
 			const nori = window.NoriChat
 			if (nori && typeof nori.chatStream === "function") {
+				const payload = JSON.stringify(buildApiMessages(messages, options))
 				const onAbort = () => {
 					// 本地取消: 顺手通知原生断流 (否则原生会把整个 SSE 拉完, 白耗流量);
 					// 即使原生桥丢弃过期回包, 这里也能正常结束
@@ -967,7 +1078,7 @@ export const sendChatStream = (
 				return
 			}
 			// 回退: 非流式
-			void sendChat(baseUrl, apiKey, model, messages, thinking).then((r) => {
+			void sendChat(baseUrl, apiKey, model, messages, thinking, options).then((r) => {
 				if (r.ok) {
 					const content = r.content ?? ""
 					callbacks.onDelta(content)

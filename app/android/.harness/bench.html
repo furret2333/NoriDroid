@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>NoriDroid · 渲染自测</title>
+<style>
+	:root { color-scheme: dark; }
+	* { box-sizing: border-box; }
+	html, body { margin: 0; height: 100%; }
+	body {
+		background: #07090f; color: #e8eef7; overflow: hidden;
+		font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+		-webkit-text-size-adjust: 100%;
+	}
+	/* ⚠ iframe 必须**可见**(不能 display:none / visibility:hidden), 否则浏览器会停掉它的 rAF, 测不出东西。
+	   被半透明面板盖住没关系 —— 被遮挡 ≠ 不可见, rAF 照跑。 */
+	#app { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 0; background: #000; }
+	#ui {
+		position: fixed; inset: 0; z-index: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+		background: rgba(7, 9, 15, 0.86); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+		padding: 14px 13px 40px;
+	}
+	h1 { font-size: 18px; margin: 0 0 2px; }
+	.sub { color: #7f8ea3; font-size: 12.5px; margin-bottom: 12px; }
+	button {
+		width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #2b3a52;
+		background: #17223a; color: #dbe7f5; font-size: 16px; font-weight: 700;
+	}
+	button:disabled { opacity: .45; }
+	#status { margin: 12px 0 8px; font-size: 15px; font-weight: 600; color: #7dd3fc; min-height: 22px; }
+	#prog { height: 6px; background: #16202f; border-radius: 3px; overflow: hidden; margin-bottom: 12px; }
+	#prog > i { display: block; height: 100%; width: 0; background: #38bdf8; transition: width .3s; }
+	.row { background: #101725; border: 1px solid #1e2a3d; border-radius: 11px; padding: 10px 12px; margin-bottom: 9px; }
+	.row.cur { border-color: #38bdf8; }
+	.row.err { border-color: #7f1d1d; }
+	.lab { font-size: 13.5px; color: #cbd5e1; margin-bottom: 6px; }
+	.fps { font-size: 30px; font-weight: 800; color: #86efac; line-height: 1.1; }
+	.fps.mid { color: #fde68a; } .fps.bad { color: #fca5a5; }
+	.meta { font-size: 11.5px; color: #7f8ea3; margin-top: 4px; font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
+	.note { font-size: 12px; color: #8ba0b8; margin-top: 14px; }
+	.card { background: #0d1626; border: 1px solid #1e2a3d; border-radius: 11px; padding: 11px 12px; margin-top: 12px; }
+	textarea { width: 100%; height: 170px; margin-top: 8px; background: #0b1220; color: #cbd5e1;
+		border: 1px solid #1e2a3d; border-radius: 10px; padding: 10px; font: 12px/1.5 ui-monospace, monospace; }
+	.warn { color: #fca5a5; }
+</style>
+</head>
+<body>
+<iframe id="app" title="app"></iframe>
+
+<div id="ui">
+	<h1>渲染自测</h1>
+	<div class="sub">每一组会重新加载 App 并测 5 秒。全程约 1.5–2 分钟，手机请别息屏、别切走。<br>
+	（本页已自动关闭「自适应降档」，否则它会中途改配置、污染这 5 组数字。）</div>
+
+	<button id="go">开始测试</button>
+	<div id="status">点上面的按钮开始</div>
+	<div id="prog"><i id="bar"></i></div>
+	<div id="list"></div>
+
+	<div class="card">
+		<div class="lab">怎么看结果</div>
+		<div class="note" style="margin-top:0">
+			• <b>帧率</b>：越大越流畅。若多组数字<b>一样且接近 60 / 90 / 120</b>，说明都撞到屏幕刷新上限了 ⇒ 你的手机在这些设置下都够用，不用优化。<br>
+			• <b>背景关 / 毛玻璃关</b> 两组，看关掉后帧率涨多少 ⇒ 那就是它们各自吃掉的份额。<br>
+			• <b>3x vs 1x</b>，看降分辨率能换回多少帧率 ⇒ 判断瓶颈在"像素"还是"CPU"。<br>
+			• 每组下面的 <b>画布尺寸</b> 是"设置有没有真的生效"的证据：<code>1x</code> 那组数据海画布应当明显变小。
+		</div>
+	</div>
+
+	<button id="cp" style="margin-top:12px">复制结果</button>
+	<textarea id="ta" readonly placeholder="点上面按钮后结果会出现在这里"></textarea>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id)
+const frame = $('app')
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const w = () => frame.contentWindow
+const d = () => frame.contentDocument
+
+/** base64url(JSON) —— 与 harness 的 ?seed= 约定一致 */
+const seedUrl = (o) => '/assets/web/index.html?seed=' +
+	btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+const WIN_MS = 5000
+const SETTLE_MS = 1500
+
+/* 5 组配置。l2dFps 一律 0(不限) —— 否则默认 60 的上限会把所有档位压平, 什么都看不出。
+   blur:false 是往 App 里注入 CSS 把柔和风那 4 个毛玻璃变量置 0 (P1-3 的收益)。 */
+const CFG = [
+	{ key: 'def',  label: '2x 背景开（当前默认）', seed: { renderScale: 2, dataseaBg: true,  l2dFps: 0 }, blur: true },
+	{ key: 'bgoff',label: '2x 背景关',            seed: { renderScale: 2, dataseaBg: false, l2dFps: 0 }, blur: true },
+	{ key: 'blur', label: '2x 背景开 + 毛玻璃关',  seed: { renderScale: 2, dataseaBg: true,  l2dFps: 0 }, blur: false },
+	{ key: 'rs3',  label: '3x 背景开（旧默认）',   seed: { renderScale: 3, dataseaBg: true,  l2dFps: 0 }, blur: true },
+	{ key: 'rs1',  label: '1x 背景开',            seed: { renderScale: 1, dataseaBg: true,  l2dFps: 0 }, blur: true },
+]
+
+const results = []
+let running = false
+
+function setStatus(t) { $('status').textContent = t }
+function setProg(i) { $('bar').style.width = Math.round((i / CFG.length) * 100) + '%' }
+
+function render() {
+	$('list').innerHTML = results.map((r) => {
+		const cls = r.err ? 'bad' : (r.fps >= 55 ? '' : r.fps >= 30 ? 'mid' : 'bad')
+		return `<div class="row ${r.err ? 'err' : ''}">
+			<div class="lab">${r.label}</div>
+			${r.err
+				? `<div class="fps bad">失败</div><div class="meta">${r.err}</div>`
+				: `<div class="fps ${cls}">${r.fps.toFixed(1)} <span style="font-size:14px;font-weight:600;color:#8ba0b8">fps</span></div>
+					<div class="meta">L2D画布 ${r.l2d}　数据海 ${r.ds}　毛玻璃 --ui-blur-dot = ${r.blurVal || '?'}　模型已加载=${r.loaded}</div>`}
+		</div>`
+	}).join('')
+	$('ta').value = textOf()
+}
+
+function textOf() {
+	const head = 'NoriDroid 渲染自测\nGPU: ' + (gpuStr || '(未取)') +
+		'\ndpr=' + window.devicePixelRatio + ' screen=' + screen.width + 'x' + screen.height +
+		' inner=' + innerWidth + 'x' + innerHeight + '\n'
+	return head + results.map((r) => r.err
+		? `[${r.label}] 失败: ${r.err}`
+		: `[${r.label}] ${r.fps.toFixed(1)} fps  L2D=${r.l2d} 数据海=${r.ds} blur=${r.blurVal || '?'}`
+	).join('\n')
+}
+
+let gpuStr = ''
+function readGpu() {
+	try {
+		const c = document.createElement('canvas')
+		const gl = c.getContext('webgl2') || c.getContext('webgl')
+		if (!gl) return ''
+		const e = gl.getExtension('WEBGL_debug_renderer_info')
+		const s = String(gl.getParameter(e ? e.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || '')
+		gl.getExtension('WEBGL_lose_context')?.loseContext()
+		return s
+	} catch (e) { return '' }
+}
+
+function injectBlurOff() {
+	try {
+		const doc = d()
+		if (!doc || !doc.head) return
+		const s = doc.createElement('style')
+		s.textContent = '.ui-soft{--ui-blur-dot:0px!important;--ui-blur-bubble:0px!important;--ui-blur-chip:0px!important;--ui-blur-mask:0px!important}'
+		doc.head.appendChild(s)
+	} catch (e) { /* 忽略 */ }
+}
+
+function blurValNow() {
+	try {
+		const el = d().querySelector('.ui-soft, .ui-tide')
+		return el ? getComputedStyle(el).getPropertyValue('--ui-blur-dot').trim() : '?'
+	} catch (e) { return '?' }
+}
+
+function sizes() {
+	try {
+		const doc = d()
+		const ds = doc.querySelector('.datasea-bg')
+		const all = [...doc.querySelectorAll('canvas')]
+		const l2d = all.find((c) => c !== ds)
+		return { l2d: l2d ? l2d.width + 'x' + l2d.height : '-', ds: ds ? ds.width + 'x' + ds.height : '-' }
+	} catch (e) { return { l2d: '?', ds: '?' } }
+}
+
+function pokeModel() {
+	try {
+		const doc = d()
+		const fab = [...doc.querySelectorAll('.fab')].find((x) => /模型/.test(x.textContent || ''))
+		fab?.click()
+		setTimeout(() => {
+			try {
+				const c = [...d().querySelectorAll('.mc')].find((x) => (x.textContent || '').includes('ARGNori'))
+				c?.click()
+			} catch (e) { /* 忽略 */ }
+		}, 1200)
+	} catch (e) { /* 忽略 */ }
+}
+
+async function waitModel(limit) {
+	const t0 = Date.now()
+	let poked = false
+	while (Date.now() - t0 < limit) {
+		try { if ((w().__noriL2dDraws || 0) > 0) return true } catch (e) { /* 忽略 */ }
+		if (!poked && Date.now() - t0 > 6000) { poked = true; pokeModel() }
+		await sleep(400)
+	}
+	return false
+}
+
+function loadSeed(seed) {
+	return new Promise((res) => {
+		const done = () => { frame.removeEventListener('load', done); res() }
+		frame.addEventListener('load', done)
+		frame.src = seedUrl(seed)
+		setTimeout(() => { frame.removeEventListener('load', done); res() }, 20000)  // 兜底
+	})
+}
+
+function measure() {
+	return new Promise((res) => {
+		let W
+		try { W = w() } catch (e) { return res({ err: '拿不到 iframe window' }) }
+		W.__fpsFrames = 0
+		let stop = false
+		const tick = () => { try { W.__fpsFrames++; if (!stop) W.requestAnimationFrame(tick) } catch (e) { /* 忽略 */ } }
+		try { W.requestAnimationFrame(tick) } catch (e) { /* 忽略 */ }
+		const d0 = W.__noriL2dDraws || 0
+		setTimeout(() => {
+			stop = true
+			const d1 = W.__noriL2dDraws || 0
+			res({ fps: (W.__fpsFrames || 0) / (WIN_MS / 1000), draws: (d1 - d0) / (WIN_MS / 1000) })
+		}, WIN_MS)
+	})
+}
+
+async function run() {
+	if (running) return
+	running = true
+	$('go').disabled = true
+	gpuStr = readGpu()
+	results.length = 0
+	render()
+
+	for (let i = 0; i < CFG.length; i++) {
+		const c = CFG[i]
+		setProg(i)
+		setStatus(`(${i + 1}/${CFG.length}) 正在加载：${c.label}`)
+		const row = { key: c.key, label: c.label }
+		try {
+			await loadSeed(c.seed)
+			const loaded = await waitModel(26000)
+			if (!c.blur) injectBlurOff()
+			await sleep(SETTLE_MS)
+			setStatus(`(${i + 1}/${CFG.length}) 正在测量：${c.label}`)
+			const m = await measure()
+			const s = sizes()
+			Object.assign(row, { loaded, fps: m.fps, draws: m.draws, ...s, blurVal: blurValNow() })
+		} catch (e) {
+			row.err = String((e && e.message) || e)
+		}
+		results.push(row)
+		render()
+	}
+	setProg(CFG.length)
+	setStatus('完成 ✓  下面是结果，点「复制结果」发我')
+	$('go').disabled = false
+	$('go').textContent = '重测一次'
+	running = false
+}
+
+$('go').onclick = run
+$('cp').onclick = async () => {
+	$('ta').value = textOf()
+	$('ta').select()
+	try { if (navigator.clipboard) { await navigator.clipboard.writeText($('ta').value); $('cp').textContent = '已复制 ✓' } } catch (e) { $('cp').textContent = '请长按下面文本复制' }
+}
+// 先把 App 载进来, 免得点开始时才第一次加载(会有额外延迟)
+frame.src = seedUrl({ renderScale: 2, dataseaBg: true, l2dFps: 0 })
+</script>
+</body>
+</html>

@@ -29,7 +29,10 @@ const mk = (id, content, over = {}) => ({
 let uidSeq = 0
 const collapse = (pairs) => {
 	const items = []
-	for (const c of pairs) items.push(mk(`u${uidSeq++}`, c))
+	// 同库语料没有改口先后关系，必须共享时间；逐条 Date.now() 偶尔跨毫秒，
+	// 会误造一条“先喜欢、后讨厌”的时间线，触发正确的旧说法收起逻辑。
+	const batchTs = Date.now()
+	for (const c of pairs) items.push(mk(`u${uidSeq++}`, c, {createdAt: batchTs, updatedAt: batchTs}))
 	files.set("memory.json", JSON.stringify({memories: items, summaries: [], summarizedMsgCount: 0, tombstones: [], meta: []}))
 	mem.reloadMemory()
 	return mem.listAll().memories.map(m => m.content)

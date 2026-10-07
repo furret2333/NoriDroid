@@ -1,11 +1,11 @@
-// src/services/gateway/api.ts
+// ../src/services/gateway/api.ts
 var MODELS = [
   { id: "ARGNori", name: "ARGNori" },
   { id: "Nori", name: "Nori" }
 ];
 var fetchLive2dList = async () => ({ list: MODELS });
 
-// src/services/live2d/modelStore.ts
+// ../src/services/live2d/modelStore.ts
 var bridge = () => {
   if (!window.NoriBridge) throw new Error("\u6A21\u578B\u4E0B\u8F7D\u7EC4\u4EF6\u4E0D\u53EF\u7528 (NoriBridge \u672A\u6CE8\u5165)");
   return window.NoriBridge;

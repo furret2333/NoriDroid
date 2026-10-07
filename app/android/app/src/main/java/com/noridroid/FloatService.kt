@@ -73,11 +73,10 @@ class FloatService : Service() {
         private const val KEY_Y = "y"
         // 关闭气泡后短时间内不重复打开 (防误触)
         private const val BUBBLE_COOLDOWN_MS = 600L
-        // 长按: 0.8s 内移动不算拖动 (防误拖); 到点解锁拖动 + 触发抚摸
-        private const val STROKE_LONG_PRESS_MS = 800L
-        // 轻微滑动判定: 位移超过 12px 视为"轻微滑动"(= 抚摸); 超过 40px 视为"快速滑出"(不弹气泡)
-        private const val STROKE_CANCEL_THRESHOLD = 12f
-        private const val STROKE_SLIDE_LIMIT = 40f
+        // 长按: 0.8s 内移动不算拖动；到点只解锁拖动，不触发表情/动作。
+        private const val DRAG_LONG_PRESS_MS = 800L
+        // 超过轻点容差就不弹聊天，轻微滑动也不产生反馈。
+        private const val TAP_SLOP = 12f
         // 拖动阈值: 0.8s 后位移超过 25px → 开始拖动窗口
         private const val DRAG_THRESHOLD = 25f
         // ES Module 需要 https Origin (file:// 会被浏览器禁止),
@@ -143,18 +142,13 @@ class FloatService : Service() {
     private var dragging = false
     private var pinchDist = 0f
     private var scaledByPinch = false
-    /** 按下点在模型身体矩形内 → 轻点弹气泡 / 轻微滑动抚摸 */
+    /** 按下点在模型身体矩形内 → 轻点弹聊天 */
     private var touchMode = false
-    /** 抚摸进行中 (仅由轻微滑动触发) */
-    private var stroking = false
-    /** 0.8s 计时 (到点解锁拖动; 不触发抚摸) */
-    private var strokeTimer: Runnable? = null
+    /** 0.8s 计时 (到点解锁拖动) */
+    private var dragTimer: Runnable? = null
     /** 0.8s 计时是否已到 (到点才允许拖动, 防误拖) */
     private var dragArmed = false
-    /** 触摸模式下的累计位移 */
-    private var touchMoveX = 0f
-    private var touchMoveY = 0f
-    /** 快速滑出: 大幅快速滑动后抬起不弹气泡 (防误触) */
+    /** 曾滑出轻点容差，抬起不弹聊天 (防误触) */
     private var touchMovedFar = false
     /** 已提升为前台服务 (避免重复 startForeground / 重复移除通知) */
     private var isForeground = false
@@ -532,25 +526,22 @@ class FloatService : Service() {
             MotionEvent.ACTION_DOWN -> {
                 dragging = false
                 scaledByPinch = false
-                stroking = false
                 dragArmed = false
                 touchMovedFar = false
-                touchMoveX = 0f
-                touchMoveY = 0f
                 dragStartX = event.rawX
                 dragStartY = event.rawY
                 winStartX = params.x
                 winStartY = params.y
                 // 按下即算互动 → 重置待机计时
                 notifyTouchActive()
-                // 模型上按下 → 启动 0.8s 计时 (到点只解锁拖动, 不触发抚摸)
+                // 按下 → 启动 0.8s 计时，到点只解锁拖动
                 val r = modelRect
                 touchMode = r != null && isInModelRect(event, params, r)
                 val runnable = Runnable {
-                    dragArmed = true // 0.8s 后允许拖动 (抚摸只由轻微滑动触发)
+                    dragArmed = true
                 }
-                strokeTimer = runnable
-                mainHandler.postDelayed(runnable, STROKE_LONG_PRESS_MS)
+                dragTimer = runnable
+                mainHandler.postDelayed(runnable, DRAG_LONG_PRESS_MS)
                 return false
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -558,8 +549,7 @@ class FloatService : Service() {
                     scaledByPinch = true
                     dragging = false
                     // 双指缩放开始 → 取消长按计时, 直接可缩放
-                    cancelStrokeTimer()
-                    stroking = false
+                    cancelDragTimer()
                     dragArmed = true
                     pinchDist = dist(event)
                 }
@@ -585,26 +575,13 @@ class FloatService : Service() {
                     val moved = dx * dx + dy * dy
                     if (!dragArmed) {
                         // 0.8s 内: 移动不拖动
-                        if (touchMode) {
-                            if (moved > STROKE_SLIDE_LIMIT * STROKE_SLIDE_LIMIT) {
-                                // 大幅快速滑出: 不弹气泡 (不算抚摸)
-                                touchMovedFar = true
-                            } else if (moved > STROKE_CANCEL_THRESHOLD * STROKE_CANCEL_THRESHOLD && !stroking) {
-                                // 轻微滑动 = 抚摸 (立即反馈, 不等 0.8s)
-                                stroking = true
-                                triggerFloatStroke()
-                            }
-                        } else {
-                            // 模型外 0.8s 内: 移动也算"快速滑出" (抬起不弹)
-                            if (moved > STROKE_SLIDE_LIMIT * STROKE_SLIDE_LIMIT) touchMovedFar = true
-                        }
+                        if (moved > TAP_SLOP * TAP_SLOP) touchMovedFar = true
                         return false
                     }
-                    // 0.8s 后: 允许拖动 (抚摸转拖动)
+                    // 0.8s 后: 允许拖动
                     if (!dragging && moved > DRAG_THRESHOLD * DRAG_THRESHOLD) {
                         dragging = true
-                        if (stroking) stroking = false
-                        cancelStrokeTimer()
+                        cancelDragTimer()
                     }
                     if (dragging) {
                         params.x = winStartX + dx.toInt()
@@ -631,17 +608,10 @@ class FloatService : Service() {
                 return scaledByPinch
             }
             MotionEvent.ACTION_UP -> {
-                cancelStrokeTimer()
+                cancelDragTimer()
                 if (dragging || scaledByPinch) {
                     saveState() // 拖动/缩放结束: 记忆位置与尺寸
                     notifyTouchActive() // 拖动/缩放也算互动 → 重置待机
-                    stroking = false
-                    return true
-                }
-                if (stroking) {
-                    // 抚摸结束: 不弹气泡, 只结束抚摸表现
-                    stroking = false
-                    notifyTouchActive()
                     return true
                 }
                 if (touchMode && !touchMovedFar && !dragArmed) {
@@ -653,8 +623,7 @@ class FloatService : Service() {
                 return false
             }
             MotionEvent.ACTION_CANCEL -> {
-                cancelStrokeTimer()
-                stroking = false
+                cancelDragTimer()
                 // 系统打断/手指滑出: 只处理手势, 不触发弹气泡
                 return dragging || scaledByPinch
             }
@@ -662,18 +631,10 @@ class FloatService : Service() {
         return dragging || scaledByPinch
     }
 
-    /** 取消长按抚摸计时 */
-    private fun cancelStrokeTimer() {
-        strokeTimer?.let { mainHandler.removeCallbacks(it) }
-        strokeTimer = null
-    }
-
-    /** 触发抚摸反馈: 通知悬浮窗页面播抚摸表情 + 轻蹭动作 */
-    private fun triggerFloatStroke() {
-        try {
-            webView?.evaluateJavascript(
-                "window.__noriStroke && window.__noriStroke()", null)
-        } catch (_: Exception) { /* 忽略 */ }
+    /** 取消长按拖动计时 */
+    private fun cancelDragTimer() {
+        dragTimer?.let { mainHandler.removeCallbacks(it) }
+        dragTimer = null
     }
 
     private fun dist(e: MotionEvent): Float {
@@ -716,8 +677,7 @@ class FloatService : Service() {
     }
 
     private fun removeFloat() {
-        cancelStrokeTimer() // 清理长按抚摸计时
-        stroking = false
+        cancelDragTimer()
         saveState() // 退出前记忆尺寸/位置
         try { floatView?.let { wm?.removeView(it) } } catch (_: Exception) { /* 忽略 */ }
         try { webView?.destroy() } catch (_: Exception) { /* 忽略 */ }

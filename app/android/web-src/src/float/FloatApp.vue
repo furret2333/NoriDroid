@@ -7,7 +7,7 @@
  * 模型区域: 上报模型身体矩形给原生 → 只在模型身上点按才弹聊天气泡 (透明区不误触).
  */
 import {onBeforeUnmount, onMounted, ref} from "vue"
-import {createLive2D, normalizeFps} from "../services/live2d"
+import {createLive2D, normalizeFps, normalizeRenderScale} from "../services/live2d"
 import {listInstalled} from "../services/live2d/modelStore"
 import {readMotionGroups, readExpressionNames} from "../services/live2d/motions"
 import {modelLayout} from "../services/live2d/touchDetection"
@@ -16,7 +16,6 @@ import {
 	detectExpressionByRules, detectMotionByRules,
 } from "../services/live2d/markerRules"
 import {scheduleReturnToNeutral, cancelReturnToNeutral} from "../services/live2d/motionReturn"
-import {spawnPetMotes, clearPetFx} from "../services/live2d/petEffect"
 import {loadSettings} from "../services/chat"
 
 const l2d = createLive2D()
@@ -36,7 +35,6 @@ declare global {
 		__noriRefresh?: () => void
 		__noriPlayMarker?: (emotion: string, motion: string) => void
 		__noriPlayByText?: (text: string) => void
-		__noriStroke?: () => void
 		__noriTouchActive?: () => void
 		/** 暂停/恢复渲染 (原生 FloatService.ACTION_SET_PAUSED 调用; 见 window.__noriSetPaused 说明) */
 		__noriSetPaused?: (paused: boolean) => void
@@ -149,9 +147,22 @@ onMounted(async () => {
 		localStorage.setItem(MODEL_KEY, chosen.id)
 		const spec = {directory: chosen.id, fileBase: chosen.entryBase}
 		const nativeDpr = Math.max(1.5, Math.min(window.devicePixelRatio || 2, 3))
+		// Keep the float window's value locally so a queued remount cannot inherit
+		// a scale written by another WebView through the global hook.
+		let floatRenderScale = nativeDpr
+		try { floatRenderScale = normalizeRenderScale(loadSettings().floatRenderScale, nativeDpr) } catch { /* 忽略 */ }
 
 		/** 挂载/重挂模型 (重挂 = 新建画布+新 WebGL 上下文, 可救回 flags 改动导致的画面丢失) */
+		/* 并发重入守卫。webglcontextrestored 与原生推来的 __noriRefresh 是两条独立入口,
+		   同时到达时两个 mountModel 会交错 (都 await destroy → 都 await mount) ⇒ 叠出两套画布/上下文。
+		   harness 实测: 连调两次 __noriRefresh() 后 canvas 数 1 → 2。
+		   ⚠ 用**时间戳**而不是布尔值: 库的 load 有 60s 超时, 但 destroy 没有; 若 destroy 永久挂起,
+		   布尔标志会一直是 true ⇒ 之后所有重挂(含上下文恢复)都被挡死。超时后允许再次进入。 */
+		let mountingSince = 0
+		const MOUNT_GUARD_MS = 15000
 		const mountModel = async () => {
+			if (mountingSince && Date.now() - mountingSince < MOUNT_GUARD_MS) return
+			mountingSince = Date.now()
 			try {
 				// 重挂前必须先停掉上一个实例的渲染循环: 库里 load() 会新建模型与新的 rAF 循环,
 				// 旧循环的 _isShow 还是 true ⇒ 不 stop() 就是**两个循环一起画**
@@ -159,7 +170,7 @@ onMounted(async () => {
 				await l2d.destroy()
 				await l2d.mount(spec, {canvasWidth: "100%", canvasHeight: "100%", host: null})
 				try { l2d.playMotionByIndex("Idle", 0) } catch { /* 忽略 */ }
-				try { l2d.setRenderScale(window.__noriRenderScale || nativeDpr) } catch { /* 忽略 */ }
+				try { l2d.setRenderScale(floatRenderScale) } catch { /* 忽略 */ }
 				// WebGL 上下文丢失时 preventDefault 保持可恢复 (surface 重建常见)
 				try {
 					const cv = l2d.canvas()
@@ -170,18 +181,22 @@ onMounted(async () => {
 				reportModelFeet()
 				reportModelRect()
 				scheduleIdle()
-			} catch { /* 忽略 */ }
+			} catch { /* 忽略 */ } finally { mountingSince = 0 }
 		}
 
 		await mountModel()
 		// 渲染分辨率: 读主 App 设置 + 支持原生实时推送
 		try {
 			const st = loadSettings()
-			l2d.setRenderScale(Number(st.floatRenderScale) || nativeDpr)
+			floatRenderScale = normalizeRenderScale(st.floatRenderScale, floatRenderScale)
+			l2d.setRenderScale(floatRenderScale)
 			// 帧率档位与主界面**共用同一个设置项** (悬浮窗是独立 WebView, 不读就只会用默认档)
 			l2d.applyFrameCap(normalizeFps(st.l2dFps))
-		} catch { l2d.setRenderScale(nativeDpr) }
-		window.__noriSetRenderScale = (s: number) => { l2d.setRenderScale(s) }
+		} catch { l2d.setRenderScale(floatRenderScale) }
+		window.__noriSetRenderScale = (s: number) => {
+			floatRenderScale = normalizeRenderScale(s, floatRenderScale)
+			l2d.setRenderScale(floatRenderScale)
+		}
 		/**
 		 * 暂停 / 恢复渲染 —— 由原生侧的**主 App 前后台**驱动（FloatService.ACTION_SET_PAUSED）。
 		 *
@@ -236,36 +251,6 @@ onMounted(async () => {
 				}
 			} catch { /* 忽略 */ }
 		}
-		// 抚摸反馈: 长按模型 → 开心表情 + 抚摸/蹭蹭动作 (与主 App stroking 一致)
-		window.__noriStroke = () => {
-			try {
-				const happy = exprNames.find((n) => {
-					const l = n.toLowerCase()
-					return l.includes("happy") || l.includes("smile") || l.includes("shy")
-				})
-				if (happy) l2d.playExpression(happy)
-				else l2d.stopExpression()
-				// 优先摸头/抚摸动作, 没有则蹭蹭/开心兜底, 再没有就中性 idle
-				const pet = motionNames.find((n) => {
-					const l = n.toLowerCase()
-					return /pet|headpat|touch|pat|nuzzle|rub|hug|happy/.test(l)
-				})
-				if (pet) {
-					void l2d.playMotionByName(pet)
-					scheduleReturnToNeutral(returnToNeutral)
-				} else {
-					const p = pickNeutralIdle(motionGroups)
-					if (p) void l2d.playMotionByIndex(p.group, p.index)
-				}
-				// 轻量特效: 在模型头部附近冒一小簇**柔光白粒子**。
-				// 悬浮窗的抚摸是 Kotlin 一次性触发的(没有"抚摸中"持续状态), 所以做成一次性小爆发。
-				const cv = l2d.canvas()
-				const r = cv?.getBoundingClientRect()
-				const cx = r && r.width > 0 ? r.left + r.width / 2 : window.innerWidth / 2
-				const cy = r && r.height > 0 ? r.top + r.height * 0.3 : window.innerHeight * 0.3
-				spawnPetMotes(cx, cy, {count: 3, spread: 44, rise: 56})
-			} catch { /* 忽略 */ }
-		}
 		// 用户在悬浮窗上操作 (拖动/点按) → 重置待机计时
 		window.__noriTouchActive = () => { scheduleIdle() }
 		// 模型脚底: 等渲染稳定后上报 (对话框贴脚底用)
@@ -286,7 +271,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
 	if (idleTimer) clearTimeout(idleTimer)
 	cancelReturnToNeutral()
-	clearPetFx()
 	window.removeEventListener("resize", onWinResize)
 	document.removeEventListener("visibilitychange", onVis)
 })

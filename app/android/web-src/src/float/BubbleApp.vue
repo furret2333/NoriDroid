@@ -14,7 +14,7 @@
 import {nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue"
 import {
 	loadSettings, sendChat, sendChatStream, loadChat, persistChat, flushChatPersist, setChatTrimCutoff,
-	type ChatMsg, type Settings, personaPrompt, localTimeBlock,
+	type ChatMsg, type Settings, personaPrompt,
 } from "../services/chat"
 import {parseMarkerDelta} from "../services/chat/markers"
 import {
@@ -176,6 +176,7 @@ const doMemExtract = async (text: string, s: Settings, recentContext: {role: str
 /** 发送并流式对话 (与主 App 同库: 剥离标记、写记忆、生成总结、保存历史) */
 const send = async () => {	const text = draft.value.trim()
 	if (!text || busy.value) return
+	const userMessage: ChatMsg = {role: "user", content: text, ts: Date.now()}
 	draft.value = ""
 	busy.value = true
 	// 朗读打断: 消息真正发出时才停朗读 (打字不打断); stop 后排队的句子不会复活
@@ -212,7 +213,7 @@ const send = async () => {	const text = draft.value.trim()
 		} else {
 			memoryBlock = recallForQuery(text)
 		}
-		const summary = summaryBlock()
+		const summary = summaryBlock(s.timeAware !== false)
 		const context: ChatMsg[] = []
 		const personaText = personaPrompt()
 		if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
@@ -224,9 +225,8 @@ const send = async () => {	const text = draft.value.trim()
 		// 目标陪伴: 有超过 3 天没被关心的目标时注入提示, 让 Nori 自然地问问进展
 		const goalCare = goalCarePrompt()
 		if (goalCare) context.push({role: "system", content: goalCare} as ChatMsg)
-		// 当前时间（2026-10-01）: 与主界面同一规则 —— 放在人格/记忆等 system 块**之后**（不伤提示词缓存）
-		if (s.timeAware !== false) context.push({role: "system", content: localTimeBlock()} as ChatMsg)
-		const payload: ChatMsg[] = [...context, ...history, {role: "user", content: text, ts: Date.now()}]
+		// 当前时间由共用发送层刷新，避免排队等待后仍使用旧时间。
+		const payload: ChatMsg[] = [...context, ...history, userMessage]
 
 		const ttsOn = isTtsReady(s)
 		if (ttsOn) beginSpeakSession(s)
@@ -288,7 +288,7 @@ const send = async () => {	const text = draft.value.trim()
 					else replyText.value = reply
 					resolve()
 				},
-			}, s.deepseekThinking, ac.signal)
+			}, s.deepseekThinking, ac.signal, {timeAware: s.timeAware !== false})
 		})
 
 		// 表演兜底: 全程没收到标记 → 用正文关键词驱动 (与主 App triggerEmotion/pickMotionByKeyword 一致)
@@ -299,7 +299,7 @@ const send = async () => {	const text = draft.value.trim()
 		// 记录历史 (与主 App 同一份 chat.json): 用户消息 + 回复
 		if (streamOk && reply.trim()) {
 			const all = loadChat()
-			all.push({role: "user", content: text, ts: Date.now()} as ChatMsg)
+			all.push(userMessage)
 			all.push({role: "assistant", content: reply, ts: Date.now()} as ChatMsg)
 			persistChat(all)
 			// 记忆/总结后台执行: 不阻塞本次回复 (busy 立即释放, 用户可继续聊)

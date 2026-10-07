@@ -1,4 +1,13 @@
-// src/services/memory/core.ts
+// ../src/services/time.ts
+var formatLocalTime = (date) => {
+  const p = (n) => String(n).padStart(2, "0");
+  const offset = -date.getTimezoneOffset();
+  const zone = `UTC${offset >= 0 ? "+" : "-"}${p(Math.floor(Math.abs(offset) / 60))}:${p(Math.abs(offset) % 60)}`;
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}\uFF08${zone}\uFF09`;
+};
+var isValidTimestamp = (ts) => typeof ts === "number" && Number.isFinite(ts) && ts > 0 && Number.isFinite(new Date(ts).getTime());
+
+// ../src/services/memory/core.ts
 var MEMORY_TYPES = ["fact", "preference", "project", "event", "relationship", "core"];
 var isActiveMemory = (m) => !m.invalidAt && !m.fadedAt;
 var MEMORY_SCHEMA_VERSION = 2;
@@ -518,7 +527,8 @@ var buildMemoryBlock = (hits, limit = 6) => {
 ${lines.join("\n")}`;
 };
 var buildSummaryPrompt = (messages, withMemoryBlock = true, known = [], examples) => {
-  const text = messages.map((m) => `${m.role === "user" ? "\u7528\u6237" : "Nori"}: ${m.content.replace(/\s+/g, " ").slice(0, 200)}`).join("\n");
+  const text = messages.map((m) => `${isValidTimestamp(m.ts) ? `\u3014\u53D1\u9001\u4E8E ${formatLocalTime(new Date(m.ts))}\u3015` : ""}${m.role === "user" ? "\u7528\u6237" : "Nori"}: ${m.content.replace(/\s+/g, " ").slice(0, 200)}`).join("\n");
+  const timeRule = "\u53D1\u9001\u65F6\u95F4\u4EC5\u7528\u4E8E\u7406\u89E3\u539F\u5BF9\u8BDD\u4E2D\u7684\u300C\u4ECA\u5929\u3001\u6628\u5929\u300D\u7B49\u76F8\u5BF9\u65F6\u95F4\uFF0C\u4E0D\u4EE3\u8868\u6587\u4E2D\u4E8B\u4EF6\u53D1\u751F\u65F6\u95F4\uFF1B\u6709\u660E\u786E\u4F9D\u636E\u65F6\u4FDD\u7559\u5177\u4F53\u65E5\u671F\uFF0C\u65F6\u95F4\u672A\u8BB0\u5F55\u65F6\u4E0D\u8981\u731C\u6D4B\u3002";
   if (!withMemoryBlock) {
     return [
       "\u4F60\u662F\u8BB0\u5FC6\u538B\u7F29\u52A9\u624B\u3002\u628A\u4E0B\u9762\u8FD9\u6BB5\u5BF9\u8BDD\u5386\u53F2\u538B\u7F29\u6210\u4E00\u6BB5\u7B80\u77ED\u6458\u8981\uFF08100~200 \u5B57\uFF09\uFF0C\u53EA\u4FDD\u7559\uFF1A",
@@ -526,6 +536,7 @@ var buildSummaryPrompt = (messages, withMemoryBlock = true, known = [], examples
       "2. \u8BA8\u8BBA\u8FC7\u7684\u91CD\u8981\u4E3B\u9898\u548C\u7ED3\u8BBA\uFF1B",
       "3. \u627F\u8BFA\u8FC7\u7684\u4E8B\u60C5\u3002",
       "\u4E0D\u8981\u6DFB\u52A0\u539F\u6587\u6CA1\u6709\u7684\u4FE1\u606F\uFF0C\u4E0D\u8981\u5199\u6210\u5BF9\u8BDD\u5F62\u5F0F\uFF0C\u76F4\u63A5\u8F93\u51FA\u4E00\u6BB5\u8FDE\u8D2F\u7684\u7B2C\u4E09\u4EBA\u79F0\u6458\u8981\u3002",
+      timeRule,
       "\u6458\u8981\u5199\u5B8C\u540E\u53E6\u8D77\u4E00\u884C\uFF0C\u8F93\u51FA\u300C\u8BB0\u5FC6\u8981\u70B9\u300D\uFF1A\u53EA\u5217\u51FA\u8FD9\u6BB5\u5BF9\u8BDD\u91CC\u503C\u5F97\u957F\u671F\u8BB0\u4F4F\u7684\u7A33\u5B9A\u65B0\u4FE1\u606F\uFF08\u8EAB\u4EFD\u3001",
       "\u504F\u597D\u3001\u6B63\u5728\u505A\u7684\u4E8B\u3001\u627F\u8BFA\uFF09\uFF0C\u6BCF\u884C\u4E00\u6761\u3001\u7528\u7B2C\u4E00\u4EBA\u79F0\u77ED\u53E5\uFF08\u5982\u300C\u6211\u53EB\u5C0F\u660E\u300D\u300C\u6211\u559C\u6B22\u4E0B\u96E8\u5929\u300D\uFF09\uFF0C",
       "\u6700\u591A 5 \u6761\uFF1B\u82E5\u8FD9\u6BB5\u5BF9\u8BDD\u6CA1\u6709\u8FD9\u6837\u7684\u65B0\u4FE1\u606F\uFF0C\u5C31\u53EA\u8F93\u51FA\u6458\u8981\u672C\u8EAB\uFF0C\u4E0D\u8981\u5199\u8BB0\u5FC6\u8981\u70B9\u3002",
@@ -537,6 +548,7 @@ var buildSummaryPrompt = (messages, withMemoryBlock = true, known = [], examples
     "\u4F60\u662F\u8BB0\u5FC6\u6574\u7406\u52A9\u624B\u3002\u8BFB\u5B8C\u4E0B\u9762\u8FD9\u6BB5\u5BF9\u8BDD\u5386\u53F2, \u8F93\u51FA\u4E24\u90E8\u5206\u3002",
     "\u3010\u7B2C\u4E00\u90E8\u5206: \u6458\u8981\u3011100~200 \u5B57\u7B2C\u4E09\u4EBA\u79F0\u53D9\u8FF0\uFF0C\u53EA\u4FDD\u7559\uFF1A\u7528\u6237\u7684\u91CD\u8981\u8EAB\u4EFD\u4FE1\u606F\u3001\u504F\u597D\u3001\u6B63\u5728\u505A\u7684\u4E8B\uFF1B",
     "\u8BA8\u8BBA\u8FC7\u7684\u91CD\u8981\u4E3B\u9898\u548C\u7ED3\u8BBA\uFF1B\u627F\u8BFA\u8FC7\u7684\u4E8B\u60C5\u3002\u4E0D\u8981\u6DFB\u52A0\u539F\u6587\u6CA1\u6709\u7684\u4FE1\u606F\uFF0C\u4E0D\u8981\u5199\u6210\u5BF9\u8BDD\u5F62\u5F0F\u3002",
+    timeRule,
     `\u3010\u7B2C\u4E8C\u90E8\u5206: \u8BB0\u5FC6\u5757\u3011\u53E6\u8D77\u4E00\u884C\u5199\u4E00\u884C ${MEM_SENTINEL}\uFF0C\u7D27\u63A5\u7740\u8F93\u51FA\u4E00\u4E2A JSON \u5BF9\u8C61\uFF1A`,
     '{"topic":"<8 \u5B57\u4EE5\u5185\u7684\u4E3B\u9898>","items":[{"content":"<\u7B2C\u4E00\u4EBA\u79F0\u77ED\u53E5, 20 \u5B57\u4EE5\u5185>","type":"fact|preference|project|event|relationship|core","importance":0~1}]}',
     "\u8BB0\u5FC6\u5757\u7684\u89C4\u5219\uFF1A",
@@ -694,14 +706,15 @@ var summaryIdFor = (batch, start) => {
   return `sum-${start}-${start + batch.length}`;
 };
 var blockIdFor = (batch, start) => `blk-${summaryIdFor(batch, start).slice(4)}`;
-var makeSummary = (content, msgCount, id) => ({
+var makeSummary = (content, msgCount, id, range) => ({
   // id 可由调用方传区间指纹 (见 summaryIdFor): 双实例对同一区间并发总结时产出相同 id,
   // 落盘合并按 id 去重只留一份; 不传则退回随机 uid (兼容旧调用)
   id: id ?? uid(),
   content: softTruncate(content, MAX_SUMMARY_CHARS),
   createdAt: Date.now(),
   msgCount,
-  tokenCount: Math.max(1, Math.ceil(content.length / 4))
+  tokenCount: Math.max(1, Math.ceil(content.length / 4)),
+  ...range
 });
 var rangeOfSummary = (id) => {
   const m = /^sum-(\d+)-(\d+)$/.exec(id);
@@ -728,18 +741,25 @@ var buildSummaryBlock = (summaries, opts = {}) => {
   if (!summaries.length && !metas.length) return "";
   const head = `\u3010\u5386\u53F2\u603B\u7ED3\u3011(\u8F83\u65E9\u5BF9\u8BDD\u7684\u538B\u7F29\u8BB0\u5FC6)
 `;
+  const render = (s) => {
+    if (!opts.timeAware) return s.content;
+    const known = isValidTimestamp(s.fromTs) && isValidTimestamp(s.toTs) && s.toTs >= s.fromTs;
+    const label = known ? `\u3010\u539F\u5BF9\u8BDD\u53D1\u9001\u65F6\u95F4\u3011${formatLocalTime(new Date(s.fromTs))} \u81F3 ${formatLocalTime(new Date(s.toTs))}` : "\u3010\u539F\u5BF9\u8BDD\u65F6\u95F4\u672A\u8BB0\u5F55\u3011";
+    return `${label}
+${s.content}`;
+  };
   const oldMetas = [...metas].sort((a, b) => a.createdAt - b.createdAt).slice(-META_INJECT_LIMIT);
   const newestFirst = [...summaries].sort((a, b) => b.createdAt - a.createdAt);
   const chosen = [];
   let used = head.length;
   for (const s of newestFirst) {
-    const cost = s.content.length + 1;
+    const cost = render(s).length + 1;
     if (chosen.length && used + cost > budget) break;
     chosen.push(s);
     used += cost;
   }
   chosen.reverse();
-  const lines = [...oldMetas.map((m) => m.content), ...chosen.map((s) => s.content)];
+  const lines = [...oldMetas.map(render), ...chosen.map(render)];
   if (!lines.length) return "";
   return head + lines.join("\n");
 };
@@ -964,7 +984,8 @@ var foldDroppedSummaries = (dropped) => {
     used += one.length + 1;
   }
   if (!parts.length) return null;
-  const content = softTruncate(`\u3014${from}\u2013${to}\u3015${parts.join("\uFF1B")}`, MAX_META_CHARS);
+  const content = softTruncate(`\u3014\u6458\u8981\u5F52\u6863\uFF1A${from}\u2013${to}\u3015${parts.join("\uFF1B")}`, MAX_META_CHARS);
+  const knownTimes = asc.every((s) => isValidTimestamp(s.fromTs) && isValidTimestamp(s.toTs) && s.toTs >= s.fromTs);
   return {
     // 区间指纹: 双实例对同一批被丢弃摘要折叠时产出相同 id → 合并去重只留一份
     id: `meta-${asc[0].createdAt}-${asc[asc.length - 1].createdAt}`,
@@ -972,7 +993,8 @@ var foldDroppedSummaries = (dropped) => {
     createdAt: asc[0].createdAt,
     // 用最早的创建时间: 它在时间轴上位于这些摘要之前
     msgCount: asc.reduce((n, s) => n + (s.msgCount || 0), 0),
-    tokenCount: Math.max(1, Math.ceil(content.length / 4))
+    tokenCount: Math.max(1, Math.ceil(content.length / 4)),
+    ...knownTimes ? { fromTs: Math.min(...asc.map((s) => s.fromTs)), toTs: Math.max(...asc.map((s) => s.toTs)) } : {}
   };
 };
 export {

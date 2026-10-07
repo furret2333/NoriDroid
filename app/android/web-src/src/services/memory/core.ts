@@ -9,6 +9,8 @@
  * 存储由各平台提供 (Android 走 NoriChat 文件桥 / 桌面走 Tauri 命令), 本模块只负责纯逻辑.
  */
 
+import {formatLocalTime, isValidTimestamp, type MessageTimeRange} from "../time"
+
 /** 记忆类型全集 (运行时可枚举: 校验模型给的 type 用; 类型本身由它派生, 避免两处漂移) */
 export const MEMORY_TYPES = ["fact", "preference", "project", "event", "relationship", "core"] as const
 export type MemoryType = (typeof MEMORY_TYPES)[number]
@@ -82,6 +84,9 @@ export interface MemorySummary {
 	/** 本次摘要覆盖的消息数 */
 	msgCount: number
 	tokenCount: number
+	/** 原始对话的发送时间范围；旧数据缺失时不使用 createdAt 推测。 */
+	fromTs?: number
+	toTs?: number
 }
 
 /**
@@ -1035,18 +1040,19 @@ export const buildMemoryBlock = (hits: MemoryItem[], limit = 6): string => {
  * @param known 已记住的内容 (由调用方截断并限量, 见 index.ts 的 knownMemoryList)
  */
 export const buildSummaryPrompt = (
-	messages: {role: string; content: string}[],
+	messages: {role: string; content: string; ts?: number}[],
 	withMemoryBlock = true,
 	known: readonly string[] = [],
 	examples?: {pos?: readonly string[]; neg?: readonly string[]} | null,
 ): string => {
 	const text = messages
-		.map(m => `${m.role === "user" ? "用户" : "Nori"}: ${m.content.replace(/\s+/g, " ").slice(0, 200)}`)
+		.map(m => `${isValidTimestamp(m.ts) ? `〔发送于 ${formatLocalTime(new Date(m.ts))}〕` : ""}${m.role === "user" ? "用户" : "Nori"}: ${m.content.replace(/\s+/g, " ").slice(0, 200)}`)
 		.join("\n")
+	const timeRule = "发送时间仅用于理解原对话中的「今天、昨天」等相对时间，不代表文中事件发生时间；有明确依据时保留具体日期，时间未记录时不要猜测。"
 	// 记忆整理关掉时 (设置里的 memoryLlmExtract): 退回"摘要 + 记忆要点"文本式提示词。
 	// 要点由**免费的关键词规则**通道提取 (不再是逐句跑, 而是跟着总结跑), 与旧行为一致:
 	// 「关掉 AI 提取 = 只用关键词规则记住东西」这条用户可见的契约不能变。
-	// (这条路径不加 known: 保持与旧行为逐字一致, 免得改动面扩大)
+	// 这条路径不加 known，保持原有的规则提取契约。
 	if (!withMemoryBlock) {
 		return [
 			"你是记忆压缩助手。把下面这段对话历史压缩成一段简短摘要（100~200 字），只保留：",
@@ -1054,6 +1060,7 @@ export const buildSummaryPrompt = (
 			"2. 讨论过的重要主题和结论；",
 			"3. 承诺过的事情。",
 			"不要添加原文没有的信息，不要写成对话形式，直接输出一段连贯的第三人称摘要。",
+			timeRule,
 			"摘要写完后另起一行，输出「记忆要点」：只列出这段对话里值得长期记住的稳定新信息（身份、",
 			"偏好、正在做的事、承诺），每行一条、用第一人称短句（如「我叫小明」「我喜欢下雨天」），",
 			"最多 5 条；若这段对话没有这样的新信息，就只输出摘要本身，不要写记忆要点。",
@@ -1065,6 +1072,7 @@ export const buildSummaryPrompt = (
 		"你是记忆整理助手。读完下面这段对话历史, 输出两部分。",
 		"【第一部分: 摘要】100~200 字第三人称叙述，只保留：用户的重要身份信息、偏好、正在做的事；",
 		"讨论过的重要主题和结论；承诺过的事情。不要添加原文没有的信息，不要写成对话形式。",
+		timeRule,
 		`【第二部分: 记忆块】另起一行写一行 ${MEM_SENTINEL}，紧接着输出一个 JSON 对象：`,
 		'{"topic":"<8 字以内的主题>","items":[{"content":"<第一人称短句, 20 字以内>","type":"fact|preference|project|event|relationship|core","importance":0~1}]}',
 		"记忆块的规则：",
@@ -1294,7 +1302,7 @@ export const summaryIdFor = (
 export const blockIdFor = (batch: readonly {ts?: number}[], start: number): string =>
 	`blk-${summaryIdFor(batch, start).slice(4)}`
 
-export const makeSummary = (content: string, msgCount: number, id?: string): MemorySummary => ({
+export const makeSummary = (content: string, msgCount: number, id?: string, range?: MessageTimeRange): MemorySummary => ({
 	// id 可由调用方传区间指纹 (见 summaryIdFor): 双实例对同一区间并发总结时产出相同 id,
 	// 落盘合并按 id 去重只留一份; 不传则退回随机 uid (兼容旧调用)
 	id: id ?? uid(),
@@ -1302,6 +1310,7 @@ export const makeSummary = (content: string, msgCount: number, id?: string): Mem
 	createdAt: Date.now(),
 	msgCount,
 	tokenCount: Math.max(1, Math.ceil(content.length / 4)),
+	...range,
 })
 
 /* ---------------- 摘要重叠去重 (双实例游标错位) ---------------- */
@@ -1359,12 +1368,20 @@ export const META_INJECT_LIMIT = 2
  */
 export const buildSummaryBlock = (
 	summaries: MemorySummary[],
-	opts: {budget?: number; metas?: MemorySummary[]} = {},
+	opts: {budget?: number; metas?: MemorySummary[]; timeAware?: boolean} = {},
 ): string => {
 	const budget = opts.budget ?? SUMMARY_BLOCK_BUDGET
 	const metas = opts.metas ?? []
 	if (!summaries.length && !metas.length) return ""
 	const head = `【历史总结】(较早对话的压缩记忆)\n`
+	const render = (s: MemorySummary): string => {
+		if (!opts.timeAware) return s.content
+		const known = isValidTimestamp(s.fromTs) && isValidTimestamp(s.toTs) && s.toTs >= s.fromTs
+		const label = known
+			? `【原对话发送时间】${formatLocalTime(new Date(s.fromTs!))} 至 ${formatLocalTime(new Date(s.toTs!))}`
+			: "【原对话时间未记录】"
+		return `${label}\n${s.content}`
+	}
 	// 折叠归档 (最久远) 在前, 只留最近几条
 	const oldMetas = [...metas].sort((a, b) => a.createdAt - b.createdAt).slice(-META_INJECT_LIMIT)
 	// 逐条摘要: 新 → 旧 累加
@@ -1372,13 +1389,13 @@ export const buildSummaryBlock = (
 	const chosen: MemorySummary[] = []
 	let used = head.length
 	for (const s of newestFirst) {
-		const cost = s.content.length + 1
+		const cost = render(s).length + 1
 		if (chosen.length && used + cost > budget) break
 		chosen.push(s)
 		used += cost
 	}
 	chosen.reverse()   // 时间正序
-	const lines = [...oldMetas.map(m => m.content), ...chosen.map(s => s.content)]
+	const lines = [...oldMetas.map(render), ...chosen.map(render)]
 	if (!lines.length) return ""
 	return head + lines.join("\n")
 }
@@ -1801,7 +1818,8 @@ export const foldDroppedSummaries = (dropped: MemorySummary[]): MemorySummary | 
 		used += one.length + 1
 	}
 	if (!parts.length) return null
-	const content = softTruncate(`〔${from}–${to}〕${parts.join("；")}`, MAX_META_CHARS)
+	const content = softTruncate(`〔摘要归档：${from}–${to}〕${parts.join("；")}`, MAX_META_CHARS)
+	const knownTimes = asc.every(s => isValidTimestamp(s.fromTs) && isValidTimestamp(s.toTs) && s.toTs! >= s.fromTs!)
 	return {
 		// 区间指纹: 双实例对同一批被丢弃摘要折叠时产出相同 id → 合并去重只留一份
 		id: `meta-${asc[0].createdAt}-${asc[asc.length - 1].createdAt}`,
@@ -1809,5 +1827,6 @@ export const foldDroppedSummaries = (dropped: MemorySummary[]): MemorySummary | 
 		createdAt: asc[0].createdAt,   // 用最早的创建时间: 它在时间轴上位于这些摘要之前
 		msgCount: asc.reduce((n, s) => n + (s.msgCount || 0), 0),
 		tokenCount: Math.max(1, Math.ceil(content.length / 4)),
+		...(knownTimes ? {fromTs: Math.min(...asc.map(s => s.fromTs!)), toTs: Math.max(...asc.map(s => s.toTs!))} : {}),
 	}
 }

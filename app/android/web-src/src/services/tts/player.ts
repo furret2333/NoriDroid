@@ -78,13 +78,21 @@ export class StreamPlayer {
 	private vol = 1
 	/** WebAudio 回退路径的增益节点 (音量控制), 惰性创建 */
 	private gain: GainNode | null = null
+	/** 可选的实际输出分析器：分析器失败时仍走原来的直连播放。 */
+	private analyser: AnalyserNode | null = null
+	private analyserData: Uint8Array | null = null
+	private amplitudeTimer: ReturnType<typeof setInterval> | null = null
+	private mediaSourceNode: MediaElementAudioSourceNode | null = null
+	private amplitudeSourceActive = false
+	onPlaybackAmplitude?: (rms: number) => void
+	onPlaybackAmplitudeSource?: (active: boolean) => void
 
 	/** 设置应用内音量 (0~1), 立即对当前播放生效 */
 	setVolume(v: number): void {
 		const n = Number(v)
 		this.vol = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1
 		try {
-			if (this.audioEl) this.audioEl.volume = this.vol
+			if (this.audioEl) this.audioEl.volume = this.mediaSourceNode ? 1 : this.vol
 		} catch {
 			// 忽略
 		}
@@ -105,9 +113,68 @@ export class StreamPlayer {
 		if (!this.gain) {
 			this.gain = ctx.createGain()
 			this.gain.gain.value = this.vol
-			this.gain.connect(ctx.destination)
+			this.gain.connect(this.ensureAnalyser(ctx) ?? ctx.destination)
 		}
 		return this.gain
+	}
+
+	private ensureAnalyser(ctx: AudioContext): AnalyserNode | null {
+		if (this.analyser) return this.analyser
+		try {
+			const analyser = ctx.createAnalyser()
+			analyser.fftSize = 1024
+			analyser.smoothingTimeConstant = 0
+			analyser.connect(ctx.destination)
+			this.analyser = analyser
+			this.analyserData = new Uint8Array(analyser.fftSize)
+			return analyser
+		} catch {
+			return null
+		}
+	}
+
+	private setAmplitudeSourceActive(active: boolean): void {
+		if (this.amplitudeSourceActive === active) return
+		this.amplitudeSourceActive = active
+		try { this.onPlaybackAmplitudeSource?.(active) } catch { /* 诊断回调不能影响播放 */ }
+		if (active) this.startAmplitudeMonitor()
+		else {
+			try { this.onPlaybackAmplitude?.(0) } catch { /* 忽略 */ }
+			this.stopAmplitudeMonitor()
+		}
+	}
+
+	private startAmplitudeMonitor(): void {
+		if (this.amplitudeTimer || !this.analyser || !this.analyserData) return
+		this.amplitudeTimer = setInterval(() => {
+			const analyser = this.analyser
+			const data = this.analyserData
+			if (!this.amplitudeSourceActive || !analyser || !data) return
+			try {
+				analyser.getByteTimeDomainData(data)
+				let sum = 0
+				for (let i = 0; i < data.length; i++) {
+					const v = (data[i] - 128) / 128
+					sum += v * v
+				}
+				const playing = this.audioEl ? !this.audioEl.paused && !this.audioEl.ended : this.playing
+				this.onPlaybackAmplitude?.(playing ? Math.sqrt(sum / data.length) : 0)
+			} catch {
+				// 某些 WebView 在音频上下文切后台时会拒绝读取，保留安全兜底。
+			}
+		}, 32)
+	}
+
+	private stopAmplitudeMonitor(): void {
+		if (!this.amplitudeTimer) return
+		clearInterval(this.amplitudeTimer)
+		this.amplitudeTimer = null
+	}
+
+	private disconnectMediaSource(): void {
+		if (!this.mediaSourceNode) return
+		try { this.mediaSourceNode.disconnect() } catch { /* 忽略 */ }
+		this.mediaSourceNode = null
 	}
 
 	/** 是否正在播放 */
@@ -178,6 +245,7 @@ export class StreamPlayer {
 		try {
 			// 每次会话用全新的 Audio 元素, 避免监听器跨会话累积导致状态回调重复触发
 			if (this.audioEl) {
+				this.disconnectMediaSource()
 				try {
 					this.audioEl.pause()
 					this.audioEl.removeAttribute("src")
@@ -190,13 +258,34 @@ export class StreamPlayer {
 			this.audioEl = new Audio()
 			this.audioEl.preload = "auto"
 			this.audioEl.volume = this.vol // 应用内音量 (不动系统音量)
+			/* MSE 也尽量接入同一个分析器；失败就保留 HTMLAudioElement 原始输出。 */
+			try {
+				const ctx = this.ctx
+				const analyser = ctx ? this.ensureAnalyser(ctx) : null
+				if (ctx && analyser) {
+					this.mediaSourceNode = ctx.createMediaElementSource(this.audioEl)
+					this.mediaSourceNode.connect(this.ensureGain(ctx))
+					this.audioEl.volume = 1
+					this.setAmplitudeSourceActive(true)
+				}
+			} catch {
+				this.disconnectMediaSource()
+				this.setAmplitudeSourceActive(false)
+			}
 			this.ms = new MediaSource()
 			this.blobUrl = URL.createObjectURL(this.ms)
 			this.audioEl.src = this.blobUrl
-			this.audioEl.addEventListener("playing", () => this.setPlaying(true))
-			this.audioEl.addEventListener("pause", () => this.setPlaying(false))
+			this.audioEl.addEventListener("playing", () => {
+				this.setPlaying(true)
+				this.setAmplitudeSourceActive(!!this.mediaSourceNode)
+			})
+			this.audioEl.addEventListener("pause", () => {
+				this.setPlaying(false)
+				this.setAmplitudeSourceActive(false)
+			})
 			this.audioEl.addEventListener("ended", () => {
 				this.setPlaying(false)
+				this.setAmplitudeSourceActive(false)
 				this.onEnded?.()
 			})
 			const onOpen = () => {
@@ -369,6 +458,7 @@ export class StreamPlayer {
 		const source = ctx.createBufferSource()
 		source.buffer = buffer
 		source.connect(this.ensureGain(ctx)) // 经增益节点输出 → 应用内音量生效
+		this.setAmplitudeSourceActive(!!this.analyser)
 		const now = ctx.currentTime
 		if (this.nextTime < now + 0.05) this.nextTime = now + 0.05
 		source.start(this.nextTime)
@@ -380,6 +470,7 @@ export class StreamPlayer {
 			if (idx >= 0) this.sources.splice(idx, 1)
 			if (!this.sources.length && this.nextTime <= ctx.currentTime + 0.05) {
 				this.setPlaying(false)
+				this.setAmplitudeSourceActive(false)
 				this.onEnded?.()
 			}
 		}
@@ -394,6 +485,8 @@ export class StreamPlayer {
 		this.stopped = true
 		this.gen++
 		this.decodeChain = Promise.resolve()
+		this.disconnectMediaSource()
+		this.setAmplitudeSourceActive(false)
 		// MSE 清理
 		if (this.audioEl) {
 			try {

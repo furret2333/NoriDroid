@@ -2,6 +2,7 @@
  * Android 记忆服务: 存储走 NoriChat 文件桥 (memory.json, 与 chat.json 同在公共下载目录)
  */
 import {readFile, writeFile} from "../chat"
+import {messageTimeRange} from "../time"
 import {DIAG_PROMPT_MAX, DIAG_RAW_MAX, recordOrganize} from "./diag"
 // 记忆诊断日志 (P1): 供界面读写（开关/条数/清空/导出）
 export {
@@ -1805,9 +1806,9 @@ export const openingMemoryBlock = (query = "", limit = OPENING_LIMIT): string =>
 /**
  * 读取当前可注入的历史总结块 (空串 = 无)
  */
-export const summaryBlock = (): string => {
+export const summaryBlock = (timeAware = false): string => {
 	const store = load()
-	return buildSummaryBlock(store.summaries, {metas: store.meta ?? []})
+	return buildSummaryBlock(store.summaries, {metas: store.meta ?? [], timeAware})
 }
 
 /**
@@ -2171,7 +2172,7 @@ export const summarizeIfNeeded = async (
 	// 于是同一段对话被算成 sum-2-26 与 sum-3-27 两条, id 不同去重不掉。
 	// 这里按区间重叠判定, 命中就**用新的替换旧的**, 而不是并存两份。
 	replaceOverlappingSummary(store, newId)
-	store.summaries.push(makeSummary(storedText, batch, newId))
+	store.summaries.push(makeSummary(storedText, batch, newId, messageTimeRange(newer)))
 	// ⑧ 条数上限: 超出丢最旧的 (被裁的登记墓碑, 防落盘合并时复活)
 	trimSummariesToMax()
 	// 取 max: await 摘要期间另一实例的游标可能已随磁盘合并进来, 别倒退覆盖。

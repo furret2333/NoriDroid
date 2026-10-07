@@ -5,6 +5,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.ClipData
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -12,10 +13,16 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import androidx.core.content.FileProvider
 import android.webkit.WebView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStreamReader
@@ -74,6 +81,27 @@ class ChatBridge(private val appContext: Context) {
 
     @android.webkit.JavascriptInterface
     fun pomoState(): String = PomodoroEngine.state(appContext)
+
+    /** 原生权威统计 + 公共目录兼容副本；后台完成不再依赖 WebView 回调落盘。 */
+    @android.webkit.JavascriptInterface
+    fun pomoStats(): String = syncPomoStats()
+
+    @android.webkit.JavascriptInterface
+    fun pomoMarkCelebrated(key: String): String = syncPomoStats(key)
+
+    private fun syncPomoStats(key: String? = null): String = runCatching {
+        val seed = readFile("pomo.json")
+        val oldFile = File(legacyDir(), "pomo.json")
+        val canInspect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) hasAllFilesAccess() else isStorageReady()
+        val absent = canInspect && (!oldFile.exists() || oldFile.length() == 0L)
+        val raw = PomodoroEngine.stats(appContext, seed, key, absent)
+        // 权限尚未授予时，空读取不能证明旧文件不存在；避免把公共旧副本覆盖成新空表。
+        if (JSONObject(raw).optBoolean("legacyImported")) writeFile("pomo.json", raw)
+        raw
+    }.getOrElse { "" }
+
+    @android.webkit.JavascriptInterface
+    fun pomoSetNotify(enabled: Boolean) = PomodoroEngine.setNotify(appContext, enabled)
 
     /** 完成通知需要 POST_NOTIFICATIONS(API33+): 从主界面发起时顺带请求一次 */
     @android.webkit.JavascriptInterface
@@ -1405,6 +1433,155 @@ class ChatBridge(private val appContext: Context) {
         }
     }
 
+    /** 聊天识图：打开系统相册，结果回传 window.__noriImagePickedRes。 */
+    @android.webkit.JavascriptInterface
+    fun pickImageFile(requestId: Int) {
+        mainHandler.post {
+            if (!beginImagePick(requestId)) return@post
+            try {
+                val act = appContext as? Activity ?: throw IllegalStateException("当前页面不可用")
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "image/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                act.startActivityForResult(intent, REQ_PICK_IMAGE)
+            } catch (e: Exception) {
+                imagePickRequestId = null
+                postImageResult(requestId, JSONObject().put("ok", false).put("message", e.message ?: "打开相册失败"))
+            }
+        }
+    }
+
+    /** 聊天识图：调用系统相机拍摄，结果同样走图片回调。 */
+    @android.webkit.JavascriptInterface
+    fun captureImage(requestId: Int) {
+        mainHandler.post {
+            if (!beginImagePick(requestId)) return@post
+            try {
+                val act = appContext as? Activity ?: throw IllegalStateException("当前页面不可用")
+                val dir = File(appContext.cacheDir, "chat-camera").apply { mkdirs() }
+                val file = File.createTempFile("nori-", ".jpg", dir)
+                pendingCameraFile = file
+                val uri = FileProvider.getUriForFile(act, "${act.packageName}.chat.images", file)
+                pendingCameraUri = uri
+                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                    putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                    clipData = ClipData.newRawUri("Nori 拍摄图片", uri)
+                    addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                act.startActivityForResult(intent, REQ_CAPTURE_IMAGE)
+            } catch (e: Exception) {
+                pendingCameraFile?.delete()
+                pendingCameraFile = null
+                pendingCameraUri = null
+                imagePickRequestId = null
+                postImageResult(requestId, JSONObject().put("ok", false).put("message", e.message ?: "打开相机失败"))
+            }
+        }
+    }
+
+    private var pendingCameraUri: Uri? = null
+    private var pendingCameraFile: File? = null
+    private var imagePickRequestId: Int? = null
+
+    private fun beginImagePick(requestId: Int): Boolean {
+        if (imagePickRequestId != null) {
+            postImageResult(requestId, JSONObject().put("ok", false).put("message", "请先结束上一次图片选择"))
+            return false
+        }
+        imagePickRequestId = requestId
+        return true
+    }
+
+    private fun postImageResult(requestId: Int, result: JSONObject) {
+        postToJs("__noriImagePickedRes", result.put("requestId", requestId).toString())
+    }
+
+    private fun finishImageResult(resultCode: Int, data: Intent?, camera: Boolean) {
+        val requestId = imagePickRequestId ?: return
+        val uri = if (camera) pendingCameraUri else data?.data
+        val cameraFile = if (camera) pendingCameraFile else null
+        if (camera) { pendingCameraUri = null; pendingCameraFile = null }
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            cameraFile?.delete()
+            imagePickRequestId = null
+            postImageResult(requestId, JSONObject().put("ok", false).put("message", "未选择图片"))
+            return
+        }
+        ioExecutor.execute {
+            val result = try { compressImageForChat(uri) } finally { cameraFile?.delete() }
+            mainHandler.post {
+                imagePickRequestId = null
+                postImageResult(requestId, result)
+            }
+        }
+    }
+
+    /** 采样解码、校正 EXIF 方向再缩图；仅返回压缩后的 JPEG，不保留原图。 */
+    private fun compressImageForChat(uri: Uri): JSONObject {
+        var bitmap: Bitmap? = null
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IllegalStateException("无法读取图片")
+            val maxEdge = 1280
+            var sample = 1
+            while (bounds.outWidth / sample > maxEdge * 2 || bounds.outHeight / sample > maxEdge * 2) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888 }
+            val decoded = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+                ?: throw IllegalStateException("无法读取图片")
+            val edge = maxOf(decoded.width, decoded.height)
+            var working = decoded
+            bitmap = working
+            if (edge > maxEdge) {
+                val ratio = maxEdge.toFloat() / edge.toFloat()
+                working = Bitmap.createScaledBitmap(decoded, (decoded.width * ratio).toInt().coerceAtLeast(1), (decoded.height * ratio).toInt().coerceAtLeast(1), true)
+                bitmap = working
+                if (working !== decoded) decoded.recycle()
+            }
+            val orientation = runCatching {
+                cr.openInputStream(uri)?.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
+            }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+            val matrix = Matrix().apply {
+                when (orientation) {
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> setScale(-1f, 1f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> setRotate(180f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> setScale(1f, -1f)
+                    ExifInterface.ORIENTATION_TRANSPOSE -> { setRotate(90f); postScale(-1f, 1f) }
+                    ExifInterface.ORIENTATION_ROTATE_90 -> setRotate(90f)
+                    ExifInterface.ORIENTATION_TRANSVERSE -> { setRotate(-90f); postScale(-1f, 1f) }
+                    ExifInterface.ORIENTATION_ROTATE_270 -> setRotate(-90f)
+                }
+            }
+            if (!matrix.isIdentity) {
+                val oriented = Bitmap.createBitmap(working, 0, 0, working.width, working.height, matrix, true)
+                bitmap = oriented
+                if (oriented !== working) working.recycle()
+                working = oriented
+            }
+            val output = ByteArrayOutputStream()
+            var quality = 82
+            do {
+                output.reset()
+                if (!working.compress(Bitmap.CompressFormat.JPEG, quality, output)) throw IllegalStateException("图片压缩失败")
+                quality -= 8
+            } while (output.size() > 1_500_000 && quality >= 58)
+            if (output.size() > 1_500_000) throw IllegalStateException("图片压缩后仍过大，请选择更小的图片")
+            JSONObject().put("ok", true)
+                .put("dataUrl", "data:image/jpeg;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP))
+                .put("mime", "image/jpeg")
+                .put("width", working.width)
+                .put("height", working.height)
+                .put("size", output.size())
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("message", e.message ?: "图片处理失败")
+        } catch (e: OutOfMemoryError) {
+            JSONObject().put("ok", false).put("message", "图片太大，内存不足，请选择更小的图片")
+        } finally {
+            bitmap?.recycle()
+        }
+    }
+
     /* ---------------- 自定义文案人设 (2026-10-01 用户要求) ---------------- */
 
     /** 系统文件选择器选**文本文件**当人设提示词 (结果回传 __noriPersonaPickedRes)
@@ -1494,6 +1671,14 @@ class ChatBridge(private val appContext: Context) {
         // 文本人设那条要**先**分流: 下面那句是「不是音频就返回」, 放在它后面永远轮不到
         if (requestCode == REQ_PICK_PERSONA) {
             handlePersonaPickResult(resultCode, data)
+            return
+        }
+        if (requestCode == REQ_PICK_IMAGE) {
+            finishImageResult(resultCode, data, false)
+            return
+        }
+        if (requestCode == REQ_CAPTURE_IMAGE) {
+            finishImageResult(resultCode, data, true)
             return
         }
         if (requestCode != REQ_PICK_VOICE) return
@@ -2083,6 +2268,8 @@ class ChatBridge(private val appContext: Context) {
         private const val KEY_ALIAS = "nori_settings_key"
         private val SENSITIVE_SETTINGS = arrayOf("apiKey", "ttsApiKey", "cosyApiKey")
         private const val REQ_PICK_VOICE = 2001
+        private const val REQ_PICK_IMAGE = 2002
+        private const val REQ_CAPTURE_IMAGE = 2003
         /** 选文本人设的请求码 (0x9A72 = 39538, 与上面的音频选择器离得够远, 不会撞) */
         private const val REQ_PICK_PERSONA = 0x9A72
         private const val BGM_URL = "https://add5ddd5.pinme.dev"

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>NoriDroid · GPU 环境信息</title>
+<style>
+	:root { color-scheme: dark; }
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; padding: 16px 14px 40px;
+		background: #07090f; color: #e8eef7;
+		font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+		-webkit-text-size-adjust: 100%;
+	}
+	h1 { font-size: 19px; margin: 0 0 4px; }
+	.sub { color: #7f8ea3; font-size: 13px; margin-bottom: 16px; }
+	.card { background: #101725; border: 1px solid #1e2a3d; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+	.big { font-size: 17px; font-weight: 700; color: #7dd3fc; word-break: break-all; line-height: 1.45; }
+	.k { color: #8ba0b8; font-size: 13px; margin-top: 8px; }
+	.v { font-family: ui-monospace, Consolas, monospace; font-size: 14px; word-break: break-all; }
+	.tier { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 700; font-size: 14px; }
+	.t-low { background: #7f1d1d; color: #fecaca; }
+	.t-mid { background: #78350f; color: #fde68a; }
+	.t-high { background: #14532d; color: #bbf7d0; }
+	.warn { background: #3b1d1d; border-color: #7f1d1d; color: #fecaca; }
+	.ok { color: #86efac; }
+	.bad { color: #fca5a5; }
+	button {
+		width: 100%; padding: 12px; margin-top: 6px; border-radius: 10px; border: 1px solid #2b3a52;
+		background: #17223a; color: #dbe7f5; font-size: 15px; font-weight: 600;
+	}
+	textarea { width: 100%; height: 150px; margin-top: 8px; background: #0b1220; color: #cbd5e1;
+		border: 1px solid #1e2a3d; border-radius: 10px; padding: 10px; font: 12px/1.5 ui-monospace, monospace; }
+	ol { padding-left: 20px; margin: 8px 0 0; }
+	li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<h1>GPU 环境信息</h1>
+<div class="sub">给「GPU 分级 + 自动降档」用：需要真机的渲染器字符串来校准分级表。<br>在手机上打开这一页，把结果截图或点下面的按钮复制全文。</div>
+
+<div id="out">检测中…</div>
+
+<button id="cp">复制全文</button>
+<textarea id="ta" readonly placeholder="点上面按钮后内容会出现在这里（方便长按复制/截图）"></textarea>
+
+<script>
+const $ = (id) => document.getElementById(id)
+const lines = []
+const add = (k, v) => { lines.push(k + ': ' + v); return v }
+
+/** 分级表取自归档实现（index-CG__QqRp.js:12590-12605），原样搬来用于对照 */
+const SOFT = /swiftshader|llvmpipe|software|basic render/
+function tierOf(s) {
+	const t = String(s || '').toLowerCase()
+	if (t === '') return 'high'
+	if (SOFT.test(t) || /\bmali\b|adreno|videocore|powervr/.test(t)) return 'low'
+	if (/intel/.test(t)) return /\barc\b/.test(t) ? 'mid' : 'low'
+	if (/radeon\(tm\) graphics|amd.*vega \d/.test(t)) return 'mid'
+	return 'high'
+}
+
+function info() {
+	const r = { gl1: '', gl2: '', vendor: '', maxTex: '', maxRB: '', err: '' }
+	const c = document.createElement('canvas')
+	let gl = null
+	try { gl = c.getContext('webgl2') } catch (e) { r.err += 'webgl2:' + e.message + ' ' }
+	if (gl) {
+		r.gl2 = 'yes'
+		try {
+			const e = gl.getExtension('WEBGL_debug_renderer_info')
+			r.renderer = e ? String(gl.getParameter(e.UNMASKED_RENDERER_WEBGL) || '') : ''
+			r.vendor = e ? String(gl.getParameter(e.UNMASKED_VENDOR_WEBGL) || '') : ''
+			if (!e) r.err += '无 WEBGL_debug_renderer_info '
+			r.maxTex = String(gl.getParameter(gl.MAX_TEXTURE_SIZE) || '')
+			r.maxRB = String(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || '')
+			const dbg = gl.getExtension('WEBGL_debug_renderer_info')
+			r.masked = dbg ? '' : String(gl.getParameter(gl.RENDERER) || '')
+		} catch (e) { r.err += 'param:' + e.message + ' ' }
+		try { gl.getExtension('WEBGL_lose_context')?.loseContext() } catch (e) { /* 忽略 */ }
+	} else {
+		r.gl2 = 'no'
+		try {
+			const g1 = c.getContext('webgl')
+			if (g1) { r.gl1 = 'yes'; r.masked = String(g1.getParameter(g1.RENDERER) || '') }
+			else r.gl1 = 'no'
+		} catch (e) { r.gl1 = 'err:' + e.message }
+	}
+	return r
+}
+
+try {
+	// 触屏/移动端的关键判据：真机字符串 + 是否被 ANGLE 包装
+	const g = info()
+	const isMobileUA = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)
+	const dev = navigator.deviceMemory || navigator.deviceMemory
+	const core = navigator.hardwareConcurrency
+
+	const shown = g.renderer || g.masked || '(取不到)'
+	const tier = tierOf(shown)
+
+	add('__renderer__', shown)
+	add('vendor', g.vendor || '(空)')
+	add('分级(按归档规则)', tier)
+	add('是否软渲染', SOFT.test(shown.toLowerCase()) ? '是(⚠ 软渲染，帧率不可信)' : '否')
+
+	$('out').innerHTML = `
+		<div class="card">
+			<div class="k">渲染器字符串 (UNMASKED_RENDERER_WEBGL)</div>
+			<div class="big">${shown.replace(/[<>&]/g, (m) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]))}</div>
+		</div>
+		<div class="card">
+			<div class="k">按归档那张表判定</div>
+			<div><span class="tier t-${tier}">${tier.toUpperCase()}</span></div>
+		</div>
+		<div class="card">
+			<div class="k">设备</div>
+			<div class="v">devicePixelRatio = ${window.devicePixelRatio}<br>
+			screen = ${screen.width}×${screen.height} (avail ${screen.availWidth}×${screen.availHeight})<br>
+			innerWidth×innerHeight = ${innerWidth}×${innerHeight}<br>
+			CPU 核心 = ${core ?? '?'}　deviceMemory = ${dev ?? '不支持'}<br>
+			移动端 UA = ${isMobileUA ? '是' : '否'}<br>
+			WebGL2 = ${g.gl2}　WebGL1 = ${g.gl1}<br>
+			MAX_TEXTURE_SIZE = ${g.maxTex || '?'}　MAX_RENDERBUFFER_SIZE = ${g.maxRB || '?'}</div>
+		</div>
+		<div class="card">
+			<div class="k">UA</div>
+			<div class="v">${navigator.userAgent}</div>
+		</div>
+		${SOFT.test(shown.toLowerCase()) ? '<div class="card warn">⚠ 检测到软件渲染（SwiftShader/llvmpipe）—— 这一页的信息仍可用，但**自测页的帧率不可信**。</div>' : ''}
+		${g.err ? `<div class="card warn">取信息时的告警：${g.err}</div>` : ''}
+	`
+
+	add('devicePixelRatio', window.devicePixelRatio)
+	add('screen', screen.width + 'x' + screen.height)
+	add('innerWH', innerWidth + 'x' + innerHeight)
+	add('hardwareConcurrency', core ?? '?')
+	add('deviceMemory', dev ?? '不支持')
+	add('WebGL2', g.gl2)
+	add('MAX_TEXTURE_SIZE', g.maxTex || '?')
+	add('UA', navigator.userAgent)
+} catch (e) {
+	$('out').innerHTML = '<div class="card warn">检测失败：' + (e && e.message) + '</div>'
+	add('ERROR', String(e && e.message))
+}
+
+$('cp').onclick = async () => {
+	const text = lines.join('\n')
+	$('ta').value = text
+	$('ta').select()
+	try {
+		if (navigator.clipboard) await navigator.clipboard.writeText(text)
+		$('cp').textContent = '已复制 ✓（也可直接长按下面的文本）'
+	} catch (e) { $('cp').textContent = '自动复制失败，请长按下面的文本' }
+}
+</script>
+</body>
+</html>

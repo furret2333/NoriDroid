@@ -1,7 +1,12 @@
-// src/services/pomo-stats.ts
+// ../src/services/pomo-stats.ts
 var KEEP_DAYS = 3650;
 var dayKey = (d = /* @__PURE__ */ new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-var dayMinutes = (d) => (d?.focusMin || 0) + (d?.countUpMin || 0);
+var dayMinutes = (d) => (d?.focusMs !== void 0 ? d.focusMs / 6e4 : d?.focusMin || 0) + (d?.countUpMs !== void 0 ? d.countUpMs / 6e4 : d?.countUpMin || 0);
+var shiftDay = (now, offset) => {
+  const d = new Date(now);
+  d.setDate(d.getDate() + offset);
+  return d;
+};
 var isActiveDay = (d) => !!d && (dayMinutes(d) > 0 || (d.done || 0) > 0);
 var addToStore = (stats, delta) => {
   stats.total = {
@@ -49,7 +54,7 @@ var summarize = (days, rangeDays = 7, now = /* @__PURE__ */ new Date()) => {
   let rangeBest = 0;
   let rangeDone = 0;
   for (let i = 0; i < rangeDays; i++) {
-    const k = dayKey(new Date(now.getTime() - i * 864e5));
+    const k = dayKey(shiftDay(now, -i));
     const d = days[k];
     const min = dayMinutes(d);
     rangeMin += min;
@@ -57,14 +62,14 @@ var summarize = (days, rangeDays = 7, now = /* @__PURE__ */ new Date()) => {
     rangeDone += d?.done || 0;
   }
   return {
-    todayMin: dayMinutes(today),
+    todayMin: Math.round(dayMinutes(today)),
     todayDone: doneToday,
     todayAbort: abortToday,
     // 没有任何完成/放弃时不显示 0% (那是"没数据", 不是"全失败")
     todayRate: attempts > 0 ? doneToday / attempts : -1,
-    todayAvgMin: doneToday > 0 ? Math.round((today?.focusMin || 0) / doneToday) : -1,
-    rangeMin,
-    rangeBest,
+    todayAvgMin: (today?.completedCount || 0) > 0 ? Math.round((today?.completedFocusMin || 0) / today.completedCount) : doneToday > 0 && abortToday === 0 ? Math.round((today?.focusMin || 0) / doneToday) : -1,
+    rangeMin: Math.round(rangeMin),
+    rangeBest: Math.round(rangeBest),
     rangeDone,
     streak: computeStreak(days, now)
   };
@@ -73,7 +78,7 @@ var computeStreak = (days, now = /* @__PURE__ */ new Date()) => {
   let offset = isActiveDay(days[dayKey(now)]) ? 0 : 1;
   let n = 0;
   for (let i = offset; i < 4e3; i++) {
-    if (!isActiveDay(days[dayKey(new Date(now.getTime() - i * 864e5))])) break;
+    if (!isActiveDay(days[dayKey(shiftDay(now, -i))])) break;
     n += 1;
   }
   return n;
@@ -106,7 +111,7 @@ var monthlyRollup = (days, months = 12, now = /* @__PURE__ */ new Date()) => {
     const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
     const v = map.get(key);
-    out.push({ month: key, min: v?.min || 0, done: v?.done || 0 });
+    out.push({ month: key, min: Math.round(v?.min || 0), done: v?.done || 0 });
   }
   return out;
 };
@@ -119,19 +124,19 @@ var heatLevel = (min) => {
 };
 var buildHeatmap = (days, weeks = 52, now = /* @__PURE__ */ new Date()) => {
   const doy = now.getDay();
-  const start = new Date(now.getTime() - ((weeks - 1) * 7 + doy) * 864e5);
+  const start = shiftDay(now, -((weeks - 1) * 7 + doy));
   const cells = [];
   const monthLabels = [];
   let lastMonth = -1;
   for (let w = 0; w < weeks; w++) {
     for (let row = 0; row < 7; row++) {
-      const d = new Date(start.getTime() + (w * 7 + row) * 864e5);
+      const d = shiftDay(start, w * 7 + row);
       if (d.getTime() > now.getTime()) {
         cells.push(null);
         continue;
       }
       const date = dayKey(d);
-      const min = dayMinutes(days[date]);
+      const min = Math.round(dayMinutes(days[date]));
       cells.push({ date, min, level: heatLevel(min) });
       if (row === 0) {
         const m = d.getMonth();
@@ -186,6 +191,7 @@ export {
   isActiveDay,
   migrateStats,
   monthlyRollup,
+  shiftDay,
   summarize,
   topicRelated
 };

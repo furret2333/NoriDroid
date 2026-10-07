@@ -30,4 +30,4 @@
 4. **按原样**分发（不修改 Core）✓
 
 > 应用内「关于 / 开源许可」页已在 Android 设置页实现，并提供本文件与 Live2D 协议链接。
-> `v2.0.0` is prepared for release from the Android build. Any published APK must include the required Live2D notices and a Core binary supplied under its own license.
+> `v2.1.0` is prepared from the Android build. Any published APK must include the required Live2D notices and a Core binary supplied under its own license.

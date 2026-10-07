@@ -18,6 +18,12 @@ export interface PomoDayStat {
 	abort: number
 	/** 正向计时分钟数 */
 	countUpMin: number
+	/** 精确累计毫秒；兼容旧分钟字段，展示时再取整。 */
+	focusMs?: number
+	countUpMs?: number
+	/** 完整结束的段的总时长与数量，排除中断部分。 */
+	completedFocusMin?: number
+	completedCount?: number
 }
 
 /** 终身累计 (永不随天滚动, 即使某天明细被裁也保留) */
@@ -45,6 +51,7 @@ export interface PomoStatsFile {
 	total?: PomoTotal
 	/** 最佳记录; 可选 → 旧数据首次加载时自动算出 */
 	best?: PomoBest
+	lastEventSeq?: number
 }
 
 /** 保留上限: 10 年。这是**防御性**上限而非业务保留期 ——
@@ -56,7 +63,16 @@ export const dayKey = (d: Date = new Date()): string =>
 	`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 
 /** 某天的总专注分钟 (净专注 + 正向计时) */
-export const dayMinutes = (d?: PomoDayStat): number => (d?.focusMin || 0) + (d?.countUpMin || 0)
+export const dayMinutes = (d?: PomoDayStat): number =>
+	(d?.focusMs !== undefined ? d.focusMs / 60000 : d?.focusMin || 0) +
+	(d?.countUpMs !== undefined ? d.countUpMs / 60000 : d?.countUpMin || 0)
+
+/** 按本地日历移动日期，避免夏令时把一天错误地固定为 24 小时。 */
+export const shiftDay = (now: Date, offset: number): Date => {
+	const d = new Date(now)
+	d.setDate(d.getDate() + offset)
+	return d
+}
 
 /** 某天是否"有专注" (用于连续天数; 只完成不专注也算有) */
 export const isActiveDay = (d?: PomoDayStat): boolean => !!d && (dayMinutes(d) > 0 || (d.done || 0) > 0)
@@ -122,7 +138,7 @@ export interface PomoSummary {
 	todayAbort: number
 	/** 今日完成率 0~1 (无完成也无放弃时返回 -1 表示"无数据") */
 	todayRate: number
-	/** 今日平均每段专注分钟 (无完成时返回 -1) */
+	/** 今日平均完整专注段分钟 (无可用完整段数据时返回 -1) */
 	todayAvgMin: number
 	/** 近 N 天总分钟 */
 	rangeMin: number
@@ -151,7 +167,7 @@ export const summarize = (
 	let rangeBest = 0
 	let rangeDone = 0
 	for (let i = 0; i < rangeDays; i++) {
-		const k = dayKey(new Date(now.getTime() - i * 86400000))
+		const k = dayKey(shiftDay(now, -i))
 		const d = days[k]
 		const min = dayMinutes(d)
 		rangeMin += min
@@ -160,14 +176,16 @@ export const summarize = (
 	}
 
 	return {
-		todayMin: dayMinutes(today),
+		todayMin: Math.round(dayMinutes(today)),
 		todayDone: doneToday,
 		todayAbort: abortToday,
 		// 没有任何完成/放弃时不显示 0% (那是"没数据", 不是"全失败")
 		todayRate: attempts > 0 ? doneToday / attempts : -1,
-		todayAvgMin: doneToday > 0 ? Math.round((today?.focusMin || 0) / doneToday) : -1,
-		rangeMin,
-		rangeBest,
+		todayAvgMin: (today?.completedCount || 0) > 0
+			? Math.round((today?.completedFocusMin || 0) / today!.completedCount!)
+			: doneToday > 0 && abortToday === 0 ? Math.round((today?.focusMin || 0) / doneToday) : -1,
+		rangeMin: Math.round(rangeMin),
+		rangeBest: Math.round(rangeBest),
 		rangeDone,
 		streak: computeStreak(days, now),
 	}
@@ -184,7 +202,7 @@ export const computeStreak = (
 	let offset = isActiveDay(days[dayKey(now)]) ? 0 : 1
 	let n = 0
 	for (let i = offset; i < 4000; i++) {
-		if (!isActiveDay(days[dayKey(new Date(now.getTime() - i * 86400000))])) break
+		if (!isActiveDay(days[dayKey(shiftDay(now, -i))])) break
 		n += 1
 	}
 	return n
@@ -228,7 +246,7 @@ export const monthlyRollup = (
 		const dt = new Date(now.getFullYear(), now.getMonth() - i, 1)
 		const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`
 		const v = map.get(key)
-		out.push({month: key, min: v?.min || 0, done: v?.done || 0})
+		out.push({month: key, min: Math.round(v?.min || 0), done: v?.done || 0})
 	}
 	return out
 }
@@ -277,16 +295,16 @@ export const buildHeatmap = (
 ): Heatmap => {
 	const doy = now.getDay()               // 0=周日
 	// 网格共 weeks 列: 最后一列是本周, 第一列起点 = 今天 - (weeks-1) 周 - 本周已过天数
-	const start = new Date(now.getTime() - ((weeks - 1) * 7 + doy) * 86400000)
+	const start = shiftDay(now, -((weeks - 1) * 7 + doy))
 	const cells: (HeatCell | null)[] = []
 	const monthLabels: {col: number; text: string}[] = []
 	let lastMonth = -1
 	for (let w = 0; w < weeks; w++) {
 		for (let row = 0; row < 7; row++) {
-			const d = new Date(start.getTime() + (w * 7 + row) * 86400000)
+			const d = shiftDay(start, w * 7 + row)
 			if (d.getTime() > now.getTime()) { cells.push(null); continue }
 			const date = dayKey(d)
-			const min = dayMinutes(days[date])
+			const min = Math.round(dayMinutes(days[date]))
 			cells.push({date, min, level: heatLevel(min)})
 			if (row === 0) {
 				const m = d.getMonth()

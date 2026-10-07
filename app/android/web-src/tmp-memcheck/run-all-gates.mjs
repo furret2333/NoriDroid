@@ -52,15 +52,19 @@ const SUITES = [
 	{name: "probe-ui-asterisks", kind: "probe-h"},         // 界面里有没有字面 ** (markdown 漏渲染)
 	{name: "probe-model-pick-persist", kind: "probe-h"},   // Live2D 模型选择要被记住 (换模型重启不回第一只)
 	{name: "probe-time-context", kind: "probe-h"},         // Nori 看得到当前时间 (payload 里有人格+时间块, 顺序对)
+	{name: "probe-pomodoro", kind: "probe-h"},             // 真页面计时按钮/静音重开/通知开关/统计日期联动；原生算法另有 JVM 测试
 	{name: "probe-clone-gate", kind: "probe-h"},
 	{name: "probe-model-download-gate", kind: "probe-h"},  // 下载模型前的同一道答题门: 没答对不许下载/取消也不下载 + 克隆那道门没被搞坏
 	{name: "probe-bubble-place", kind: "probe-h"},   // float bubble initial placement (below model)           // 一键克隆的答题门 + 引导里的 Steam 愿望单
 	{name: "probe-persona-import", kind: "probe-h"},       // 设置顶部导入自定义人设 (替代内置提示词) + payload 真的换了
+	{name: "probe-chat-image-poke", kind: "probe-h"},      // 聊天图片/戳戳的真实页面与发送 payload
 	{name: "probe-sfx-download", kind: "probe-h"},         // 音效改为联网下载: 设置里「下载音效」+ 未下载时静默不报错
 	{name: "probe-about-page", kind: "probe-h"},           // 设置里的「关于 / 隐私 / 开源许可」页: 入口 + 四块内容(版本/隐私/许可/反馈) + 链接走 openExternal
 	{name: "probe-bgm-state", kind: "probe-h"},            // BGM「已下载」按磁盘算: 开关关着 + 重启后仍显示「资源已就绪」
 	{name: "probe-thinking-default", kind: "probe-h"},     // DeepSeek 思考模式: 默认开 + 关掉时显式传 disabled + 非 DeepSeek 端点不塞字段
 	{name: "probe-main-fps", kind: "probe-h"},             // 掉帧: 两个 Live2D 同时渲染的代价 + 暂停渲染后恢复 + 隐藏时 0 排程 0 帧 (要两个 Edge 进程, ~1.5 分钟)
+	{name: "probe-render-scale-ab", kind: "probe-h"},      // 渲染分辨率代价: renderScale 3/2/1 × 背景开关 → 判"填充受限 or CPU 受限" (报告型, 永不失败; ~2 分钟)
+	{name: "probe-render-robustness", kind: "probe-h"},    // 架构可靠性: 纹理真实尺寸 / 主界面上下文丢失能否恢复 / 悬浮窗重入 (报告型, 永不失败; ~2 分钟)
 	{name: "e2e-mem-invalid", kind: "e2e"},
 	{name: "e2e-mem-blocks", kind: "e2e"},
 	{name: "e2e-mem-realtime", kind: "e2e"},

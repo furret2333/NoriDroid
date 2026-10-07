@@ -11,6 +11,9 @@ import {
 } from "live2d-easy-control"
 import {live2dUrl} from "./config"
 import {installFrameCap, setFrameCap, setRenderPaused, L2D_FPS_DEFAULT, L2D_FPS_OPTIONS, normalizeFps, type L2dFps} from "./frameCap"
+import {normalizeRenderScale} from "./renderScale"
+
+export {normalizeRenderScale} from "./renderScale"
 
 declare global {
 	interface Window {
@@ -71,9 +74,14 @@ const buildLoadConfig = (model: Live2DModelSpec, options: Live2DMountOptions = {
 
 export const createLive2D = () => {
 	let canvasEl: HTMLCanvasElement | null = null
-	
-	
 	let didLoad = false
+	let operation: Promise<void> = Promise.resolve()
+
+	const enqueue = <T>(fn: () => Promise<T>): Promise<T> => {
+		const next = operation.then(fn, fn)
+		operation = next.then(() => undefined, () => undefined)
+		return next
+	}
 
 	const canvas = (): HTMLCanvasElement | null => canvasEl
 
@@ -86,7 +94,10 @@ export const createLive2D = () => {
 		return {w, h}
 	}
 
-	const mount = async (model: Live2DModelSpec, options?: Live2DMountOptions): Promise<void> => {
+	const mountNow = async (model: Live2DModelSpec, options?: Live2DMountOptions): Promise<void> => {
+		// A queued mount may follow another mount without an explicit caller destroy.
+		// Stop that instance here as well so its render loop cannot survive the swap.
+		if (didLoad || canvasEl) await destroyNow()
 		if (canvasEl && canvasEl.isConnected) canvasEl.remove()
 		canvasEl = null
 		await load(buildLoadConfig(model, options))
@@ -113,7 +124,7 @@ export const createLive2D = () => {
 		}
 	}
 
-	const destroy = async (): Promise<void> => {
+	const destroyNow = async (): Promise<void> => {
 		if (didLoad) {
 			try { await stop() } catch {  }
 			didLoad = false
@@ -121,6 +132,12 @@ export const createLive2D = () => {
 		if (canvasEl && canvasEl.isConnected) canvasEl.remove()
 		canvasEl = null
 	}
+
+	/* Mount and destroy are both async in the underlying library. Serializing them here
+	   prevents a refresh/context-restored callback from interleaving two load/stop cycles. */
+	const mount = (model: Live2DModelSpec, options?: Live2DMountOptions): Promise<void> =>
+		enqueue(() => mountNow(model, options))
+	const destroy = (): Promise<void> => enqueue(destroyNow)
 
 	const getMotions = async (): Promise<MotionGroup[] | null> => {
 		try { return await getAllMotionsInfo() } catch { return null }
@@ -131,16 +148,20 @@ export const createLive2D = () => {
 	
 	const setRenderScale = (scale: number): void => {
 		try {
-			window.__noriRenderScale = scale
-			if (canvasEl) {
-				const w = canvasEl.style.width, h = canvasEl.style.height
-				canvasEl.style.width = "99.99%"
-				canvasEl.style.height = "99.99%"
+			const safeScale = normalizeRenderScale(scale, window.devicePixelRatio || 1)
+			window.__noriRenderScale = safeScale
+			const canvas = canvasEl
+			if (canvas && canvas.isConnected) {
+				const w = canvas.style.width, h = canvas.style.height
+				canvas.style.width = "99.99%"
+				canvas.style.height = "99.99%"
 				
 				requestAnimationFrame(() => {
+					if (canvas !== canvasEl || !canvas.isConnected) return
 					requestAnimationFrame(() => {
-						canvasEl!.style.width = w
-						canvasEl!.style.height = h
+						if (canvas !== canvasEl || !canvas.isConnected) return
+						canvas.style.width = w
+						canvas.style.height = h
 					})
 				})
 			}

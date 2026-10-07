@@ -464,6 +464,166 @@ const mkMsg = (role, content, ts) => ({role, content, ts})
 		JSON.stringify(JSON.parse(files.get("chat.json")).msgs.map(m => m.content)))
 }
 
+/* ============ T12 多模态发送与纯文字存储 ============ */
+{
+	const dataUrl = "data:image/jpeg;base64,/9j/AA=="
+	const image = {...mkMsg("user", "[图片] 看看这是什么", 9000), parts: [
+		{type: "text", text: "看看这是什么"},
+		{type: "image_url", image_url: {url: dataUrl}},
+	]}
+	let payload
+	window.NoriChat.chat = (_url, _key, _model, json) => {
+		payload = JSON.parse(json)
+		queueMicrotask(() => window.__noriChatRes(JSON.stringify({ok: true, content: "一张图片"})))
+	}
+	const response = await chat.sendChat("u", "k", "m", [mkMsg("system", "人设", 8999), image])
+	check("T12: 非流式保留文本/图片内容数组", response.ok && payload[1].content[1].image_url.url === dataUrl)
+	check("T12: 普通消息仍发送字符串", payload[0].content === "人设")
+	window.NoriChat.chatStream = (_url, _key, _model, json) => {
+		payload = JSON.parse(json)
+		queueMicrotask(() => window.__noriChatDone(JSON.stringify({ok: true, content: "看到了"})))
+	}
+	await new Promise((resolve, reject) => chat.sendChatStream("u", "k", "m", [image], {
+		onDelta: () => {}, onDone: resolve, onError: reject,
+	}))
+	check("T12: 流式同样保留图片", payload[0].content[1].image_url.url === dataUrl)
+	files.clear()
+	chat.persistChat([image])
+	chat.flushChatPersist()
+	check("T12: chat.json 不存图片或 parts", !files.get("chat.json").includes("base64") && !files.get("chat.json").includes('"parts"'))
+	check("T12: 重载历史保留图片文字占位", chat.loadChat()[0].content === image.content)
+	check("T12: 落盘没有修改请求里的图片", image.parts[1].image_url.url === dataUrl)
+}
+
+/* ============ T13 图片桥的取消、并发、异常和迟到回包 ============ */
+{
+	const ids = []
+	const fakePicker = (id) => { ids.push(id) }
+	window.NoriChat.pickImageFile = fakePicker
+	window.NoriChat.captureImage = fakePicker
+	const reply = (result, requestId = ids.at(-1)) => window.__noriImagePickedRes(JSON.stringify({requestId, ...result}))
+	const valid = {ok: true, dataUrl: "data:image/jpeg;base64,/9j/AA==", mime: "image/jpeg", width: 10, height: 20, size: 4}
+	const album = chat.pickImageFile()
+	const oldCallback = window.__noriImagePickedRes
+	const duplicate = await chat.captureImage()
+	check("T13: 重复选择被挡住且未再打开原生", !duplicate.ok && ids.length === 1)
+	reply(valid)
+	check("T13: 相册结果回到调用方", (await album).dataUrl === valid.dataUrl)
+	check("T13: 完成后清理回调", !window.__noriImagePickedRes)
+	const camera = chat.captureImage()
+	check("T13: 新选择使用新的请求 ID", ids[1] !== ids[0])
+	oldCallback(JSON.stringify({requestId: ids[0], ...valid}))
+	check("T13: 已结束的旧回调不清理新回调", typeof window.__noriImagePickedRes === "function")
+	reply({ok: false, message: "未选择图片"})
+	check("T13: 拍照取消释放选择状态", (await camera).message === "未选择图片")
+	const invalid = chat.pickImageFile()
+	reply({ok: true, dataUrl: "https://example.test/image.jpg"})
+	check("T13: 非本地图片结果被拒绝", !(await invalid).ok)
+	const broken = chat.pickImageFile()
+	window.__noriImagePickedRes("{坏 JSON")
+	check("T13: 无效 JSON 返回错误而非挂起", !(await broken).ok)
+	window.NoriChat.captureImage = () => { throw new Error("相机不可用") }
+	check("T13: 原生调用异常能恢复", !(await chat.captureImage()).ok && !window.__noriImagePickedRes)
+	delete window.NoriChat.captureImage
+	check("T13: 旧桥缺少接口能恢复", !(await chat.captureImage()).ok)
+	window.NoriChat.captureImage = fakePicker
+	window.__noriImagePickTimeoutMs = 25
+	check("T13: 无回包超时释放状态", !(await chat.pickImageFile()).ok && !window.__noriImagePickedRes)
+	delete window.__noriImagePickTimeoutMs
+	const lateId = ids.at(-1)
+	const next = chat.captureImage()
+	let settled = false
+	void next.then(() => { settled = true })
+	reply(valid, lateId)
+	await tick()
+	check("T13: 超时后迟到结果不能误完成新选择", !settled && typeof window.__noriImagePickedRes === "function")
+	reply(valid)
+	check("T13: 新选择仍可正常完成", (await next).ok)
+}
+
+/* ============ T14 时间上下文：发送时刷新，历史和图片不受污染 ============ */
+{
+	const RealDate = Date
+	let nowTs = new RealDate(2026, 9, 7, 23, 59).getTime()
+	const oldStream = window.NoriChat.chatStream
+	const oldChat = window.NoriChat.chat
+	const payloads = []
+	const callbacks = {onDelta: () => {}, onDone: () => {}, onError: () => {}}
+	const timeBlock = (payload) => payload.find(m => m.role === "system" && m.content.startsWith("【当前时间】"))?.content ?? ""
+	try {
+		globalThis.Date = class extends RealDate {
+			constructor(...args) { super(...(args.length ? args : [nowTs])) }
+			static now() { return nowTs }
+		}
+		for (const [h, m, period] of [[0, 0, "凌晨"], [4, 59, "凌晨"], [5, 0, "清晨"], [7, 59, "清晨"], [8, 0, "上午"], [11, 59, "上午"], [12, 0, "中午"], [13, 59, "中午"], [14, 0, "下午"], [17, 59, "下午"], [18, 0, "晚上"], [23, 59, "晚上"]]) {
+			check(`T14: ${h}:${String(m).padStart(2, "0")} 时段为${period}`, chat.localTimeBlock(new RealDate(2026, 9, 7, h, m)).includes(`当前时段：${period}`))
+		}
+		class NepalDate extends RealDate { getTimezoneOffset() { return -345 } }
+		class WestDate extends RealDate { getTimezoneOffset() { return 210 } }
+		check("T14: 非整小时时区保留分钟", chat.localTimeBlock(new NepalDate(nowTs)).includes("UTC+05:45") && chat.localTimeBlock(new WestDate(nowTs)).includes("UTC-03:30"))
+		window.NoriChat.chatStream = (_u, _k, _m, raw) => payloads.push(JSON.parse(raw))
+		const historyTs = new RealDate(2026, 9, 6, 23, 30).getTime()
+		const msgs = [mkMsg("system", "人格", 0), mkMsg("system", "记忆", 0), mkMsg("assistant", "晚安，去睡吧", historyTs), mkMsg("user", "有点困", nowTs)]
+		const original = JSON.stringify(msgs)
+		chat.sendChatStream("u", "k", "m", msgs, callbacks, false, undefined, {timeAware: true})
+		await tick()
+		chat.sendChatStream("u", "k", "m", msgs, callbacks, false, undefined, {timeAware: true})
+		await tick()
+		check("T14: 第二条时间请求确实排队", payloads.length === 1)
+		nowTs = new RealDate(2026, 9, 8, 0, 1).getTime()
+		window.__noriChatDone('{"ok":true,"content":"完成"}')
+		await tick()
+		const current = payloads[1]
+		check("T14: 跨午夜排队以实际发送日期时间为准", timeBlock(current).includes("2026-10-08 00:01") && timeBlock(current).includes("星期四") && timeBlock(current).includes("当前时段：凌晨"))
+		check("T14: 稳定人格在前，当前时间为最后一条前置 system", current[0].content === "人格" && current[1].content === "记忆" && current[2].content === timeBlock(current) && current[3].role === "assistant")
+		check("T14: 旧晚安标明原发送日期，本轮用户时间也被保留", current[3].content.includes("2026-10-06 23:30") && current[4].content.includes("2026-10-07 23:59"))
+		check("T14: 没问时间也带问候、历史隔离和困倦规则", timeBlock(current).includes("即使用户没问时间") && timeBlock(current).includes("不能当作现在") && timeBlock(current).includes("困了、累了"))
+		window.__noriChatDone('{"ok":true,"content":"完成"}')
+		await tick()
+		check("T14: 发送不修改调用方历史", JSON.stringify(msgs) === original)
+
+		chat.sendChatStream("u", "k", "m", msgs, callbacks, false, undefined, {timeAware: false})
+		await tick()
+		check("T14: 关闭开关不添加当前时间或历史标记", JSON.stringify(payloads.at(-1)) === JSON.stringify(msgs.map(({role, content}) => ({role, content}))))
+		window.__noriChatDone('{"ok":true,"content":"完成"}')
+		await tick()
+
+		const image = {...mkMsg("user", "[图片]", nowTs), parts: [{type: "text", text: "看看这张图"}, {type: "image_url", image_url: {url: "data:image/jpeg;base64,AA=="}}]}
+		const imageOriginal = JSON.stringify(image)
+		chat.sendChatStream("u", "k", "m", [image, mkMsg("assistant", "旧消息", NaN)], callbacks, false, undefined, {timeAware: true})
+		await tick()
+		const imagePayload = payloads.at(-1)
+		check("T14: 带图消息的时间只加在文字 part，图像保持完整", imagePayload[1].content[0].text.startsWith("【消息发送时间】") && imagePayload[1].content[1].image_url.url === image.parts[1].image_url.url)
+		check("T14: 缺失或无效历史时间不编造日期", imagePayload[2].content === "【消息发送时间未记录】\n旧消息")
+		window.__noriChatDone('{"ok":true,"content":"完成"}')
+		await tick()
+		check("T14: 图片请求对象没有被添加时间标记", JSON.stringify(image) === imageOriginal)
+		files.clear()
+		chat.persistChat([image]); chat.flushChatPersist()
+		check("T14: 时间标记和图片都不写入聊天记录", !files.get("chat.json").includes("消息发送时间") && !files.get("chat.json").includes("base64"))
+
+		// 非流式队列被辅助任务占用时，回退对话要到第二层队列实际执行时才取时间。
+		delete window.NoriChat.chatStream
+		const nonStream = []
+		window.NoriChat.chat = (_u, _k, _m, raw) => nonStream.push(JSON.parse(raw))
+		const auxiliary = chat.sendChat("u", "k", "m", [mkMsg("user", "压缩记忆", nowTs)])
+		await tick()
+		chat.sendChatStream("u", "k", "m", msgs, callbacks, false, undefined, {timeAware: true})
+		await tick()
+		check("T14: 辅助请求默认不注入时间、不修改原文", nonStream.length === 1 && nonStream[0][0].content === "压缩记忆")
+		nowTs = new RealDate(2026, 9, 8, 14, 30).getTime()
+		window.__noriChatRes('{"ok":true,"content":"摘要"}')
+		await auxiliary; await tick()
+		check("T14: 非流式回退在真正出队时刷新为下午时间且只注入一次", nonStream.length === 2 && timeBlock(nonStream[1]).includes("2026-10-08 14:30") && timeBlock(nonStream[1]).includes("当前时段：下午") && nonStream[1].filter(m => m.content.startsWith("【当前时间】")).length === 1)
+		window.__noriChatRes('{"ok":true,"content":"完成"}')
+		await tick()
+	} finally {
+		globalThis.Date = RealDate
+		window.NoriChat.chatStream = oldStream
+		window.NoriChat.chat = oldChat
+	}
+}
+
 /* ============ 汇总 ============ */
 const failed = results.filter(r => !r.ok)
 console.log(`\n${results.length - failed.length}/${results.length} passed`)

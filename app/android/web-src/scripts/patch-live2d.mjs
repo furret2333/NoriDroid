@@ -88,7 +88,7 @@ const GL_NEW = `getContext("webgl2")${M("preserve-drawing-buffer")}`
 
 // 渲染分辨率: 由 __noriRenderScale 控制 (设置里的"渲染分辨率"), 缺省用原生 DPR
 const RESIZE_DPR_OLD = `this._canvas.width = this._canvas.clientWidth * window.devicePixelRatio, this._canvas.height = this._canvas.clientHeight * window.devicePixelRatio, this._gl.viewport(0, 0, this._gl.drawingBufferWidth, this._gl.drawingBufferHeight);`
-const DPR_READ = `(window.__noriRenderScale || window.devicePixelRatio || 1)`
+const DPR_READ = `((v) => Number.isFinite(v) ? Math.min(3, Math.max(0.5, v)) : 1)(Number.isFinite(Number(window.__noriRenderScale)) ? Number(window.__noriRenderScale) : Number(window.devicePixelRatio))`
 const RESIZE_DPR_NEW = `this._canvas.width = this._canvas.clientWidth * ${DPR_READ}, this._canvas.height = this._canvas.clientHeight * ${DPR_READ}, this._gl.viewport(0, 0, this._gl.drawingBufferWidth, this._gl.drawingBufferHeight);${M("render-scale")}`
 // 兼容已打过旧补丁 (封顶 DPR=1) 的 node_modules
 const RESIZE_DPR_OLD_PATCHED = `this._canvas.width = this._canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 1), this._canvas.height = this._canvas.clientHeight * Math.min(window.devicePixelRatio || 1, 1), this._gl.viewport(0, 0, this._gl.drawingBufferWidth, this._gl.drawingBufferHeight);`
@@ -188,7 +188,7 @@ const GAZE_API = `window.__noriSetParam = (id, v) => { try { this._model.setPara
 //       没有 isHit —— 之前调 this._model.isHit 必抛 TypeError, 钩子吞掉后恒返回 null (调试片恒"未知")。
 // 注 3: deviceToScreen 按画布背缓冲 (css × renderScale||dpr, 见 initViewMatrix 的 this._canvas) 标定,
 //       坐标必须乘同一个系数 —— 之前乘纯 dpr, 真机渲染分辨率=1 时坐标过冲 ~dpr 倍, 命中区缩成一小团错位。
-const HIT_FACTOR = `(window.__noriRenderScale || window.devicePixelRatio || 1)`
+const HIT_FACTOR = DPR_READ
 const HIT_TEST_API = `window.__noriHitTest = (cx, cy) => { try { const dX = cx * ${HIT_FACTOR}, dY = cy * ${HIT_FACTOR}, vx = this._viewManager.transformViewX(dX), vy = this._viewManager.transformViewY(dY), n = this._model.getDrawableCount(); for (let i = 0; i < n; i++) { if (this.isHit(this._model.getDrawableId(i), vx, vy)) return { hit: true }; } return { hit: false }; } catch (e) { return { hit: false, err: String((e && e.message) || e) } } }; `
 
 /* ---------------- Phase 3a 探针: 部位/顶点几何 (只读诊断, 不改任何行为) ----------------
@@ -267,7 +267,7 @@ const PART_PROBE_API = `${M("part-bounds-probe")} window.__noriIdStr = (v) => { 
     for (let k = 0; k < vc; k++) { const x = v[k * 2], y = v[k * 2 + 1]; if (!box) box = { left: x, right: x, top: y, bottom: y }; else { if (x < box.left) box.left = x; if (x > box.right) box.right = x; if (y > box.top) box.top = y; if (y < box.bottom) box.bottom = y; } }
   }
   return { ok: true, box, matched, visible, names: Object.keys(names) };
-} catch (e) { return { ok: false, err: String((e && e.message) || e) } } }; window.__noriModelPoint = (cx, cy) => { try { const f = (window.__noriRenderScale || window.devicePixelRatio || 1); return { x: this._viewManager.transformViewX(cx * f), y: this._viewManager.transformViewY(cy * f) }; } catch (e) { return { err: String((e && e.message) || e) } } }; `
+} catch (e) { return { ok: false, err: String((e && e.message) || e) } } }; window.__noriModelPoint = (cx, cy) => { try { const f = ${DPR_READ}; return { x: this._viewManager.transformViewX(cx * f), y: this._viewManager.transformViewY(cy * f) }; } catch (e) { return { err: String((e && e.message) || e) } } }; `
 
 /* ---------------- 应用器: 三态判定 ---------------- */
 let changed = false
@@ -425,6 +425,40 @@ patch("加载超时reject", "load-timeout-reject", [[WAITING_OLD, WAITING_NEW, "
 patch("Core本地化加载", "cubism-core-local", [[CORE_OLD, CORE_NEW, "one"]])
 patch("纹理CORS1", "texture-cors-1", [[TEX_IMG_OLD, TEX_IMG_NEW, "one"]])
 patch("纹理CORS2", "texture-cors-2", [[TEX_NEW_OLD, TEX_NEW_NEW, "one"]])
+/* 修正 `__noriHasParam`：它调 `this._model.getParameterIndex(id)`，而 CubismModel 的
+ * `getParameterIndex` 收的是**参数对象**、不是 id 字符串 ⇒ 对字符串恒返回 -1 ⇒ **恒 false**。
+ * 后果不是报错，而是"静默判定为没有这个参数" —— 口型就因此被永久禁掉过一次（`paramMissing` 一置位就不再写）。
+ * 改走同一注入块里手写的可靠查找 `__noriParamIndexOf`（getParameterCount + getParameterId 线性比对）。
+ *
+ * 为什么单开一个条目、而不是直接改上面的 GAZE_API：GAZE_API 是 `MODEL_INFO_CANON` 的一部分，
+ * 改它会触发"注入点规范化"那套收敛逻辑，而实测它**不会**把已成型的旧文本换掉
+ * （跑完日志说 applied，库里却原样不动）。独立 token 走普通替换路径，可幂等、可自检。 */
+{
+	const HASPARAM_OLD = `window.__noriHasParam = (id) => { try { return this._model.getParameterIndex(id) >= 0 } catch (e) { return false } };`
+	const HASPARAM_NEW = `window.__noriHasParam = (id) => { try { return typeof window.__noriParamIndexOf === "function" ? window.__noriParamIndexOf(id) >= 0 : false } catch (e) { return false } };${M("has-param-fix")}`
+	patch("修正 __noriHasParam", "has-param-fix", [[HASPARAM_OLD, HASPARAM_NEW, "one"]])
+
+	/* 修正 `__noriSetParam` —— **它以前是静默空操作**，这是"口型不动"的真正原因。
+	 *
+	 * 原因链（都在库里）:
+	 *   __noriSetParam(id字符串, v)
+	 *     → this._model.setParameterValueById(id, v, 1)
+	 *       → getParameterIndex(id)   ← 实现是 `if (t == this._parameterIds.at(e))`,
+	 *                                    比的是 **CubismId 对象**, 传字符串**永远不相等**
+	 *         → 走到 `_notExistParameterId` 分支, 拿到一个"不存在的下标"
+	 *       → setParameterValueByIndex(那个假下标, v, 1)
+	 *         → 命中 `_notExistParameterValues.isExist(t)` ⇒ 值被存进一张**边表**里扔掉
+	 *   全程不抛异常, 所以 try/catch 也吞得住 ⇒ **一声不响地什么都没写**。
+	 *
+	 * 旁证: 同一个注入块里的 `__noriAddParam` 就是**对的** —— 它用 `__noriParamIndexOf` 拿到真下标
+	 * 再 `addParameterValueByIndex`。所以**眨眼一直正常**(它走 __noriAddParam), 而口型(走 __noriSetParam)不动。
+	 *
+	 * 修法: 与 `__noriAddParam` 对齐 —— 先用 `__noriParamIndexOf` 解析真下标, 再按**下标**覆盖写。
+	 * 这同时修好了 `live2d/index.ts` 里公开的 `setParam`/`hasParam` 两个包装(它们本来也是坏的)。 */
+	const SETPARAM_OLD = `window.__noriSetParam = (id, v) => { try { this._model.setParameterValueById(id, v, 1) } catch (e) {} };`
+	const SETPARAM_NEW = `window.__noriSetParam = (id, v) => { try { const i = window.__noriParamIndexOf(id); if (i >= 0) this._model.setParameterValueByIndex(i, v, 1) } catch (e) {} };${M("set-param-fix")}`
+	patch("修正 __noriSetParam", "set-param-fix", [[SETPARAM_OLD, SETPARAM_NEW, "one"]])
+}
 // 强行动作前重置模型参数, 消除跨动作的肢体残留(手臂重叠)
 patch("动作前参数复位", "motion-param-reset", [[MOTION_RESET_OLD, MOTION_RESET_NEW, "one"]])
 // 渲染帧率上限 60fps (120Hz 屏省一半; 60Hz 屏无变化)。助手缺失时自动退回原行为。

@@ -10,228 +10,275 @@ import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.provider.Settings
+import android.util.AtomicFile
 import android.webkit.WebView
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.lang.ref.WeakReference
 
-/**
- * 番茄钟引擎 (进程级单例): 计时本体, 与 WebView 生命周期解耦.
- *
- * - 状态唯一来源是 SharedPreferences(pomo_engine): 引擎/接收器/桥多入口读写一致,
- *   WebView 崩溃重载后 pomoState() 照常恢复
- * - Handler 负责进程存活时的准点触发; AlarmManager(setAndAllowWhileIdle)兜底——
- *   进程被杀时由 PomodoroAlarmReceiver 唤起并补发系统通知 (通知始终会发)
- * - 推送: attach 的所有 WebView 都会收到 window.__noriPomoEvent("end"), 页面无 handler 则 no-op
- * - 正向计时 (countUp) 无到点语义, 不安排 Handler/闹钟
- */
+/** 原生计时与持久事件为唯一来源；WebView 回调只负责刷新和播报。 */
 object PomodoroEngine {
     private const val PREFS = "pomo_engine"
     private const val CHANNEL = "pomodoro"
     private const val NOTIF_ID = 46001
     private const val ALARM_REQ = 46002
-
     private val handler = Handler(Looper.getMainLooper())
     private val targets = java.util.Collections.synchronizedList(ArrayList<WeakReference<WebView>>())
-
-    // ---- prefs 读写 (所有状态的唯一来源) ----
+    private var scheduledAt = -1L
+    @Volatile var appCtx: Context? = null
+        private set
     private fun p(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun clock(ctx: Context) = PomoClock(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
+        Settings.Global.getInt(ctx.contentResolver, Settings.Global.BOOT_COUNT, -1))
 
-    private fun save(ctx: Context, phase: String, paused: Boolean, endAt: Long, remainMs: Long,
-                     startedAt: Long, pausedAccum: Long, pausedAt: Long,
-                     focusMin: Int, breakMin: Int, autoBreak: Boolean) {
-        p(ctx).edit()
-            .putString("phase", phase).putBoolean("paused", paused)
-            .putLong("endAt", endAt).putLong("remainMs", remainMs)
-            .putLong("startedAt", startedAt).putLong("pausedAccum", pausedAccum).putLong("pausedAt", pausedAt)
-            .putInt("focusMin", focusMin).putInt("breakMin", breakMin).putBoolean("autoBreak", autoBreak)
-            .apply()
-    }
+    fun ensure(ctx: Context) { appCtx = ctx.applicationContext }
 
-    /** state(): 返回给 WebView 的完整状态快照 */
-    fun state(ctx: Context): String {
+    private fun load(ctx: Context, now: PomoClock): PomodoroTimeline {
         val sp = p(ctx)
-        val o = JSONObject()
-        o.put("phase", sp.getString("phase", "idle"))
-        o.put("paused", sp.getBoolean("paused", false))
-        o.put("endAt", sp.getLong("endAt", 0))
-        o.put("remainMs", sp.getLong("remainMs", 0))
-        o.put("startedAt", sp.getLong("startedAt", 0))
-        o.put("focusMin", sp.getInt("focusMin", 25))
-        o.put("breakMin", sp.getInt("breakMin", 5))
-        o.put("autoBreak", sp.getBoolean("autoBreak", true))
-        o.put("now", System.currentTimeMillis())
-        return o.toString()
-    }
-
-    @Synchronized
-    fun start(ctx: Context, focusMin: Int, breakMin: Int, autoBreak: Boolean): String {
-        val now = System.currentTimeMillis()
-        val f = focusMin.coerceIn(1, 240)
-        val b = breakMin.coerceIn(1, 60)
-        save(ctx, "focus", false, now + f * 60_000L, 0, now, 0, 0, f, b, autoBreak)
-        schedule(ctx)
-        return state(ctx)
-    }
-
-    @Synchronized
-    fun startCountUp(ctx: Context): String {
-        val now = System.currentTimeMillis()
-        save(ctx, "countUp", false, 0, 0, now, 0, 0, 0, 0, false)
-        return state(ctx)
-    }
-
-    @Synchronized
-    fun pause(ctx: Context): String {
-        val sp = p(ctx)
+        val raw = sp.getString("timeline", null)
+        if (raw != null) {
+            val o = JSONObject(raw)
+            val days = linkedMapOf<String, Long>()
+            val d = o.optJSONObject("days") ?: JSONObject()
+            for (k in d.keys()) days[k] = d.getLong(k)
+            return PomodoroTimeline(o.getString("phase"), o.getBoolean("paused"), o.getInt("focusMin"),
+                o.getInt("breakMin"), o.getBoolean("autoBreak"), o.getLong("accumulated"),
+                o.getLong("segmentWall"), o.getLong("segmentMono"), o.getInt("boot"), days)
+        }
+        // 旧版暂停信息不足以还原各段日期；安全继承当前有效时长，不再次扣暂停。
         val phase = sp.getString("phase", "idle") ?: "idle"
-        if (phase == "idle" || sp.getBoolean("paused", false)) return state(ctx)
-        val now = System.currentTimeMillis()
-        val remain = if (phase == "countUp") now - sp.getLong("startedAt", now)
-        else (sp.getLong("endAt", now) - now).coerceAtLeast(0)
-        sp.edit().putBoolean("paused", true).putLong("remainMs", remain)
-            .putLong("pausedAt", now).apply()
-        cancelTickAndAlarm(ctx)
-        return state(ctx)
-    }
-
-    @Synchronized
-    fun resume(ctx: Context): String {
-        val sp = p(ctx)
-        val phase = sp.getString("phase", "idle") ?: "idle"
-        if (phase == "idle" || !sp.getBoolean("paused", false)) return state(ctx)
-        val now = System.currentTimeMillis()
+        val paused = sp.getBoolean("paused", false)
+        val f = sp.getInt("focusMin", 25)
+        val b = sp.getInt("breakMin", 5)
         val remain = sp.getLong("remainMs", 0)
-        val accum = sp.getLong("pausedAccum", 0) + (now - sp.getLong("pausedAt", now))
-        if (phase == "countUp") {
-            sp.edit().putBoolean("paused", false).putLong("startedAt", now - remain)
-                .putLong("pausedAccum", accum).apply()
-        } else {
-            sp.edit().putBoolean("paused", false).putLong("endAt", now + remain)
-                .putLong("pausedAccum", accum).apply()
-            schedule(ctx)
+        val rawElapsed = when (phase) {
+            "countUp" -> if (paused) remain else (now.wall - sp.getLong("startedAt", now.wall)).coerceAtLeast(0)
+            "focus", "break" -> ((if (phase == "focus") f else b) * 60000L -
+                (if (paused) remain else sp.getLong("endAt", now.wall) - now.wall)).coerceAtLeast(0)
+            else -> 0
         }
-        return state(ctx)
+        val limit = (if (phase == "focus") f else b) * 60000L
+        val elapsed = if (phase == "focus" || phase == "break") rawElapsed.coerceAtMost(limit) else rawElapsed
+        val overdue = if (!paused) (rawElapsed - elapsed).coerceAtLeast(0) else 0
+        val t = PomodoroTimeline(phase, paused, f, b, sp.getBoolean("autoBreak", true),
+            elapsed, now.wall - overdue, now.mono - overdue, now.boot)
+        if (phase == "focus" || phase == "countUp") PomodoroTimeline.splitDays(now.wall - overdue - elapsed, elapsed, t.days)
+        persist(ctx, t)
+        return t
     }
 
-    /** 放弃/结束: 返回 endedPhase + elapsedMs (分钟统计用), 引擎回 idle */
-    @Synchronized
-    fun stop(ctx: Context): String {
+    /** 状态转移与事件追加同一次同步提交，避免进程被回收后只剩状态没有记录。 */
+    private fun persist(ctx: Context, t: PomodoroTimeline, event: JSONObject? = null) {
+        val o = JSONObject().put("phase", t.phase).put("paused", t.paused)
+            .put("focusMin", t.focusMin).put("breakMin", t.breakMin).put("autoBreak", t.autoBreak)
+            .put("accumulated", t.accumulated).put("segmentWall", t.segmentWall)
+            .put("segmentMono", t.segmentMono).put("boot", t.boot).put("days", JSONObject(t.days as Map<*, *>))
         val sp = p(ctx)
-        val phase = sp.getString("phase", "idle") ?: "idle"
-        val now = System.currentTimeMillis()
-        var elapsedMs = 0L
-        if (phase != "idle") {
-            val startedAt = sp.getLong("startedAt", now)
-            val accum = sp.getLong("pausedAccum", 0) +
-                (if (sp.getBoolean("paused", false)) now - sp.getLong("pausedAt", now) else 0)
-            elapsedMs = (now - startedAt - accum).coerceAtLeast(0)
+        val edit = sp.edit().putString("timeline", o.toString())
+        if (event != null) {
+            val seq = sp.getLong("eventSeq", 0) + 1
+            event.put("seq", seq)
+            val events = JSONArray(sp.getString("events", "[]"))
+            events.put(event)
+            edit.putLong("eventSeq", seq).putString("events", events.toString())
         }
+        check(edit.commit()) { "番茄钟状态保存失败" }
+    }
+
+    private fun event(t: PomodoroTimeline, now: PomoClock, reason: String, endedWall: Long = now.wall): JSONObject {
+        t.checkpoint(now)
+        return JSONObject().put("type", "end").put("phase", t.phase).put("reason", reason)
+            .put("elapsedMs", t.accumulated).put("endedAt", endedWall)
+            .put("endedDay", PomodoroTimeline.dayKey(endedWall)).put("days", JSONObject(t.days as Map<*, *>))
+    }
+
+    private fun snapshot(t: PomodoroTimeline, now: PomoClock): JSONObject {
+        val elapsed = t.elapsed(now)
+        val remaining = if (t.phase == "idle" || t.phase == "countUp") 0 else t.remaining(now)
+        return JSONObject().put("phase", t.phase).put("paused", t.paused).put("elapsedMs", elapsed)
+            .put("remainingMs", remaining).put("now", now.wall)
+            .put("endAt", if (remaining > 0) now.wall + remaining else 0)
+            .put("remainMs", if (t.phase == "countUp") elapsed else remaining)
+            .put("startedAt", if (t.phase == "idle") 0 else now.wall - elapsed)
+            .put("focusMin", t.focusMin).put("breakMin", t.breakMin).put("autoBreak", t.autoBreak)
+    }
+
+    @Synchronized fun state(ctx: Context): String {
+        ensure(ctx)
+        completeIfDue(ctx)
+        val now = clock(ctx)
+        val t = load(ctx, now)
+        if (!t.paused && t.phase != "idle" && (t.boot != now.boot ||
+                kotlin.math.abs(now.wall - t.segmentWall - (now.mono - t.segmentMono)) > 2000)) {
+            t.checkpoint(now)
+            persist(ctx, t)
+            schedule(ctx, t, now)
+        }
+        return snapshot(t, now).toString()
+    }
+
+    @Synchronized fun start(ctx: Context, focusMin: Int, breakMin: Int, autoBreak: Boolean): String {
+        finishForSwitch(ctx)
+        val now = clock(ctx)
+        val t = PomodoroTimeline("focus", false, focusMin.coerceIn(1, 240), breakMin.coerceIn(1, 60),
+            autoBreak, 0, now.wall, now.mono, now.boot)
+        persist(ctx, t)
+        schedule(ctx, t, now)
+        return snapshot(t, now).toString()
+    }
+
+    @Synchronized fun startCountUp(ctx: Context): String {
+        finishForSwitch(ctx)
+        val now = clock(ctx)
+        val t = PomodoroTimeline("countUp", false, 0, 0, false, 0, now.wall, now.mono, now.boot)
+        persist(ctx, t)
+        return snapshot(t, now).toString()
+    }
+
+    private fun finishForSwitch(ctx: Context) {
+        ensure(ctx)
+        completeIfDue(ctx)
+        val now = clock(ctx)
+        val t = load(ctx, now)
         cancelTickAndAlarm(ctx)
-        save(ctx, "idle", false, 0, 0, 0, 0, 0, sp.getInt("focusMin", 25), sp.getInt("breakMin", 5), sp.getBoolean("autoBreak", true))
-        val o = JSONObject(state(ctx))
-        o.put("endedPhase", phase)
-        o.put("elapsedMs", elapsedMs)
-        return o.toString()
+        if (t.phase != "idle") {
+            val e = event(t, now, "switch")
+            t.phase = "idle"; t.paused = false
+            persist(ctx, t, e)
+        }
     }
 
-    // ---- 到点 ----
-    private val tickRunnable = Runnable { tick() }
+    @Synchronized fun pause(ctx: Context): String {
+        completeIfDue(ctx)
+        val now = clock(ctx)
+        val t = load(ctx, now)
+        if (t.phase != "idle" && !t.paused) {
+            t.pause(now)
+            persist(ctx, t)
+            cancelTickAndAlarm(ctx)
+        }
+        return snapshot(t, now).toString()
+    }
 
-    private fun schedule(ctx: Context) {
-        val sp = p(ctx)
-        if (sp.getBoolean("paused", false)) return
-        val phase = sp.getString("phase", "idle") ?: return
-        if (phase != "focus" && phase != "break") return
-        val endAt = sp.getLong("endAt", 0)
-        val delay = (endAt - System.currentTimeMillis()).coerceAtLeast(0)
+    @Synchronized fun resume(ctx: Context): String {
+        val now = clock(ctx)
+        val t = load(ctx, now)
+        if (t.phase != "idle" && t.paused) {
+            t.resume(now)
+            persist(ctx, t)
+            schedule(ctx, t, now)
+        }
+        return snapshot(t, now).toString()
+    }
+
+    @Synchronized fun stop(ctx: Context): String {
+        completeIfDue(ctx)
+        val now = clock(ctx)
+        val t = load(ctx, now)
+        val ended = t.phase
+        val e = if (ended != "idle") event(t, now, "stop") else null
+        val elapsed = t.accumulated
+        cancelTickAndAlarm(ctx)
+        val idle = PomodoroTimeline(focusMin = t.focusMin, breakMin = t.breakMin, autoBreak = t.autoBreak)
+        persist(ctx, idle, e)
+        return snapshot(idle, now).put("endedPhase", ended).put("elapsedMs", elapsed).toString()
+    }
+
+    private val tickRunnable = Runnable { appCtx?.let { completeIfDue(it) } }
+    private fun alarmIntent(ctx: Context) = PendingIntent.getBroadcast(ctx.applicationContext, ALARM_REQ,
+        Intent(ctx.applicationContext, PomodoroAlarmReceiver::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+    private fun schedule(ctx: Context, t: PomodoroTimeline, now: PomoClock) {
+        if (t.paused || (t.phase != "focus" && t.phase != "break")) return
+        val delay = t.remaining(now)
+        val at = now.mono + delay
+        if (scheduledAt == at) return
+        scheduledAt = at
         handler.removeCallbacks(tickRunnable)
         handler.postDelayed(tickRunnable, delay)
-        // 闹钟兜底: 进程被杀后由接收器补发通知
         runCatching {
-            val am = ctx.applicationContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-            val pi = PendingIntent.getBroadcast(
-                ctx.applicationContext, ALARM_REQ,
-                Intent(ctx.applicationContext, PomodoroAlarmReceiver::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms()) {
-                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, endAt, pi)
-            } else {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, endAt, pi)
-            }
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms())
+                am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, alarmIntent(ctx))
+            else am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, alarmIntent(ctx))
         }
     }
 
     private fun cancelTickAndAlarm(ctx: Context) {
+        scheduledAt = -1
         handler.removeCallbacks(tickRunnable)
-        runCatching {
-            val am = ctx.applicationContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-            val pi = PendingIntent.getBroadcast(
-                ctx.applicationContext, ALARM_REQ,
-                Intent(ctx.applicationContext, PomodoroAlarmReceiver::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            am.cancel(pi)
-        }
+        runCatching { (ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(alarmIntent(ctx)) }
     }
 
-    /** Handler 准点触发 */
-    private fun tick() {
-        val ctx = appCtx ?: return
-        completeIfDue(ctx)
-    }
-
-    /** 引擎持有的 application context (ChatBridge 首次调用时注入) */
-    @Volatile
-    var appCtx: Context? = null
-        private set
-
-    fun ensure(ctx: Context) {
-        if (appCtx == null) appCtx = ctx.applicationContext
-    }
-
-    /** 到点判定: Handler 与闹钟接收器共用; prefs.phase 已是 idle 说明另一条路已完成, 幂等跳过 */
-    @Synchronized
-    fun completeIfDue(ctx0: Context) {
+    @Synchronized fun completeIfDue(ctx0: Context) {
         val ctx = ctx0.applicationContext
         ensure(ctx)
-        val sp = p(ctx)
-        val phase = sp.getString("phase", "idle") ?: "idle"
-        if (phase != "focus" && phase != "break") return
-        if (sp.getBoolean("paused", false)) return
-        val endAt = sp.getLong("endAt", 0)
-        if (System.currentTimeMillis() < endAt - 1000) {
-            // 被闹钟过早唤起 (进程重启后重排): 重新排一次
-            schedule(ctx)
-            return
-        }
-        val focusMin = sp.getInt("focusMin", 25)
-        val breakMin = sp.getInt("breakMin", 5)
-        val autoBreak = sp.getBoolean("autoBreak", true)
-        if (phase == "focus") {
-            notify(ctx, "番茄完成 🍅", "专注 $focusMin 分钟完成" + (if (autoBreak) "，休息 $breakMin 分钟吧" else "") + "。")
-            push("{\"type\":\"end\",\"phase\":\"focus\"}")
-            if (autoBreak) {
-                val now = System.currentTimeMillis()
-                save(ctx, "break", false, now + breakMin * 60_000L, 0, now, 0, 0, focusMin, breakMin, true)
-                schedule(ctx)
-            } else {
-                cancelTickAndAlarm(ctx)
-                save(ctx, "idle", false, 0, 0, 0, 0, 0, focusMin, breakMin, autoBreak)
-            }
-        } else {
-            notify(ctx, "休息结束", "回来继续吧，我陪着你。")
-            push("{\"type\":\"end\",\"phase\":\"break\"}")
+        val now = clock(ctx)
+        var t = load(ctx, now)
+        // 前台补偿可能同时跨过专注、休息；休息从原到点时间开始，不从重开页面时开始。
+        repeat(2) {
+            if (t.paused || (t.phase != "focus" && t.phase != "break")) return
+            val remaining = t.remaining(now)
+            if (remaining > 0) { schedule(ctx, t, now); return }
+            val rawDelta = if (t.boot == now.boot && now.mono >= t.segmentMono) now.mono - t.segmentMono
+                else (now.wall - t.segmentWall).coerceAtLeast(0)
+            val overdue = (t.accumulated + rawDelta - t.duration).coerceAtLeast(0)
+            val endedWall = t.segmentWall + (t.duration - t.accumulated).coerceAtLeast(0)
+            val ended = PomoClock(endedWall, now.mono - overdue, now.boot)
+            val e = event(t, ended, "complete", endedWall)
+            val focus = t.phase == "focus"
+            val next = if (focus && t.autoBreak) PomodoroTimeline("break", false, t.focusMin, t.breakMin,
+                true, 0, endedWall, now.mono - overdue, now.boot)
+                else PomodoroTimeline(focusMin = t.focusMin, breakMin = t.breakMin, autoBreak = t.autoBreak)
+            persist(ctx, next, e)
             cancelTickAndAlarm(ctx)
-            save(ctx, "idle", false, 0, 0, 0, 0, 0, focusMin, breakMin, autoBreak)
+            if (focus) notify(ctx, "番茄完成 🍅", "专注 ${t.focusMin} 分钟完成。")
+            else notify(ctx, "休息结束", "回来继续吧，我陪着你。")
+            push(e.toString())
+            t = next
         }
     }
 
-    // ---- 推送 ----
-    fun attach(v: WebView) {
-        targets.add(WeakReference(v))
+    /** 私有原子统计文件是权威副本；无法读取旧文件时保留延迟迁移机会。 */
+    @Synchronized fun stats(ctx: Context, seed: String, milestone: String? = null, legacyAbsent: Boolean = false): String {
+        completeIfDue(ctx)
+        val file = AtomicFile(File(ctx.filesDir, "pomodoro-stats.json"))
+        val raw = if (file.baseFile.exists() || File(file.baseFile.path + ".bak").exists())
+            file.openRead().use { it.readBytes().toString(Charsets.UTF_8) } else ""
+        val stats = if (raw.isBlank()) JSONObject().put("days", JSONObject()) else JSONObject(raw)
+        if (!stats.optBoolean("legacyImported")) {
+            if (seed.isNotBlank()) PomodoroLedger.importLegacy(stats, JSONObject(seed))
+            else if (legacyAbsent) stats.put("legacyImported", true)
+        }
+        val sp = p(ctx)
+        val events = JSONArray(sp.getString("events", "[]"))
+        PomodoroLedger.apply(stats, events)
+        if (!milestone.isNullOrBlank()) {
+            val marks = stats.optJSONObject("celebrated") ?: JSONObject()
+            stats.put("celebrated", marks.put(milestone, System.currentTimeMillis()))
+        }
+        val result = stats.toString()
+        val out = file.startWrite()
+        try { out.write(result.toByteArray(Charsets.UTF_8)); file.finishWrite(out) }
+        catch (e: Exception) { file.failWrite(out); throw e }
+        // 先保存统计与水位，再删事件；中途崩溃只会重放已处理事件，水位会跳过它们。
+        val pending = JSONArray()
+        for (i in 0 until events.length()) if (events.getJSONObject(i).getLong("seq") > stats.optLong("lastEventSeq")) pending.put(events.getJSONObject(i))
+        sp.edit().putString("events", pending.toString()).commit()
+        return result
     }
 
+    @Synchronized fun setNotify(ctx: Context, enabled: Boolean) { p(ctx).edit().putBoolean("notifyEnabled", enabled).commit() }
+
+    fun attach(v: WebView) {
+        synchronized(targets) {
+            targets.removeAll { it.get() == null || it.get() === v }
+            targets.add(WeakReference(v))
+        }
+    }
     private fun push(json: String) {
         handler.post {
             synchronized(targets) {
@@ -239,31 +286,24 @@ object PomodoroEngine {
                 while (it.hasNext()) {
                     val v = it.next().get()
                     if (v == null) { it.remove(); continue }
-                    runCatching {
-                        v.evaluateJavascript("window.__noriPomoEvent && window.__noriPomoEvent(${JSONObject.quote(json)})", null)
-                    }
+                    runCatching { v.evaluateJavascript("window.__noriPomoEvent && window.__noriPomoEvent(${JSONObject.quote(json)})", null) }
                 }
             }
         }
     }
 
-    // ---- 通知 ----
-    private fun notify(ctx0: Context, title: String, text: String) {
-        val ctx = ctx0.applicationContext
+    private fun notify(ctx: Context, title: String, text: String) {
+        if (!p(ctx).getBoolean("notifyEnabled", true)) return
+        if (Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-        if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL, "番茄钟", NotificationManager.IMPORTANCE_DEFAULT)
-            )
-        }
-        val launch = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
-        val pi = launch?.let {
+        if (!nm.areNotificationsEnabled()) return
+        if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel(CHANNEL, "番茄钟", NotificationManager.IMPORTANCE_DEFAULT))
+        val pi = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.let {
             PendingIntent.getActivity(ctx, NOTIF_ID, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(ctx, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(ctx)
-        // 用白色剪影 (通知小图标只取 alpha 通道; 彩色启动图标会在状态栏显示成白方块)
-        b.setSmallIcon(R.drawable.ic_stat_nori).setContentTitle(title).setContentText(text)
-            .setAutoCancel(true)
+        b.setSmallIcon(R.drawable.ic_stat_nori).setContentTitle(title).setContentText(text).setAutoCancel(true)
         pi?.let { b.setContentIntent(it) }
         runCatching { nm.notify(NOTIF_ID, b.build()) }
     }
