@@ -31,6 +31,9 @@ const ONLY = val("--only")
 const SUITES = [
 	{name: "run-tests", kind: "unit"},
 	{name: "run-memory-collapse-tests", kind: "unit"},
+	{name: "run-lipsync-tests", kind: "unit"},        // 口型包络/振幅映射/PCM 头/写参数闸门 (补齐"注释声称有、实际没有"的单测)
+	{name: "audit-memory", kind: "probe"},            // C1: 记忆侧结构审计 (原为手工脚本, 2026-10-08 挂进门禁)
+	{name: "audit-dead-exports", kind: "probe"},      // C1: 死导出审计 (① 真死代码必须为 0; 2026-10-08 补齐 lipSync 单测后归零)
 	{name: "run-marker-tests", kind: "unit"},
 	{name: "run-tts-tests", kind: "unit"},
 	{name: "run-chat-tests", kind: "unit"},
@@ -40,6 +43,7 @@ const SUITES = [
 	{name: "probe-organize-cadence", kind: "probe"},
 	{name: "probe-mem-collapse-safety", kind: "probe"},
 	{name: "probe-mem-correction", kind: "probe"},
+	{name: "probe-mem-kw", kind: "probe"},            // A1: 关键词/别名的解析容错 + 同义命中率 + 三条红线
 	{name: "probe-invalid-reflow", kind: "probe"},
 	{name: "probe-restore-rollback", kind: "probe"},
 	{name: "prop-summary-overlap", kind: "probe"},

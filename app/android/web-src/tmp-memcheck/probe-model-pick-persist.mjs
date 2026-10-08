@@ -103,7 +103,7 @@ try {
 		await sleep(800)
 	}
 	/** 当前"选中的是哪只"：顶栏 tag 显示 currentModel?.name */
-	const currentName = () => evalJs(`(document.querySelector(".tag")?.textContent || "").trim()`)
+const currentName = () => evalJs(`(document.querySelector(".tag > span:first-child")?.textContent || "").trim()`)
 	/** 已落盘的 settings.json（假桥：页面内存 + seed 兜底） */
 	const savedSettings = () => evalJs(`(() => { try { return JSON.parse(window.NoriChat.readFile("settings.json") || "{}") } catch { return {} } })()`)
 	/** 真的去加载了哪只（看模型文件请求） */

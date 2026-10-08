@@ -141,15 +141,28 @@ export interface Settings {
  *
  * 纯度：给定 `now` 输出稳定，便于门禁断言；**调用方必须每次重新调用**（别缓存成常量，否则时间会变旧）。
  */
-export const localTimeBlock = (now: Date = new Date()): string => {
+export const localTimeBlock = (now: Date = new Date(), gapMs = 0): string => {
 	const week = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"][now.getDay()]
 	const hour = now.getHours()
 	const period = hour < 5 ? "凌晨" : hour < 8 ? "清晨" : hour < 12 ? "上午" : hour < 14 ? "中午" : hour < 18 ? "下午" : "晚上"
-	return `【当前时间】${formatLocalTime(now)} ${week}\n当前时段：${period}。\n`
+	const gapHint = gapMs >= 5 * 60 * 1000
+		? `距离上一条历史消息约 ${formatElapsed(gapMs)}，请以当前时间为准，不要把历史消息中的“现在、今天、昨晚”当作当前事实。\n`
+		: ""
+	return `【当前时间】${formatLocalTime(now)} ${week}\n当前时段：${period}。\n${gapHint}`
 		+ "这是本轮请求发出时的设备本地时间，是判断「现在、今天、明天、下周三」的依据。"
 		+ "即使用户没问时间，问候、作息建议和涉及「现在」的表达也要与本轮时间一致；自然聊天，不必每句话报时。"
 		+ "历史消息的发送时间和摘要的原对话时间只代表当时，其中的「今天、昨晚、晚安」不能当作现在；发送时间也不等于文中事件发生时间。"
 		+ "不要顺着旧的夜间对话认定现在还是晚上，也不要仅因用户说「困了、累了」就认定已到深夜。"
+		+ "方括号中的时间标签是内部提示，绝对不要在回复中复述、引用或输出。"
+}
+
+const formatElapsed = (ms: number): string => {
+	const totalMinutes = Math.max(1, Math.round(ms / 60000))
+	const hours = Math.floor(totalMinutes / 60)
+	const minutes = totalMinutes % 60
+	if (hours <= 0) return `${minutes} 分钟`
+	if (minutes <= 0) return `${hours} 小时`
+	return `${hours} 小时 ${minutes} 分钟`
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -625,9 +638,17 @@ const buildApiMessages = (messages: ChatMsg[], options?: ChatRequestOptions): Re
 		if (firstText < 0) parts.unshift({type: "text", text: label.trimEnd()})
 		return {...api, content: parts}
 	})
-	// 动态时间位于人格及其他前置 system 块之后，保留稳定的提示词前缀。
+	const latestUser = messages.map((m, i) => m.role === "user" ? i : -1).filter(i => i >= 0).pop() ?? -1
+	const previousConversation = latestUser > 0
+		? [...messages.slice(0, latestUser)].reverse().find(m => m.role !== "system")
+		: undefined
+	const now = new Date()
+	const gapMs = previousConversation && isValidTimestamp(previousConversation.ts) && isValidTimestamp(messages[latestUser]?.ts)
+		? Math.max(0, messages[latestUser].ts! - previousConversation.ts!)
+		: 0
+	// 动态时间位于人格及其他前置 system 块之后，历史消息之前，保持稳定的提示词前缀。
 	const firstConversation = result.findIndex(m => m.role !== "system")
-	result.splice(firstConversation < 0 ? result.length : firstConversation, 0, {role: "system", content: localTimeBlock()})
+	result.splice(firstConversation < 0 ? result.length : firstConversation, 0, {role: "system", content: localTimeBlock(now, gapMs)})
 	return result
 }
 

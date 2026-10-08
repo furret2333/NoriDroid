@@ -14,6 +14,13 @@
  *   不碰双实例合并逻辑。代价是**重启 App 会清空** —— 所以界面上写明了"导出请在同一次里做"。
  * - **导出才落盘**：走与「导出」同一条 `writeFile` 通道（落到 `Download/NoriDroid/`）。
  * - ⚠ 记录里**含主人的原话与记忆内容**（诊断必须如此），导出后请自己留意文件去向。
+ *
+ * ## 2026-10-08 扩到**注入侧**（A3）
+ * 原来只记「整理」——"她为什么记住了"查得到，但"**这一轮她到底看到了哪几条**"完全无记录，
+ * 于是"她怎么突然记得 / 不记得"只能靠猜。现在同一个开关下再留一个**独立的**注入环
+ * （`recordInject`，见文件末尾）：记下每次注入的**通道、原话、真正进上下文的条目与分数**，
+ * 以及"库里有多少条生效记忆 / 有几条过了门槛" —— 后者能把**没记住**与**没召回**分开。
+ * 独立成环是因为注入每轮都发生，混在一起会把整理证据冲掉。
  */
 
 /** 环形上限：最近多少次整理（大约覆盖 200 × 25 = 5000 条消息） */
@@ -89,4 +96,76 @@ export const buildDiagJsonl = (meta: {model?: string; app?: string; extra?: Reco
 		...(meta.extra ?? {}),
 	}
 	return [JSON.stringify(head), ...ring.map(r => JSON.stringify(r))].join("\n") + "\n"
+}
+
+/* ------------------------------------------------------------------ */
+/* A3 (2026-10-08): 注入侧记录 —— "她这一轮到底看到了哪几条"            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 注入记录的环形上限。
+ *
+ * 为什么与整理**分开一个环**：注入每轮对话都发生（比整理频繁一到两个数量级），
+ * 挤在同一个环里会把整理证据冲掉；两者的用途也不同 —— 整理记录回答"记住了什么"，
+ * 注入记录回答"这一轮她看到了哪几条、凭什么"。
+ */
+export const MAX_INJECT_RECORDS = 60
+
+/** 一次注入走的是哪条通道（查"为什么没想起来"时先看这个） */
+export type MemInjectSource = "keyword" | "keyword-kw" | "smart-llm" | "smart-fallback" | "opening"
+
+/** 一条「注入」记录：一次召回**真正进了上下文**的完整证据 */
+export interface MemInjectRecord {
+	ts: number
+	source: MemInjectSource
+	/** 触发召回的原话（截断；opening 场景是合成的触摸描述，不是主人的话） */
+	query: string
+	/** 本次注入的条数上限 */
+	limit: number
+	/**
+	 * 真正进上下文的那几条（与 `buildMemoryBlock` 渲染的条数**必须一致**）。
+	 * `s` = 选择时的排序依据：召回路是**相关性得分**；`opening` 那条路是**重要度**
+	 * （开场刻意不按相关性选，见 `openingMemoryBlock`，所以两者的数不可直接横向比较）。
+	 */
+	hits: {id: string; c: string; t: string; s: number; kw?: boolean}[]
+	/** 参与打分的**生效**记忆条数（分母：库里到底有没有东西） */
+	considered: number
+	/** 过了相关性门槛的候选条数（用来把"没记住"与"没召回"分开） */
+	matched: number
+	/** 失败 / 降级原因（空串 = 正常） */
+	note: string
+}
+
+const injectRing: MemInjectRecord[] = []
+
+export const injectCount = (): number => injectRing.length
+export const clearInjects = (): void => { injectRing.length = 0 }
+/** 记一条注入（开关关着时直接返回，与 recordOrganize 同一约定：零开销） */
+export const recordInject = (rec: Omit<MemInjectRecord, "ts">): void => {
+	if (!enabled) return
+	injectRing.push({ts: Date.now(), ...rec})
+	if (injectRing.length > MAX_INJECT_RECORDS) injectRing.splice(0, injectRing.length - MAX_INJECT_RECORDS)
+}
+/** 只读快照：界面上的「上一轮注入了哪几条」用它 */
+export const lastInjectRecord = (): MemInjectRecord | null =>
+	injectRing.length ? {...injectRing[injectRing.length - 1], hits: injectRing[injectRing.length - 1].hits.map(h => ({...h}))} : null
+
+/**
+ * 拼注入记录导出用的 JSONL（第一行环境头 + 每行一条）。
+ *
+ * 刻意**与整理诊断分开一个文件**（`mem-inject-*.jsonl`）：整理那份的"1 行头 + N 条记录"
+ * 格式已被门禁与探针按**行数**断言（`rows.length === 2`），把第二种记录混进同一个文件
+ * 会把那条断言悄悄变成假的 —— 与其改断言，不如分开。
+ */
+export const buildInjectJsonl = (meta: {model?: string; app?: string; extra?: Record<string, unknown>} = {}): string => {
+	const head = {
+		kind: "inject-header",
+		at: new Date().toISOString(),
+		app: meta.app ?? "NoriDroid",
+		model: meta.model ?? "",
+		records: injectRing.length,
+		cap: MAX_INJECT_RECORDS,
+		...(meta.extra ?? {}),
+	}
+	return [JSON.stringify(head), ...injectRing.map(r => JSON.stringify(r))].join("\n") + "\n"
 }

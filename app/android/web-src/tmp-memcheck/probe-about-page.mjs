@@ -103,7 +103,7 @@ try {
 		if (!sheet) return {ok: false, why: "设置面板没打开"}
 		const body = sheet.querySelector(".sheet-body")
 		const btn = [...body.querySelectorAll("button")].find(b => /关于/.test(b.textContent))
-		const row = btn ? btn.closest(".settings-row") : null
+		const row = btn ? btn.closest(".settings-bottom-actions") : null
 		const rows = [...body.querySelectorAll(".settings-row")]
 		return {ok: true, title: (sheet.querySelector(".sheet-title") || {}).textContent || "",
 			hasEntry: !!btn, entryText: btn ? btn.textContent.replace(/\\s+/g, " ").trim() : "",
@@ -113,7 +113,7 @@ try {
 	})()`)
 	console.log(`   设置面板: ${JSON.stringify(entry)}`)
 	check("① 设置面板里有「关于 / 隐私 / 开源许可」入口按钮", entry.ok === true && entry.hasEntry === true, JSON.stringify(entry))
-	check("② 入口确实在 .settings-row 里（按用户要求的做法，不是裸按钮）", entry.inSettingsRow === true, JSON.stringify(entry))
+	check("② 入口位于新版设置页底部操作区", entry.inSettingsRow === true, JSON.stringify(entry))
 	check("③ **顶部第一块 .settings-row 仍是人设行**（这次不许动人设区）",
 		/人设文案/.test(entry.firstRow || ""), JSON.stringify(entry.firstRow))
 	check("④ 打开设置时关于页还没渲染（是点出来的，不是一直挂在 DOM 里）", entry.aboutAlready === false, JSON.stringify(entry))

@@ -3388,6 +3388,266 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	restoreNoriChatBridge()
 }
 
+/* ============ T39 A1/A2/A3 (2026-10-08): 关键词别名 + 注入侧多样性 + 注入侧可观测 ============
+ * 背景 (交接文档 §8):
+ *   A1 检索底层是 tokenize+bigram, **没有向量** ⇒ "换个说法"命中不了; 记忆块本来就是同一次
+ *      LLM 调用产出的 JSON, 多要几个近义词等于白捡一层近似语义索引。三条红线:
+ *      ① kw 绝不许进 tags (那是免死金牌) ② 不许参与 0.35 主门槛 (只能空命中时兜底) ③ 解析要宽容。
+ *   A2 recallMemories 纯按分取前 N、无去重/多样性 ⇒ 同一主题可能占满全部名额,
+ *      而"我是谁"这类最该在场的信息因分数略低被整体挤出。
+ *   A3 注入侧此前**零记录** ⇒ "她怎么突然记得/不记得"只能猜。
+ */
+{
+	/* ---------- A1: 清洗器 (宽容 + 去泛词 + 上限) ---------- */
+	resetDisk()
+	const sk = core.sanitizeKeywords
+	check("T39-A1a: kw 支持数组/字符串两种形态", JSON.stringify(sk(["考研", "那场考试"])) === JSON.stringify(["考研", "那场考试"]) &&
+		JSON.stringify(sk("考研, 那场考试")) === JSON.stringify(["考研", "那场考试"]), JSON.stringify(sk("考研, 那场考试")))
+	check("T39-A1b: 脏结构只丢**那一个词**, 不影响其余 (null/数字/空串/重复/超长/泛词)",
+		JSON.stringify(sk(["考试", null, 7, "", "  考研  ", "考试", "这个", "一个特别特别长的关键词啊啊"])) === JSON.stringify(["考试", "考研"]),
+		JSON.stringify(sk(["考试", null, 7, "", "  考研  ", "考试", "这个", "一个特别特别长的关键词啊啊"])))
+	check("T39-A1c: 全是泛词 ⇒ 空 (泛词污染进不来)",
+		sk(["东西", "事情", "那个", "最近", "喜欢", "什么"]).length === 0)
+	check("T39-A1d: 与正文完全相同的\"别名\"没有索引价值 ⇒ 丢掉",
+		sk(["我在准备考研"], "我在准备考研").length === 0)
+	check("T39-A1e: 条数封顶 MAX_KW_PER_ITEM",
+		sk(["考研", "考试", "那场考试", "升学", "读书"]).length === core.MAX_KW_PER_ITEM, String(core.MAX_KW_PER_ITEM))
+
+	/* ---------- A1: 解析 → 入库 → 落盘 全链路 (曾漏传 kw, 这里守住) ---------- */
+	resetDisk()
+	const seeded = core.parseBlockOutput("主人聊了备考。\n===MEM===\n" + JSON.stringify({
+		topic: "备考", items: [{content: "我在准备考研", type: "project", importance: 0.8, kw: ["考研", "那场考试"]}],
+	}))
+	check("T39-A1f: parseBlockOutput 解出 kw", JSON.stringify(seeded.items[0]?.kw) === JSON.stringify(["考研", "那场考试"]),
+		JSON.stringify(seeded.items[0]?.kw))
+	mem.reloadMemory()
+	const msgs39 = Array.from({length: 45}, (_, i) => ({role: i % 2 ? "assistant" : "user", content: `第${i}句`, ts: 1_810_000_000_000 + i * 1000}))
+	const did39 = await mem.summarizeIfNeeded(msgs39, async () => "主人聊了备考。\n===MEM===\n" + JSON.stringify({
+		topic: "备考", items: [{content: "我在准备考研", type: "project", importance: 0.8, kw: ["考研", "那场考试"]}],
+	}), true, false)
+	await mem.flushMemoryPersist()   // 落盘是防抖的, 读磁盘前必须刷一次
+	const stored39 = diskMemories().find(m => m.content === "我在准备考研")
+	check("T39-A1g: 经 summarizeIfNeeded 入库后 kw **真的落盘** (曾经在这一步被丢掉)",
+		did39 === true && JSON.stringify(stored39?.kw) === JSON.stringify(["考研", "那场考试"]), JSON.stringify(stored39?.kw))
+	check("T39-A1h: kw 与 tags 是两个字段 —— tags 里没有 identity/explicit/goal/pinned",
+		!(stored39?.tags ?? []).some(t => ["identity", "explicit", "goal", "pinned"].includes(t)), JSON.stringify(stored39?.tags))
+
+	/* ---------- A1: 合并/双实例 都要带上 kw ---------- */
+	{
+		const prev = mkMem("k1", "我喜欢下雨天", {kw: ["雨天"]})
+		const fresh = mkMem("k2", "我喜欢下雨天", {kw: ["下雨"]})
+		const {updated} = core.mergeMemories([fresh], [prev])
+		check("T39-A1i: 写入合并取并集 (只改了 kw 也算一次升级, 不会被 noChange 吞掉)",
+			updated.length === 1 && JSON.stringify([...new Set(updated[0].kw ?? [])].sort()) === JSON.stringify(["下雨", "雨天"]),
+			JSON.stringify(updated[0]?.kw))
+		const storeA = {memories: [mkMem("s1", "我在准备考研", {kw: ["考研"]})], summaries: [], summarizedMsgCount: 0}
+		const storeB = {memories: [mkMem("s1", "我在准备考研", {kw: ["那场考试"]})], summaries: [], summarizedMsgCount: 0}
+		const merged = core.mergeStores(storeA, storeB)
+		check("T39-A1j: 双实例落盘合并取**并集** (取较新一份会把另一边的别名整个丢掉)",
+			JSON.stringify([...new Set(merged.memories[0]?.kw ?? [])].sort()) === JSON.stringify(["考研", "那场考试"].sort()),
+			JSON.stringify(merged.memories[0]?.kw))
+	}
+
+	/* ---------- A1: 只做弱兜底, 不参与主门槛 ---------- */
+	{
+		const withKw = mkMem("w1", "我最喜欢的电影是星际穿越", {kw: ["科幻片"]})
+		const noKw = mkMem("w2", "我最喜欢的电影是星际穿越")
+		const q = "有什么好看的科幻片推荐吗"
+		check("T39-A1k: 主路径 (只看正文) 召回不到别名",
+			core.recallMemories([withKw], q, 6, false).hits.length === 0)
+		check("T39-A1l: 别名兜底能召回 (弱加权, 门槛比主路径更高)",
+			core.recallMemoriesByKeywords([withKw], q, 2).hits.length === 1 &&
+			core.KW_FALLBACK_MIN_SCORE > 0.35, String(core.KW_FALLBACK_MIN_SCORE))
+		check("T39-A1m: 摘掉 kw 后兜底也召回不到 (命中确实来自别名)",
+			core.recallMemoriesByKeywords([noKw], q, 2).hits.length === 0)
+	}
+
+	/* ---------- A2: diversifyHits 纯函数 ---------- */
+	{
+		const at = (id, type, score) => ({item: mkMem(id, `内容${id}`, {type}), score})
+		// ① 三种类型各 3 条 → 同类型最多 2 条, 且**排满** limit (不会因为配额就少给)
+		const three = [...["preference", "fact", "project"].flatMap(t => [9, 8, 7].map((s, i) => at(`${t}${i}`, t, s + Math.random())))]
+			.sort((a, b) => b.score - a.score)
+		const picked3 = core.diversifyHits(three, 6)
+		const perType = {}
+		for (const p of picked3) perType[p.item.type] = (perType[p.item.type] ?? 0) + 1
+		check("T39-A2a: 三类型齐备时同 type 最多 2 条, 且条数填满 limit",
+			picked3.length === 6 && Object.values(perType).every(n => n <= core.RECALL_MAX_PER_TYPE), JSON.stringify(perType))
+
+		// ② 身份保留名额: core 分数最低也能挤进来 (腾掉分数最低的非身份那条)
+		const withId = [at("p1", "preference", 9), at("p2", "preference", 8), at("f1", "fact", 7), at("f2", "fact", 6), at("j1", "project", 5), at("j2", "project", 4), at("c1", "core", 0.4)]
+		const pickedId = core.diversifyHits(withId, 6)
+		check("T39-A2b: 库里存在 identity/core 时, 6 条里**至少保 1 条** (哪怕它分数最低)",
+			pickedId.some(p => core.isIdentityMemory(p.item)), JSON.stringify(pickedId.map(p => p.item.id)))
+		check("T39-A2c: 保留名额挤掉的是**分数最低的非身份**那条", !pickedId.some(p => p.item.id === "j2"),
+			JSON.stringify(pickedId.map(p => p.item.id)))
+
+		// ③ 不触发配额时, 输出与 slice 完全相同 (no-op 保证)
+		const ok = [at("a", "preference", 9), at("b", "fact", 8), at("c", "project", 7), at("d", "event", 6)]
+		check("T39-A2d: 本来就不超配额时输出与 slice 完全一致 (无副作用)",
+			JSON.stringify(core.diversifyHits(ok, 4).map(p => p.item.id)) === JSON.stringify(ok.slice(0, 4).map(p => p.item.id)))
+
+		// ④ 只有一种类型时**填满**而不是留空 (留空只会少给记忆, 换不来任何多样性)
+		const oneType = [1, 2, 3, 4, 5, 6, 7].map(i => at(`o${i}`, "preference", 8 - i))
+		check("T39-A2e: 只有一种类型时仍填满 limit (宁可破配额也不白少给记忆)",
+			core.diversifyHits(oneType, 6).length === 6)
+
+		// ⑤ 召回入口的开关: 默认 (写入侧) 不套配额
+		const items39 = withId.map(p => p.item)
+		const plain = core.recallMemories(items39, "内容", 6, false).hits.map(h => h.id)
+		check("T39-A2f: recallMemories 默认 diversify=false ⇒ 写入侧判重候选保持\"纯按分取前 N\"",
+			plain.length <= 6 && !plain.includes("c1"), JSON.stringify(plain))
+	}
+
+	/* ---------- A2: 端到端 (注入块) ---------- */
+	{
+		resetDisk()
+		// 8 条同类高分 + 1 条 core 垫底, 全部与提问有词面重叠 (否则过不了相关性门槛)
+		const mems39 = []
+		for (let i = 0; i < 8; i += 1) mems39.push(mkMem(`pf${i}`, `下雨天我喜欢做第${i}件事`, {type: "preference", importance: 0.9 - i * 0.01}))
+		mems39.push(mkMem("core1", "记住:下雨天要带伞", {type: "core", importance: 0.2, tags: ["identity"], decayDays: null}))
+		seedDisk(mems39)
+		mem.reloadMemory()
+		const blk = mem.recallForQuery("下雨天我喜欢做什么")
+		check("T39-A2g: 注入块里保住了身份记忆 (分数垫底也进来了)", blk.includes("记住:下雨天要带伞"), JSON.stringify(blk))
+		const typeCount = {}
+		for (const line of blk.split("\n").filter(l => l.startsWith("- "))) {
+			const hit = mem.listAll().memories.find(m => m.content === line.slice(2))
+			if (hit) typeCount[hit.type] = (typeCount[hit.type] ?? 0) + 1
+		}
+		check("T39-A2h: 注入条数仍 ≤ MEMORY_BLOCK_LIMIT=6", blk.split("\n").filter(l => l.startsWith("- ")).length <= 6,
+			JSON.stringify(typeCount))
+	}
+
+	/* ---------- A3: 注入记录 ---------- */
+	{
+		resetDisk()
+		seedDisk([mkMem("i1", "我喜欢下雨天"), mkMem("i2", "我叫小明", {type: "fact", tags: ["identity"], importance: 0.9})])
+		mem.reloadMemory()
+		mem.setDiagEnabled(false)
+		mem.clearInjects()
+		mem.recallForQuery("下雨天")
+		check("T39-A3a: 开关关着时**零记录** (与整理诊断同一约定)",
+			mem.injectCount() === 0 && mem.lastInjectRecord() === null, `n=${mem.injectCount()}`)
+
+		mem.setDiagEnabled(true)
+		mem.clearInjects()
+		const blkA3 = mem.recallForQuery("下雨天")
+		const rec3 = mem.lastInjectRecord()
+		const renderedLines = blkA3.split("\n").filter(l => l.startsWith("- ")).length
+		check("T39-A3b: 记下了「这一轮真正进了上下文的几条」——条数与渲染数**一致**",
+			!!rec3 && rec3.hits.length === renderedLines && renderedLines > 0,
+			JSON.stringify({recorded: rec3?.hits.length, rendered: renderedLines}))
+		check("T39-A3c: 记录里有通道/原话/条数上限/候选分母/门槛通过数/每条的分数",
+			!!rec3 && rec3.source === "keyword" && rec3.query === "下雨天" && rec3.limit === 6 &&
+			rec3.considered === 2 && typeof rec3.matched === "number" &&
+			rec3.hits.every(h => typeof h.s === "number" && h.s > 0) && typeof rec3.hits[0].id === "string",
+			JSON.stringify(rec3))
+
+		// 没命中也要留痕 (这恰恰是"静默失效"最需要被看见的一面)
+		const blkNone = mem.recallForQuery("跟记忆完全无关的一句话呀")
+		const recNone = mem.lastInjectRecord()
+		check("T39-A3d: 一条都没注入时也留痕 (note 说明是没命中还是库里没有)",
+			blkNone === "" && !!recNone && recNone.hits.length === 0 && recNone.note.length > 0, JSON.stringify(recNone))
+
+		// kw 兜底通道的标记
+		mem.clearInjects()
+		mem.reloadMemory()
+		seedDisk([mkMem("k9", "我家养了一只猫", {kw: ["宠物"]})])
+		mem.reloadMemory()
+		mem.recallForQuery("养宠物贵吗")
+		const recKw = mem.lastInjectRecord()
+		check("T39-A3e: kw 兜底命中时 source=keyword-kw 且该条标了 kw",
+			!!recKw && recKw.source === "keyword-kw" && recKw.hits.length === 1 && recKw.hits[0].kw === true, JSON.stringify(recKw))
+
+		// 环形上限 + 清空
+		mem.clearInjects()
+		for (let i = 0; i < mem.MAX_INJECT_RECORDS + 5; i += 1) {
+			mem.recordInject({source: "keyword", query: `q${i}`, limit: 6, hits: [], considered: 0, matched: 0, note: `n${i}`})
+		}
+		check("T39-A3f: 注入环有上限, 超出丢最旧",
+			mem.injectCount() === mem.MAX_INJECT_RECORDS && mem.lastInjectRecord()?.note === `n${mem.MAX_INJECT_RECORDS + 4}`,
+			`n=${mem.injectCount()}`)
+		mem.clearInjects()
+		check("T39-A3g: 清空注入记录", mem.injectCount() === 0)
+
+		// 导出: 独立文件、独立 header, 每行可解析
+		mem.recordInject({source: "opening", query: "戳戳", limit: 8, hits: [{id: "x", c: "我喜欢下雨天", t: "preference", s: 0.9}], considered: 1, matched: 1, note: ""})
+		const jsonl3 = mem.buildInjectJsonl({model: "test-model"})
+		const rows3 = jsonl3.trim().split("\n")
+		let allOk3 = true
+		for (const line of rows3) { try { JSON.parse(line) } catch { allOk3 = false } }
+		const head3 = JSON.parse(rows3[0])
+		check("T39-A3h: 注入导出是独立 JSONL (kind=inject-header + 每条一行, 全部可解析)",
+			rows3.length === 2 && allOk3 && head3.kind === "inject-header" && head3.records === 1,
+			JSON.stringify({lines: rows3.length, allOk: allOk3, head: head3}))
+
+		// 关键回归: 注入记录**不许**混进整理诊断的导出 (T37-B1 断言"1 行头 + N 条"靠行数)
+		mem.clearDiag()
+		const jsonlOrganize = mem.buildDiagJsonl()
+		check("T39-A3i: 注入记录不混进整理诊断导出 (那份的行数契约不被污染)",
+			jsonlOrganize.trim().split("\n").length === 1, `lines=${jsonlOrganize.trim().split("\n").length}`)
+	}
+
+	/* ---------- A3: 记忆健康 ---------- */
+	{
+		resetDisk()
+		mem.setDiagEnabled(false)
+		mem.clearInjects()
+		mem.__resetOrganizeStateForTest()   // 模拟"App 刚启动": 本次运行还没整理过
+		const now39 = Date.now()
+		seedDisk([
+			mkMem("h1", "生效一"),
+			mkMem("h2", "生效二"),
+			mkMem("h3", "已收起", {fadedAt: now39, fadedReason: "expired"}),
+			mkMem("h4", "已作废", {invalidAt: now39}),
+		], {meta: [], blocks: [], deletedBin: []})
+		mem.reloadMemory()
+		const h = mem.memoryHealth()
+		check("T39-A3j: 健康快照的计数与语义一致 (生效/已收起/已作废/总数)",
+			h.active === 2 && h.faded === 1 && h.invalid === 1 && h.total === 4,
+			JSON.stringify({active: h.active, faded: h.faded, invalid: h.invalid, total: h.total}))
+		check("T39-A3k: 没有摘要时「上次成功整理」为 null (而不是假装有); 本次运行也还没整理过",
+			h.lastSummaryAt === null && h.lastOrganize === null,
+			JSON.stringify({at: h.lastSummaryAt, org: h.lastOrganize}))
+		check("T39-A3l: 健康计数**不依赖**诊断开关 (开关关着、注入记录为空, 计数照样准)",
+			mem.diagEnabled() === false && h.injects === 0 && h.lastInject === null && h.active === 2)
+
+		// 整理成功后: 上次成功整理时间来自**持久化**的摘要, 且登记了成败
+		const didH = await mem.summarizeIfNeeded(msgs39, async () => "主人聊了备考。", true, false)
+		const h2 = mem.memoryHealth()
+		check("T39-A3m: 整理成功后 lastSummaryAt 来自摘要 (重启后仍在的持久来源)",
+			didH === true && typeof h2.lastSummaryAt === "number" && h2.lastSummaryAt > 0 && h2.summaries === 1,
+			JSON.stringify({at: h2.lastSummaryAt, summaries: h2.summaries}))
+		check("T39-A3n: 最后一次整理登记为成功", h2.lastOrganize?.ok === true, JSON.stringify(h2.lastOrganize))
+
+		// 失败路径: 模型返回空 → 记失败原因 (此前完全静默)。先清库把摘要游标归零, 否则没区间可整理
+		resetDisk()
+		mem.reloadMemory()
+		const didEmpty = await mem.summarizeIfNeeded(msgs39, async () => "", true, false)
+		const h3 = mem.memoryHealth()
+		check("T39-A3o: 模型返回空 ⇒ 登记失败并带上原因 (静默失效变成看得见的失效)",
+			didEmpty === false && h3.lastOrganize?.ok === false && h3.lastOrganize?.note.includes("模型返回空"),
+			JSON.stringify({did: didEmpty, org: h3.lastOrganize}))
+
+		// 失败路径: 调用抛错 → 登记后**原样抛出** (调用方的错误处理不变)
+		resetDisk()
+		mem.reloadMemory()
+		let threw = false
+		try {
+			await mem.summarizeIfNeeded(msgs39, async () => { throw new Error("网络断了") }, true, true)
+		} catch { threw = true }
+		const h4 = mem.memoryHealth()
+		check("T39-A3p: 调用抛错 ⇒ 登记原因且异常照旧向外抛 (行为不变)",
+			threw === true && h4.lastOrganize?.ok === false && h4.lastOrganize?.note.includes("网络断了"),
+			JSON.stringify({threw, note: h4.lastOrganize?.note}))
+
+		mem.setDiagEnabled(false)
+		mem.clearInjects()
+		mem.__resetOrganizeStateForTest()
+	}
+}
+
 /* ============ 汇总 ============ */
 const failed = results.filter(r => !r.ok)
 console.log(`\n${results.length - failed.length}/${results.length} passed`)

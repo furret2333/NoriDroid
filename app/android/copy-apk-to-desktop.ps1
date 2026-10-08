@@ -1,4 +1,4 @@
-# 把最新编译出的 APK 复制到桌面
+﻿# 把最新编译出的 APK 复制到桌面
 # 用法: 在 app/android 目录下执行  powershell -ExecutionPolicy Bypass -File copy-apk-to-desktop.ps1
 # 或在任意位置: powershell -ExecutionPolicy Bypass -File <本脚本路径>
 

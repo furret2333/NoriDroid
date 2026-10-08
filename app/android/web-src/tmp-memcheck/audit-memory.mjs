@@ -3,10 +3,13 @@
    ② 多轮裁剪循环下 摘要 id 唯一 / 区间递增无重叠 / 重启后摘要仍存在
    ③ 被裁摘要的墓碑会不会误伤后续新摘要
    ④ 长期记忆写入与召回不受摘要改动影响
-   依赖 memory-bundle.mjs —— 由 run-tests.mjs 重建。 */
+   依赖 memory-bundle.mjs —— **本脚本自己重建** (2026-10-08 起), 因此单独跑也不会读到旧产物。
+   C1 (2026-10-08): 已挂进 run-all-gates (名字 `audit-memory`), 发现问题即非零退出。 */
 import path from "node:path"
 import {pathToFileURL} from "node:url"
 const root = path.resolve(import.meta.dirname, "..")
+// 先重建 bundle: 与其它探针同一纪律 —— 否则源码已改、审计仍报旧结论
+await import(pathToFileURL(path.join(import.meta.dirname, "build-mem-bundles.mjs")).href)
 const files = new Map()
 globalThis.window = {
 	NoriChat: {
@@ -121,4 +124,6 @@ console.log(`\n④ 长期记忆: 写入后 ${memCount} 条, 召回测试 → "${
 if (memCount === 0) problems.push("④ 长期记忆写入失败")
 
 console.log("\n=== 结论 ===")
-console.log(problems.length ? `发现 ${problems.length} 个问题:\n  ` + problems.join("\n  ") : "✓ 记忆侧审计未发现问题")
+console.log(problems.length ? `FAIL  发现 ${problems.length} 个问题:\n  ` + problems.join("\n  ") : "PASS  记忆侧审计未发现问题")
+// 挂门禁后必须能用退出码判定 (以前只打印, 挂了也没用)
+process.exitCode = problems.length ? 1 : 0

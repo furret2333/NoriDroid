@@ -170,7 +170,7 @@ try {
 	const wrong = await evalJs(`(() => ({calls: (window.__dlCalls || []).length,
 		msg: document.querySelector(".gate .hint")?.textContent.trim() || "",
 		stillOpen: !!document.querySelector(".gate"),
-		tag: (document.querySelector(".tag")?.textContent || "").trim(),
+		tag: (document.querySelector(".tag > span:first-child")?.textContent || "").trim(),
 		loading: (document.querySelector(".loading")?.textContent || "").trim()}))()`)
 	check("②-1 答错时明确报错（答案不对）", /不对|错误|再想/.test(wrong.msg), JSON.stringify(wrong))
 	check("②-2 **答错时假桥 download 一次都没被调用**", wrong.calls === 0, `calls=${wrong.calls}`)

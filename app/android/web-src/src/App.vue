@@ -86,7 +86,7 @@
 			<div v-if="portraitLayout || chatOpen" v-show="!portraitLayout || !panel" class="chat-panel" :class="{'history-open': chatOpen}">
 				<transition name="ai">
 					<button v-if="portraitLayout && !chatOpen && portraitReply" class="portrait-reply" type="button" title="点击展开聊天记录" @click="openPortraitHistory">
-						<span class="portrait-reply-text">{{ bubbleText(portraitReply) }}</span>
+						<span v-for="(seg, i) in bubbleSegments(portraitReply)" :key="i" class="portrait-reply-text">{{ bubbleText(seg) }}</span>
 					</button>
 				</transition>
 				<button v-if="portraitLayout" class="history-toggle" type="button" :aria-expanded="chatOpen" aria-controls="chat-history" :aria-label="chatOpen ? '收起聊天记录' : '展开聊天记录'" @click="toggleChat">
@@ -643,13 +643,44 @@
 								</div>
 								<div v-else-if="tuneShow" class="hint">还没有示例 —— 点「立即优化」生成一份（记忆太少时会先跳过）</div>
 							</div>
+							<!-- A3 (2026-10-08): 记忆健康 + **注入可见性** —— 把"她怎么突然记得 / 不记得"从猜变成可查。
+							     计数部分**不依赖**诊断开关 (随时可见); 注入**明细**才需要打开开关
+							     (明细含你的原话与记忆内容, 与整理诊断同一隐私口径)。 -->
+							<div class="mem-sec mem-health">
+								<div class="mem-sec-title">记忆健康</div>
+								<div class="hint">
+									生效 <b>{{ health.active }}</b> · 已收起 {{ health.faded }} · 已作废 {{ health.invalid }} · 库里共 {{ health.total }} 条
+									（历史总结 {{ health.summaries }} 条 · 记忆块 {{ health.blocks }} 个 · 回收站 {{ health.deleted }} 条）
+								</div>
+								<div class="hint">
+									上次成功整理：<b>{{ fmtWhen(health.lastSummaryAt) }}</b>
+									<template v-if="health.lastOrganize">
+										· 本次运行最后一次整理：<b :class="{bad: health.lastOrganize?.ok === false}">{{ health.lastOrganize?.ok ? "成功" : "失败" }}</b><template v-if="health.lastOrganize?.note">（{{ health.lastOrganize?.note }}）</template>
+									</template>
+									<template v-else>· 本次运行还没整理过</template>
+								</div>
+								<div class="hint">上一轮注入：{{ injectSummary }}</div>
+								<div v-if="(health.lastInject?.hits?.length ?? 0) > 0" class="mem-inject-hits">
+									<div v-for="h in (health.lastInject?.hits ?? [])" :key="h.id" class="mem-inject-hit">
+										<span class="mem-inject-score">{{ h.s.toFixed(2) }}</span>
+										<span class="mem-inject-type">{{ h.t }}</span>
+										<span class="mem-inject-text">{{ h.c }}</span>
+										<span v-if="h.kw" class="mem-inject-kw" title="靠关键词/别名命中">别名</span>
+									</div>
+								</div>
+								<div v-else-if="health.lastInject" class="hint">上一轮**一条都没注入**：正文与别名都没命中，或库里没有生效记忆</div>
+								<div class="btn-row mem-diag-btns">
+									<button class="mini ripple" :disabled="injectN === 0" @click="doExportInject">导出注入记录</button>
+								</div>
+								<div class="hint mem-sub">※ 注入明细含你的原话与记忆内容，导出后请留意文件去向</div>
+							</div>
 							<!-- 记忆诊断 (P1「观测闭环」, 2026-09-30): 排查"她为什么记住了 / 为什么没记住"用。
 							     默认关; 打开后每次整理在**内存**里留一条证据(提示词/模型输出/门槛挡下的条目/库状态),
 							     点「导出记忆诊断」才落盘到 Download/NoriDroid/。重启 App 会清空。 -->
 							<div class="mem-sec mem-diag">
 								<div class="mem-sec-title">记忆诊断（排查用）</div>
 								<div class="row-inline">
-									<label>记录整理过程（最多最近 {{ MAX_DIAG_RECORDS }} 次）</label>
+									<label>记录整理与注入过程（最多最近 {{ MAX_DIAG_RECORDS }} 次）</label>
 									<input type="checkbox" v-model="cfg.memoryDiagnostics" @change="onDiagToggle" />
 								</div>
 								<div class="hint">
@@ -1226,6 +1257,10 @@
 					<span class="intro-rule" aria-hidden="true"></span>
 					<div class="intro-body">
 						<p v-for="(t, i) in INTRO_STEPS[introStep].body" :key="i" class="intro-p" :class="INTRO_STEPS[introStep].tone"><template v-for="(seg, j) in introSegs(t)" :key="j"><span v-if="seg.b" class="intro-b">{{ seg.t }}</span><template v-else>{{ seg.t }}</template></template></p>
+						<div v-if="introStep === 2" class="intro-api-links" aria-label="API 密钥入口">
+							<button class="mini ripple intro-api-link" type="button" @click="openIntroApi(DEEPSEEK_API_KEYS_URL)">文字调用</button>
+							<button class="mini ripple intro-api-link" type="button" @click="openIntroApi(QIANWEN_API_KEYS_URL)">语音输出</button>
+						</div>
 					</div>
 					<!-- 2026-10-02 修排版（用户截图：最后一步四个按钮挤一行，右侧两个被屏幕裁掉）：
 					     两个「跳转类」按钮（项目仓库 / Steam 愿望单）单独占上面一行，且允许换行
@@ -1342,6 +1377,7 @@ import {
 	pruneDoneGoals,
 	recallForQuery,
 	recallForQuerySmart,
+	openingMemoryBlock,
 	summaryBlock,
 	summarizeIfNeeded,
 	notifyHistoryTrimmed,
@@ -1369,6 +1405,11 @@ import {
 	diagCount,
 	setDiagEnabled,
 	MAX_DIAG_RECORDS,
+	buildInjectJsonl,
+	clearInjects,
+	injectCount,
+	MAX_INJECT_RECORDS,
+	memoryHealth,
 	listBlocks,
 	listUnblockedMemories,
 	organizeProgress,
@@ -1389,6 +1430,7 @@ import {
 	type MemoryType,
 	type MemoryBlockView,
 	type MemoryBlock,
+	type MemoryHealth,
 } from "./services/memory"
 import {
 	isTtsReady,
@@ -1603,13 +1645,24 @@ const openSteamWishlist = (): void => {
 	playSfx()
 }
 
+const DEEPSEEK_API_KEYS_URL = "https://platform.deepseek.com/api_keys"
+const QIANWEN_API_KEYS_URL = "https://platform.qianwenai.com/home/api-keys"
+const openIntroApi = (url: string): void => {
+	const nori = (window as unknown as {NoriChat?: {openExternal?: (u: string) => void}}).NoriChat
+	try {
+		if (nori && typeof nori.openExternal === "function") nori.openExternal(url)
+		else window.open(url, "_blank")
+	} catch { /* 外链打不开时不打断引导 */ }
+	playSfx()
+}
+
 const hideThumb = (e: Event) => { (e.currentTarget as HTMLElement).style.visibility = "hidden" }
 
 /* ---------------- 「关于 / 隐私 / 开源许可」页用到的常量（2026-10-02 用户要求） ----------------
  * 版本号：与 app/android/app/build.gradle 的 versionName 保持一致（前端随 APK 一起发版）。
  * ⚠ 别拿 web-src/package.json 的 version（脚手架留下的 0.1.0）当版本号 —— 那不是用户看到的版本。
  * 上游声明与许可清单同步自仓库根的 THIRD-PARTY.md（App 里只放要点 + 指向它）。 */
-const APP_VERSION = "2.1.0"
+const APP_VERSION = "2.2.0"
 const UPSTREAM_REPO_URL = "https://github.com/erhiolab/DeepEr"
 const LIVE2D_EULA_URL = "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
 /** 通用外链打开：与 openRepo / openSteamWishlist 同款（优先原生 openExternal，桥不支持时退回 window.open）。
@@ -1836,7 +1889,14 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt">, type
 		stopTTS()
 	}
 	if (!chatOpen.value) showAiBubble("…")
-	const memoryBlock = recallForQuery(text)
+	// C1 (2026-10-08): 触摸/戳戳是**「没有当前提问」**的场合 —— text 是合成描述
+	// （「用户 摸摸 Nori的 头」「用户正在轻轻戳戳 Nori」），拿它做关键词召回基本必然落空
+	// （词面重叠是召回的必要条件 ⇒ `recallForQuery("")` 一类必然空手而归）。
+	// openingMemoryBlock 正是为这种场合写的：先按当前话题召回，再补"开场就该知道"的
+	// 身份/核心记忆（type=core 或 tags 含 identity/explicit，或 importance ≥ 0.8）。
+	// 它**只读不强化**（不涨 accessCount）—— 戳戳每次会话都会触发，算强化会让同一批高分
+	// 记忆永远霸榜，真正这次被问到的反而挤不进来。
+	const memoryBlock = openingMemoryBlock(text)
 	const summary = summaryBlock(cfg.timeAware)
 	const context: ChatMsg[] = []
 	const personaText = personaPrompt()
@@ -1885,6 +1945,7 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt">, type
 
 	const flushSpeech = () => {
 		if (!ttsOn || !pendingSpeech) return
+		pendingSpeech = stripInternalPromptMetadata(pendingSpeech)
 		const {sentences, rest} = splitSpeechText(pendingSpeech)
 		for (const s of sentences) {
 			const p = s.trim()
@@ -1900,42 +1961,59 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt">, type
 					if (delta === "null") return
 					// 剥离隐藏的【表情:xxx】【动作:xxx】标记 (标记不显示、不朗读)
 					const {clean, emotion, motion} = parseMarkerDelta(delta, touchMarkerBuf)
-					reply += clean
-					pendingSpeech += clean
+					const safeClean = stripInternalPromptMetadata(clean)
+					reply = stripInternalPromptMetadata(reply + safeClean)
+					pendingSpeech = stripInternalPromptMetadata(pendingSpeech + safeClean)
 					flushSpeech()
 					if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
 					if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
 					if (cfg.emotionLlm && motion) playMarkerMotion(motion)
 					// 存储合并: 只更新一条 liveBubble, 显示层自动拆多气泡
-					if (!liveBubble) {
+					if (!liveBubble && reply.trim()) {
 						liveBubble = {role: "assistant", content: reply, ts: Date.now()}
 						messages.value.push(liveBubble)
-					} else {
-						liveBubble.content = reply
+					} else if (liveBubble) {
+						if (reply.trim()) liveBubble.content = reply
+						else {
+							const idx = messages.value.indexOf(liveBubble)
+							if (idx >= 0) messages.value.splice(idx, 1)
+							liveBubble = null
+						}
 					}
-					showPortraitReply(reply)
-					if (chatOpen.value) scrollChatBottom()
+					if (reply.trim()) {
+						showPortraitReply(reply)
+						if (chatOpen.value) scrollChatBottom()
+					}
 				},
 				onDone: (content) => {
 					streamOk = true
+					reply = stripInternalPromptMetadata(reply)
 					// content 含标记: 优先用已剥离的 reply; reply 为空时整体剥离一次 (空缓冲)
 					if (content && !reply.trim()) {
 						const fresh = {value: ""}
 						const {clean, emotion, motion} = parseMarkerDelta(content, fresh)
-						reply = clean
+						reply = stripInternalPromptMetadata(clean)
 						if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
 						if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
 						if (cfg.emotionLlm && motion) playMarkerMotion(motion)
-						if (!liveBubble) {
+						if (!liveBubble && reply.trim()) {
 							liveBubble = {role: "assistant", content: reply, ts: Date.now()}
 							messages.value.push(liveBubble)
-						} else {
+						} else if (liveBubble) {
 							liveBubble.content = reply
 						}
 					}
 					touchMarkerBuf.value = ""
-					if (liveBubble) liveBubble.content = reply
-					showPortraitReply(reply)
+					if (liveBubble) {
+						if (reply.trim()) liveBubble.content = reply
+						else {
+							const idx = messages.value.indexOf(liveBubble)
+							if (idx >= 0) messages.value.splice(idx, 1)
+							liveBubble = null
+						}
+					}
+					if (reply.trim()) showPortraitReply(reply)
+					else portraitReply.value = ""
 					persistChat(messages.value)
 					resolve()
 				},
@@ -1961,7 +2039,8 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt">, type
 
 		// 收尾: 剩余文本 + 结束朗读会话
 		if (ttsOn) {
-			if (pendingSpeech.trim()) speakAppend(cfg, pendingSpeech)
+			const safePendingSpeech = stripInternalPromptMetadata(pendingSpeech)
+			if (safePendingSpeech.trim()) speakAppend(cfg, safePendingSpeech)
 			pendingSpeech = ""
 			endSpeakSession()
 		}
@@ -3727,6 +3806,7 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 		// 把累积的文本按句子边界切出来, 逐句追加朗读 (只在安全边界切, 不切词)
 		const flushSpeech = () => {
 			if (!ttsOn || !pendingSpeech) return
+			pendingSpeech = stripInternalPromptMetadata(pendingSpeech)
 			const {sentences, rest} = splitSpeechText(pendingSpeech)
 			for (const s of sentences) {
 				const p = s.trim()
@@ -3742,46 +3822,63 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 					if (delta === "null") return
 					// 剥离隐藏的【表情:xxx】【动作:xxx】标记 (标记不显示、不朗读)
 					const {clean, emotion, motion} = parseMarkerDelta(delta, chatMarkerBuf)
-					reply += clean
-					pendingSpeech += clean
+					const safeClean = stripInternalPromptMetadata(clean)
+					reply = stripInternalPromptMetadata(reply + safeClean)
+					pendingSpeech = stripInternalPromptMetadata(pendingSpeech + safeClean)
 					flushSpeech()
 					if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
 					if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
 					if (cfg.emotionLlm && motion) playMarkerMotion(motion)
 					// 存储合并: 只更新一条 liveBubble, 显示层自动拆多气泡
-					if (!liveBubble) {
+					if (!liveBubble && reply.trim()) {
 						liveBubble = {role: "assistant", content: reply, ts: Date.now()}
 						messages.value.push(liveBubble)
-					} else {
-						liveBubble.content = reply
+					} else if (liveBubble) {
+						if (reply.trim()) liveBubble.content = reply
+						else {
+							const idx = messages.value.indexOf(liveBubble)
+							if (idx >= 0) messages.value.splice(idx, 1)
+							liveBubble = null
+						}
 					}
-					showPortraitReply(reply)
-					throttledScroll()
+					if (reply.trim()) {
+						showPortraitReply(reply)
+						throttledScroll()
+					}
 				},
 				onDone: (content) => {
 					streamOk = true
 					chatStreaming.value = false
+					reply = stripInternalPromptMetadata(reply)
 					// content 是含标记的全文: 优先用流式累积的已剥离 reply;
 					// 若 reply 为空 (如非流式回退), 则对 content 整体剥离一次 (用空缓冲, 避免残留拼接)
 					if (content && !reply.trim()) {
 						const fresh = {value: ""}
 						const {clean, emotion, motion} = parseMarkerDelta(content, fresh)
-						reply = clean
+						reply = stripInternalPromptMetadata(clean)
 						if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
 						if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
 						if (cfg.emotionLlm && motion) playMarkerMotion(motion)
 						// 非流式回退: 整体内容作为一条消息 (显示层自动拆多气泡)
-						if (!liveBubble) {
+						if (!liveBubble && reply.trim()) {
 							liveBubble = {role: "assistant", content: reply, ts: Date.now()}
 							messages.value.push(liveBubble)
-						} else {
+						} else if (liveBubble) {
 							liveBubble.content = reply
 						}
 					}
 					// 兜底: 流式路径若仍有残留未闭合的【(缓冲里), 说明标记不完整, 丢弃不显示
 					chatMarkerBuf.value = ""
-					if (liveBubble) liveBubble.content = reply
-					showPortraitReply(reply)
+					if (liveBubble) {
+						if (reply.trim()) liveBubble.content = reply
+						else {
+							const idx = messages.value.indexOf(liveBubble)
+							if (idx >= 0) messages.value.splice(idx, 1)
+							liveBubble = null
+						}
+					}
+					if (reply.trim()) showPortraitReply(reply)
+					else portraitReply.value = ""
 					persistChat(messages.value)
 					resolve()
 				},
@@ -3812,7 +3909,8 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 
 		// 收尾: 剩余未成句的文本 + 结束朗读会话
 		if (ttsOn) {
-			if (pendingSpeech.trim()) speakAppend(cfg, pendingSpeech)
+			const safePendingSpeech = stripInternalPromptMetadata(pendingSpeech)
+			if (safePendingSpeech.trim()) speakAppend(cfg, safePendingSpeech)
 			pendingSpeech = ""
 			endSpeakSession()
 		}
@@ -3881,8 +3979,22 @@ const splitReplies = (reply: string): string[] => {
  * - 中文省略号 (…… 或 ······) → 合并为单个 "…"
  * 单个字符永远不会被断行拆开.
  */
+
+// 时间标签只服务于请求上下文；模型偶尔会原样复述，显示层必须彻底隐藏。
+const stripInternalPromptMetadata = (content: string): string => content
+	.replace(/^\s*(?:【(?:消息发送时间|消息发送时间未记录|当前时间)】|】)\s*[^\n]*(?:\n|$)/gim, (line) => {
+		return /(?:消息发送时间|当前时间|\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\d{1,2}:\d{2})/.test(line) ? "" : line
+	})
+	.replace(/^\s*(?:当前时间\s*[:：]\s*)?\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[（(]\s*UTC\s*[+-]\s*\d{2}:?\d{2}\s*[）)])?\s*$/gim, "")
+	// 兼容旧版本留下的带时区时间行，以及半角/全角括号和不规则空格。
+	.replace(/^\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\d{1,2}:\d{2}(?::\d{2})?\s*[（(]\s*UTC\s*[+-]\s*\d{2}:?\d{2}\s*[）)]\s*$/gim, "")
+	// 模型有时会把内部时间提示拆成独立的时区尾巴；仅清理整行时区，避免误伤正文。
+	.replace(/^\s*(?:[【\[（(]\s*)?UTC\s*[+-]\s*\d{2}:?\d{2}\s*(?:[】\]）)])?\s*$/gim, "")
+	// 流式输出可能先清掉完整时间行，再把最后一个括号单独补回来；孤立括号没有正文语义。
+	.replace(/^\s*(?:\(|\)|\[|\]|（|）|【|】)\s*$/gim, "")
+
 const bubbleText = (content: string): string =>
-	content
+	stripInternalPromptMetadata(content)
 		.replace(/\.{2,20}/g, "…")
 		.replace(/…{2,}/g, "…")
 		.replace(/·{2,}/g, "…")
@@ -3896,11 +4008,12 @@ const bubbleText = (content: string): string =>
  */
 const segCache = new Map<string, string[]>()
 const bubbleSegments = (content: string): string[] => {
-	const hit = segCache.get(content)
+	const cleaned = stripInternalPromptMetadata(content)
+	const hit = segCache.get(cleaned)
 	if (hit) return hit
-	const segs = computeBubbleSegments(content)
+	const segs = computeBubbleSegments(cleaned)
 	if (segCache.size > 150) segCache.clear() // 防止极长对话下缓存膨胀 (内容键不可枚举复用)
-	segCache.set(content, segs)
+	segCache.set(cleaned, segs)
 	return segs
 }
 
@@ -4001,6 +4114,9 @@ const refreshMemView = () => {
 	memUnblocked.value = listUnblockedMemories()
 	memPending.value = organizeProgress(messages.value)
 	diagN.value = diagCount()
+	// A3: 注入记录条数 + 记忆健康快照 (健康计数不依赖诊断开关, 所以一直都刷新)
+	injectN.value = injectCount()
+	health.value = memoryHealth()
 }
 
 /* ---------------- 记忆管理 (固定/删除) + 撤销清理 + 目标陪伴 + 导出 (A2/A3/C3/C4) ---------------- */
@@ -4021,6 +4137,46 @@ const deletedMems = ref<MemoryItem[]>(listDeletedMemories())
 
 /** 记忆诊断日志 (P1): 内存里已经攒了多少次整理的证据 (开关关着时恒为 0) */
 const diagN = ref<number>(diagCount())
+
+/* ---------------- A3 (2026-10-08): 注入可见性 + 记忆健康 ---------------- */
+
+/** 已记录多少次**注入**（与整理记录分开记；开关关着时恒为 0） */
+const injectN = ref<number>(injectCount())
+/** 记忆健康快照：生效/已收起/已作废、上次成功整理、本次运行最后一次整理的结果、上轮注入明细 */
+const health = ref<MemoryHealth>(memoryHealth())
+
+/** 时刻→人话 (诊断区共用; 没有记录时给一个明确的占位而不是空白) */
+const fmtWhen = (t: number | null | undefined): string =>
+	t ? new Date(t).toLocaleString() : "—"
+
+/** 「上一轮注入」的一行摘要：来源 + 条数 + 时间 */
+const injectSummary = computed(() => {
+	const r = health.value.lastInject
+	if (!r) return injectN.value ? "（已记录，但最近一次已滚出环形缓冲）" : "还没有注入记录"
+	const src: Record<string, string> = {
+		"keyword": "关键词",
+		"keyword-kw": "关键词·别名兜底",
+		"smart-llm": "AI 语义召回",
+		"smart-fallback": "AI 失败 → 关键词降级",
+		"opening": "开场注入",
+	}
+	return `${src[r.source] ?? r.source} · 注入 ${r.hits.length}/${r.limit} 条 · 库里生效 ${r.considered} 条 · 过门槛 ${r.matched} 条 · ${new Date(r.ts).toLocaleTimeString()}`
+})
+
+/** 导出注入记录 (与整理诊断分开一个文件: mem-inject-*.jsonl) */
+const doExportInject = () => {
+	if (!injectN.value) { triggerBubble("还没有注入记录 —— 先打开上面的开关，再聊一句"); return }
+	const text = buildInjectJsonl({model: cfg.model, app: "NoriDroid"})
+	const d = new Date()
+	const p2 = (n: number) => String(n).padStart(2, "0")
+	const name = `mem-inject-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}.jsonl`
+	try {
+		const ok = writeFile(name, text)
+		triggerBubble(ok ? `已导出 ${name}（${injectN.value} 条）` : "导出失败")
+	} catch {
+		triggerBubble("导出失败")
+	}
+}
 
 /** 收起原因的人话 (只在这一处拼, 免得散落) */
 const fadeReasonLabel = (m: MemoryItem): string => {
@@ -4090,7 +4246,9 @@ const onDiagToggle = () => {
 	setDiagEnabled(!!cfg.memoryDiagnostics)
 	persistSettings()   // 立刻落盘: 否则重启 App 会回到关闭, 悬浮窗也读不到这个开关
 	diagN.value = diagCount()
-	triggerBubble(cfg.memoryDiagnostics ? "开始记录整理过程，导出在同一次里做哦" : "已停止记录（已有的记录还在，可以导出）")
+	injectN.value = injectCount()
+	health.value = memoryHealth()
+	triggerBubble(cfg.memoryDiagnostics ? "开始记录整理与注入过程，导出在同一次里做哦" : "已停止记录（已有的记录还在，可以导出）")
 }
 
 /** 导出: 走与「导出」同一条 writeFile 通道 (落到 Download/NoriDroid/) */
@@ -4109,8 +4267,12 @@ const doExportDiag = () => {
 
 const doClearDiag = () => {
 	clearDiag()
+	// A3: 注入记录也在同一个开关下攒着, 一并清掉 (否则"清空记录"看起来没生效)
+	clearInjects()
 	diagN.value = diagCount()
-	triggerBubble("记录已清空")
+	injectN.value = injectCount()
+	health.value = memoryHealth()
+	triggerBubble("整理与注入记录都已清空")
 }
 
 /** 永久删除 (从回收站抹掉): 这是**唯一不可逆**的操作, 所以要二次确认 */const doDeleteForever = (m: MemoryItem) => {
@@ -6249,7 +6411,14 @@ onMounted(async () => {
 			if (!localStorage.getItem(INTRO_SEEN_KEY) && !introOn.value) introOpen()
 		}, 1600)
 	}
-	messages.value = loadChat()
+	const loadedChat = loadChat()
+	const cleanedChat = loadedChat.map((m) => {
+		if (m.role !== "assistant") return m
+		const content = stripInternalPromptMetadata(m.content)
+		return content === m.content ? m : {...m, content}
+	}).filter((m) => m.role === "system" || m.content.trim() || m.parts?.length)
+	messages.value = cleanedChat
+	if (cleanedChat.length !== loadedChat.length || cleanedChat.some((m, i) => m !== loadedChat[i])) persistChat(cleanedChat)
 	refreshMemView()
 	refreshDiaryView()
 	// 自定义人设的那行状态 (有导入过就显示「自定义 · N 字」, 否则内置)
@@ -7810,6 +7979,23 @@ onBeforeUnmount(async () => {
 /* 记忆诊断 (P1): 与「记忆优化」同一套折叠样式, 单独一个 class 便于区分与 E2E 断言 */
 .mem-diag { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--ui-line-c-soft); }
 .mem-diag-btns { margin-top: 2px; }
+/* A3 (2026-10-08): 记忆健康 + 注入明细 —— 与 .mem-diag 同一套视觉口径 */
+.mem-health { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--ui-line-c-soft); }
+.mem-inject-hits { margin: 4px 0 2px; }
+.mem-inject-hit {
+	display: flex; align-items: baseline; gap: 6px;
+	padding: 2px 0; font-size: 12px; line-height: 1.45;
+}
+.mem-inject-score {
+	flex: none; min-width: 34px; text-align: right;
+	color: var(--accent); font-variant-numeric: tabular-nums;
+}
+.mem-inject-type { flex: none; color: var(--fg-dim); font-size: 11px; }
+.mem-inject-text { flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
+.mem-inject-kw {
+	flex: none; padding: 0 4px; border-radius: 4px; font-size: 10px;
+	color: var(--accent); background: rgba(127, 212, 230, 0.12);
+}
 .mem-tune-detail { line-height: 1.6; }
 .mem-block {
 	margin-top: 6px;
@@ -8051,6 +8237,17 @@ onBeforeUnmount(async () => {
 	&.ok { border-left-color: rgba(127, 212, 230, 0.5); }
 }
 .intro-b { color: var(--fg); font-weight: 600; }
+.intro-api-links {
+	display: flex; flex-wrap: wrap; gap: 8px;
+	margin: 13px 0 2px 14px;
+	.intro-api-link {
+		flex: 1 1 120px; min-width: 0;
+		padding: 8px 12px; border-radius: var(--ui-radius-ctl);
+		font-size: 13px; line-height: 1.15;
+		color: var(--accent); background: rgba(127, 212, 230, 0.08);
+		border: var(--ui-line-w) solid rgba(127, 212, 230, 0.42);
+	}
+}
 /* 2026-10-02 修排版：原来的 .intro-foot 是**单行 flex**（分页条 + 4 个按钮同一行），
    而 .intro-btns .mini 是 white-space: nowrap（**不会缩**）。四个按钮 + 分页条挤一行要 ≈513px，
    而弹窗内容宽只有 325px（496 宽窗口）/ 225px（360 宽窗口）/ 195px（320 宽窗口）
@@ -8415,7 +8612,7 @@ onBeforeUnmount(async () => {
 		overflow-wrap: break-word;
 		line-break: strict;
 	}
-	.portrait-reply-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+	.portrait-reply-text { display: block; max-width: min(80vw, 520px); }
 	.portrait-reply.ai-enter-from, .portrait-reply.ai-leave-to { transform: translateX(-50%) translateY(8px); }
 	.side-rail-mask { position: absolute; inset: 0; z-index: 15; }
 	.side-rail {

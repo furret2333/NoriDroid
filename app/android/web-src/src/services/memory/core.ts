@@ -33,6 +33,18 @@ export interface MemoryItem {
 	/** 被召回次数 (强化) */
 	accessCount: number
 	tags: string[]
+	/**
+	 * **关键词 / 别名** (A1, 2026-10-08)：主人以后可能用来说这件事的**别称或近义说法**，
+	 * 用来给纯词面召回（`tokenize` + bigram 重叠，**没有向量**）补一层近似语义索引。
+	 *
+	 * ⚠⚠ **绝不能塞进 `tags`**：`tags` 里的 `explicit / pinned / goal / identity` 是
+	 * **免死金牌 + 永久豁免判据**（见 `isWorthRemembering` 与 `isProtectedFromOverflow`）——
+	 * 模型吐一个 `goal` 就等于白送一条永久记忆并豁免 300 条上限。
+	 * 所以关键词必须是**独立字段**，与那些判据**零交集**。
+	 *
+	 * 可选字段：老数据没有它 ⇒ 行为与加它之前完全一致（关键词召回一律走原来的词面路径）。
+	 */
+	kw?: string[]
 	/** 衰减半衰期 (天): 超过该时长未被提及时, 新鲜度折半; null = 永不衰减 (显式记住) */
 	decayDays?: number | null
 	/**
@@ -76,6 +88,76 @@ export interface MemoryItem {
  * 两者都**留在文件里**，也都能一键救回 —— 自动路径永不真删（见 index.ts 的 fadeMemory）。
  */
 export const isActiveMemory = (m: MemoryItem): boolean => !m.invalidAt && !m.fadedAt
+
+/* ------------------------------------------------------------------ */
+/* A1 (2026-10-08): 关键词 / 别名 —— 给纯词面召回补一层近似语义索引      */
+/* ------------------------------------------------------------------ */
+
+/** 每条最多几个关键词（提示词里也这么说；模型超发就截断） */
+export const MAX_KW_PER_ITEM = 3
+/**
+ * 单个关键词的最大长度。
+ * 超过它基本已经是"换一整句话的说法"——那不是索引，是第二份内容（会稀释 bigram 重叠率）。
+ */
+const MAX_KW_CHARS = 12
+
+/**
+ * 关键词里必须剔掉的高频泛词：它们的字面重叠**不代表这件事相关**。
+ *
+ * 为什么必须剔：关键词是一层"弱索引"，一旦让「东西 / 事情 / 那个 / 最近」这类词进去，
+ * 任何一句话都会与任何一条记忆重叠 ⇒ 兜底召回被泛词污染，真相关的反而被挤掉。
+ * 这份清单只挡**整词**相等的情况（`喜欢下雨天` 不会被 `喜欢` 挡住）。
+ */
+const KW_STOPWORDS = new Set([
+	"东西", "事情", "时候", "地方", "那个", "这个", "什么", "怎么", "怎样", "这样", "那样", "这些", "那些",
+	"最近", "现在", "目前", "一下", "一些", "一点", "有点", "非常", "特别", "一直", "已经", "可以", "可能",
+	"喜欢", "不喜欢", "想要", "觉得", "知道", "记得", "关于", "就是", "还是", "因为", "所以", "而且", "但是",
+	"如果", "或者", "然后", "其实", "应该", "真的", "的确", "比较", "不是", "没有", "以及", "等等",
+])
+
+// 关键词两端可能粘上的装饰: 引号 / 书名号 / 括号 / 顿号逗号句号
+const KW_TRIM_RE = /^[\s"'“”‘’《》〈〉【】\[\]（）()、,，。.；;：:!！?？~～·\-—_]+|[\s"'“”‘’《》〈〉【】\[\]（）()、,，。.；;：:!！?？~～·\-—_]+$/g
+
+/**
+ * **宽容解析**关键词（A1 的红线③）。
+ *
+ * 记忆块的**唯一主通道**就是整理那一次调用的 JSON：格式一旦变复杂，解析失败率就上升，
+ * 而失败**丢的是那一整批条目**（摘要还在，叙事不丢）。所以这里的原则是
+ * **只做加法、永不因为 kw 而丢条目**：
+ * - 类型不认识 / 结构不认识 → 返回 `[]`，条目照收（`kw` 只是可选字段）；
+ * - 字符串按 `,，、/;；|` 与空白拆开，数组逐项处理，非字符串项直接跳过；
+ * - 过长 / 过短 / 泛词 / 与内容重复 / 彼此重复 → 丢掉**那一个词**，不影响其余；
+ * - 最多留 `MAX_KW_PER_ITEM` 个。
+ *
+ * @param raw 模型给的原值（string / string[] / 任何脏结构）
+ * @param content 这条记忆的正文：与正文完全相同的"别名"没有任何索引价值，直接丢
+ */
+export const sanitizeKeywords = (raw: unknown, content = ""): string[] => {
+	const bucket: unknown[] = Array.isArray(raw) ? raw : [raw]
+	const out: string[] = []
+	const seen = new Set<string>()
+	const body = normalizeForCompare(content)
+	for (const one of bucket) {
+		if (out.length >= MAX_KW_PER_ITEM) break
+		if (typeof one !== "string" && typeof one !== "number") continue
+		// 一个字符串里可能塞了多个 ("那部电影, 科幻片")
+		for (const piece of String(one).split(/[,，、/;；|]+|\s+/)) {
+			if (out.length >= MAX_KW_PER_ITEM) break
+			const k = piece.replace(KW_TRIM_RE, "").trim()
+			if (k.length < 2 || k.length > MAX_KW_CHARS) continue
+			if (KW_STOPWORDS.has(k)) continue
+			const norm = normalizeForCompare(k)
+			if (!norm || norm === body || seen.has(norm)) continue
+			seen.add(norm)
+			out.push(k)
+		}
+	}
+	return out
+}
+
+/** 两个关键词列表的并集 (合并/去重/落盘合并都必须带上 kw, 否则改一次口就把它丢了) */
+const unionKeywords = (a?: readonly string[], b?: readonly string[]): string[] =>
+	sanitizeKeywords([...(a ?? []), ...(b ?? [])])
 
 export interface MemorySummary {
 	id: string
@@ -507,12 +589,17 @@ export const mergeMemories = (
 		const mergedImportance = Math.max(prev.importance, item.importance)
 		const mergedConfidence = Math.max(prev.confidence, item.confidence)
 		const mergedTags = [...new Set([...(prev.tags ?? []), ...(item.tags ?? [])])]
+		// A1: 关键词**取并集**: 改口/升级时如果只保留一边, 另一边的别名索引就没了
+		const mergedKw = unionKeywords(prev.kw, item.kw)
+		const prevKw = prev.kw ?? []
+		const kwChanged = mergedKw.length !== prevKw.length || mergedKw.some(k => !prevKw.includes(k))
 		// 完全相同 (重复说过的话) → 既不改写也不算新增: 否则 applyLlmMemoryDecision 会把
 		// 零变化计成 updated, "记住了"气泡在重复发言时反复弹 (冒烟测试第 4 条)
 		const noChange = prev.content === mergedContent &&
 			prev.importance === mergedImportance &&
 			prev.confidence === mergedConfidence &&
 			prev.decayDays === decayDays &&
+			!kwChanged &&
 			mergedTags.length === (prev.tags ?? []).length &&
 			mergedTags.every(t => (prev.tags ?? []).includes(t))
 		if (noChange) continue
@@ -523,6 +610,7 @@ export const mergeMemories = (
 			confidence: mergedConfidence,
 			updatedAt: now,
 			tags: mergedTags,
+			kw: mergedKw.length ? mergedKw : undefined,
 			decayDays,
 		})
 	}
@@ -709,6 +797,7 @@ export const parseLlmMemories = (raw: string): MemoryItem[] => {
 		const content = String(record.content ?? record.text ?? "").trim().slice(0, MAX_MEMORY_LEN)
 		if (!content) continue
 		const type = (TYPES as string[]).includes(String(record.type ?? "")) ? String(record.type) as MemoryType : "fact"
+		const kw = sanitizeKeywords(record.kw ?? record.keywords ?? record.alias ?? record.aliases, content)
 		items.push({
 			id: uid(),
 			content,
@@ -720,6 +809,7 @@ export const parseLlmMemories = (raw: string): MemoryItem[] => {
 			lastAccessedAt: 0,
 			accessCount: 0,
 			tags: ["llm"],
+			...(kw.length ? {kw} : {}),
 			decayDays: defaultDecayDays(type),
 		})
 	}
@@ -983,30 +1073,192 @@ export const scoreMemory = (queryTokens: string[], item: MemoryItem, now: number
  * 一条 importance 0.9、当天创建的记忆语义为 0 时分数仍有 ~1.0, 远超 0.35,
  * 于是对**任何**提问都会被召回注入, 既挤占 topK 又白涨 accessCount。
  * 静态分只负责在相关记忆之间排序 (见 scoreMemory)。
+ *
+ * @param topK 最多取几条
+ * @param diversify A2: 是否在**注入侧**套多样性配额 (见 diversifyHits)。
+ *   **默认 false** —— 写入侧 (applyLlmMemoryDecision) 拿它挑判重候选, 必须保持"纯按分取前 N";
+ *   配额是给"注入上下文"用的: 写入侧被配额砍掉候选会削弱判重。只有读侧传 true。
  */
 export const recallMemories = (
 	items: MemoryItem[],
 	query: string,
 	topK = 8,
-): {hits: MemoryItem[]; updated: MemoryItem[]} => {
+	diversify = false,
+): {hits: MemoryItem[]; updated: MemoryItem[]; ranked: {item: MemoryItem; score: number}[]; matched: number} => {
 	const now = Date.now()
 	const tokens = tokenize(query)
-	if (!tokens.length) return {hits: [], updated: []}
+	if (!tokens.length) return {hits: [], updated: [], ranked: [], matched: 0}
 	const scored = items
 		.filter(item => isActiveMemory(item))              // ← 作废的 (被改口/纠正取代) 一律不参与召回
-		.filter(item => overlapCount(tokens, item) > 0)   // ← 相关性门槛 (必要条件)
+		.filter(item => overlapCount(tokens, item) > 0)   // ← 相关性门槛 (必要条件, 只看正文)
 		.map(item => ({item, score: scoreMemory(tokens, item, now)}))
 		.sort((a, b) => b.score - a.score)
 	// 相关记忆里再按得分过滤, 排除"只有一个极常见 bigram 重叠"的弱噪音
-	const hits = scored.filter(s => s.score > 0.35).slice(0, topK).map(s => s.item)
-	if (!hits.length) return {hits: [], updated: []}
+	const passed = scored.filter(s => s.score > 0.35)
+	// A2: 注入侧才套多样性配额; 非注入侧与加它之前**逐字节一致** (diversify=false)
+	const ranked = diversify ? diversifyHits(passed, topK) : passed.slice(0, topK)
+	const hits = ranked.map(s => s.item)
+	if (!hits.length) return {hits: [], updated: [], ranked: [], matched: passed.length}
 	const hitIds = new Set(hits.map(h => h.id))
 	const updated = items.map(item =>
 		hitIds.has(item.id)
 			? {...item, lastAccessedAt: now, accessCount: item.accessCount + 1}
 			: item
 	)
-	return {hits, updated}
+	return {hits, updated, ranked, matched: passed.length}
+}
+
+/* ------------------------------------------------------------------ */
+/* A1 (2026-10-08): 关键词/别名的**弱**召回 —— 只在词面召回为空时兜底   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 查询与这条记忆**关键词字段**的重叠词元数 (与 overlapCount 同一把尺子, 只换索引字段)。
+ * 关键词没配的条目返回 0 ⇒ 它们只能靠正文命中 (即加 A1 之前的老行为)。
+ */
+export const kwOverlapCount = (queryTokens: string[], item: MemoryItem): number => {
+	const kw = item.kw
+	if (!kw || !kw.length) return 0
+	const kwTokens = tokenize(kw.join(" "))
+	if (!kwTokens.length) return 0
+	return queryTokens.filter(t => kwTokens.includes(t)).length
+}
+
+/**
+ * A1 的**弱加权**系数: 关键词是"近似"索引 (模型写的别名可能不准),
+ * 所以语义项只给正文路径的一半权重。红线②：它**不参与** 0.35 那道主门槛。
+ */
+const KW_SIM_WEIGHT = 0.5
+/**
+ * 关键词兜底的得分门槛。刻意比主路径的 0.35 **高**：兜底意味着正文一个字都没命中，
+ * 这时如果门槛太松，蹭到一个泛词 (「最近」「那个」) 的记忆就会进来 —— 宁可少给。
+ */
+export const KW_FALLBACK_MIN_SCORE = 0.8
+/** 关键词兜底最多补几条：与 recallForQuerySmart 里"字面强命中 ≤2 条"同一思路 —— 只补漏，不铺开 */
+export const KW_FALLBACK_LIMIT = 2
+
+/** 只按关键词字段打分的版本 (其余静态项与 scoreMemory 完全一致) */
+const scoreMemoryByKeywords = (queryTokens: string[], item: MemoryItem, now: number): number => {
+	if (!queryTokens.length) return 0
+	const overlap = kwOverlapCount(queryTokens, item)
+	if (!overlap) return 0
+	const semantic = overlap / Math.sqrt(Math.max(queryTokens.length, 1))
+	const base = (
+		semantic * 2.0 * KW_SIM_WEIGHT +
+		item.importance * 0.6 +
+		item.confidence * 0.2 +
+		recencyScore(item, now) * 0.3 +
+		Math.min(item.accessCount, 10) / 10 * 0.1
+	)
+	return base * decayFactor(item, now)
+}
+
+/**
+ * **A1 兜底召回**：正文词面一个字都没命中时，改用关键词字段找。
+ *
+ * 只由读侧在 `recallMemories(...).hits` **为空**时调用（见 index.ts 的 recallForQuery）：
+ * - 只加不抢 —— 主路径有命中时它根本不跑，泛词不可能挤掉真相关的；
+ * - 门槛更高 (KW_FALLBACK_MIN_SCORE)、条数更少 (KW_FALLBACK_LIMIT)；
+ * - 命中即算"被用到"：这些条目**真的进了上下文**，所以照常 +1
+ *   （与"取数与渲染数必须一致"同一条纪律：没进上下文的绝不许涨 accessCount）。
+ */
+export const recallMemoriesByKeywords = (
+	items: MemoryItem[],
+	query: string,
+	topK = KW_FALLBACK_LIMIT,
+): {hits: MemoryItem[]; updated: MemoryItem[]; ranked: {item: MemoryItem; score: number}[]; matched: number} => {
+	const now = Date.now()
+	const tokens = tokenize(query)
+	if (!tokens.length) return {hits: [], updated: [], ranked: [], matched: 0}
+	const ranked = items
+		.filter(item => isActiveMemory(item))
+		.map(item => ({item, score: scoreMemoryByKeywords(tokens, item, now)}))
+		.filter(s => s.score > KW_FALLBACK_MIN_SCORE)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, topK)
+	const hits = ranked.map(s => s.item)
+	if (!hits.length) return {hits: [], updated: [], ranked: [], matched: 0}
+	const hitIds = new Set(hits.map(h => h.id))
+	const updated = items.map(item =>
+		hitIds.has(item.id)
+			? {...item, lastAccessedAt: now, accessCount: item.accessCount + 1}
+			: item
+	)
+	return {hits, updated, ranked, matched: ranked.length}
+}
+
+/* ------------------------------------------------------------------ */
+/* A2 (2026-10-08): 注入侧的多样性 / 配额                                */
+/* ------------------------------------------------------------------ */
+
+/** 同一 type 在**注入**里最多占几个名额 (只用读侧) */
+export const RECALL_MAX_PER_TYPE = 2
+
+/**
+ * "身份/核心"判据 —— 用来保证 6 条里**至少有一条**开场就该知道的东西。
+ *
+ * 刻意**只认** `type === "core"` 与 `tags` 里的 `identity / explicit`：
+ * - 不含 `goal / pinned`：那两个是"主人要保留"，不等于"随时该知道"（计划类记忆挤掉身份信息更糟）；
+ * - 不含 `importance >= 0.8`：重要度是模型给的，实测很不稳 (见 isWorthRemembering 注释)，
+ *   用它当"身份"会把一堆高分噪音抓进来。
+ */
+export const isIdentityMemory = (m: MemoryItem): boolean =>
+	m.type === "core" || (m.tags ?? []).some(t => t === "identity" || t === "explicit")
+
+/**
+ * **注入侧的多样性配额** (A2)。
+ *
+ * 病根：`recallMemories` 是纯按分数取前 K，**无去重/无多样性 (无 MMR)** ——
+ * 同一个主题的一串记忆可以占满全部 6 个名额，而"我是谁 / 我叫什么"这种最该在场的信息
+ * 因为分数略低被整体挤出。
+ *
+ * 两条规则：
+ * 1. **同一 `type` 最多 `RECALL_MAX_PER_TYPE` 条**；名额没填满时再按分数把剩下的补上 ——
+ *    库里只有两种类型时，"留空"不会带来任何多样性，只会少给记忆，所以补满；
+ * 2. **6 条里至少保 1 条 identity/core**（存在这类候选时）：没保上就把它换进来，
+ *    腾名额优先踢"分数最低且不是身份"的那条。
+ *
+ * 分数顺序内的相对次序保持不变；不触发任何一条规则时，输出与 `slice(0, limit)` **完全相同**。
+ * 末尾再做一次**稳定**的分数降序排序：第 2 轮补进来的条目分数可能高于第 1 轮末尾那条，
+ * 不排的话注入顺序会乱 (排序不影响"集合", 只保证渲染顺序与纯 slice 同一口径)。
+ */
+export const diversifyHits = (
+	scored: {item: MemoryItem; score: number}[],
+	limit: number,
+): {item: MemoryItem; score: number}[] => {
+	if (limit <= 0 || !scored.length) return []
+	const picked: {item: MemoryItem; score: number}[] = []
+	const perType = new Map<string, number>()
+	// 第 1 轮: 按分数走, 尊重同类型上限
+	for (const s of scored) {
+		if (picked.length >= limit) break
+		const n = perType.get(s.item.type) ?? 0
+		if (n >= RECALL_MAX_PER_TYPE) continue
+		perType.set(s.item.type, n + 1)
+		picked.push(s)
+	}
+	// 第 2 轮: 名额没填满 → 用剩下的按分数补 (多样性已经拿不到了, 就别再少给)
+	if (picked.length < limit) {
+		const inPicked = new Set(picked.map(p => p.item.id))
+		for (const s of scored) {
+			if (picked.length >= limit) break
+			if (inPicked.has(s.item.id)) continue
+			inPicked.add(s.item.id)
+			picked.push(s)
+		}
+	}
+	// 保留名额: 至少 1 条 identity/core
+	if (picked.length && !picked.some(p => isIdentityMemory(p.item))) {
+		const bestIdx = scored.findIndex(s => isIdentityMemory(s.item))
+		if (bestIdx >= 0) {
+			let victim = -1
+			for (let i = picked.length - 1; i >= 0; i -= 1) {
+				if (!isIdentityMemory(picked[i].item)) { victim = i; break }
+			}
+			if (victim >= 0) picked[victim] = scored[bestIdx]
+		}
+	}
+	return picked.sort((a, b) => b.score - a.score)
 }
 
 /**
@@ -1074,7 +1326,7 @@ export const buildSummaryPrompt = (
 		"讨论过的重要主题和结论；承诺过的事情。不要添加原文没有的信息，不要写成对话形式。",
 		timeRule,
 		`【第二部分: 记忆块】另起一行写一行 ${MEM_SENTINEL}，紧接着输出一个 JSON 对象：`,
-		'{"topic":"<8 字以内的主题>","items":[{"content":"<第一人称短句, 20 字以内>","type":"fact|preference|project|event|relationship|core","importance":0~1}]}',
+		'{"topic":"<8 字以内的主题>","items":[{"content":"<第一人称短句, 20 字以内>","type":"fact|preference|project|event|relationship|core","importance":0~1,"kw":["<别称或近义说法, 1~3 个>"]}]}',
 		"记忆块的规则：",
 		"1. 先判断「值不值得长期记住」，标准只有一个：**三个月后它还成立、并且以后主人提到相关的事时我还需要它吗？**",
 		"两问都是「是」才写；只是「现在正在发生」的事，一律不写。",
@@ -1097,6 +1349,10 @@ export const buildSummaryPrompt = (
 		"这才是最新的事实，旧说法会被自动作废留档，不要因为「已经记过」就不写；",
 		"9. 内容写成自然的第一人称短句，**不要加括号注释、引号或书名号**，每条 20 字以内。",
 		'10. 最多 6 条；**宁可 0 条**（输出 {"topic":"","items":[]}），也不要写不值得记的。',
+		"11. 每条再给 1~3 个 **kw**：主人**以后可能用来说这件事的别称或近义说法** —— 例如「我最喜欢的电影是星际穿越」",
+		'→ ["那部电影","科幻片"]、「我在准备考研」→ ["考研","那场考试"]。它是给检索用的索引，所以只写**换个说法时会出现**的词，',
+		"每条 2~6 个字；**不要**写泛词（东西/事情/那个/最近/喜欢/什么）、**不要**把本条内容原样抄一遍、不要凑数；",
+		"给不出合适的就**直接省掉 kw 这个字段**（少写一个字段完全不影响这条记忆）。",
 		"不要输出 JSON 以外的解释文字。",
 	]
 	// 示例集 (整理优化): 从主人自己保留/删掉的记忆里学口味。**只作风格示例**, 不是对话内容。
@@ -1140,7 +1396,7 @@ export interface BlockOutput {
 	/** 模型给的短主题; 空串 = 没给/没解析出来 */
 	topic: string
 	/** 解析出的条目 (已做类型/长度/重要性防御) */
-	items: {content: string; type: MemoryType; importance: number}[]
+	items: {content: string; type: MemoryType; importance: number; kw?: string[]}[]
 }
 
 /** 从文本里抠出第一个**配对完整**的 JSON 对象 (模型可能加 ```json 围栏或前后废话) */
@@ -1206,10 +1462,13 @@ export const parseBlockOutput = (raw: string): BlockOutput => {
 		if (!key || seen.has(key)) continue
 		seen.add(key)
 		const t = String(rec.type ?? "").trim()
+		// A1: 关键词/别名 —— **只做加法**: 解析不出来就是没有, 绝不因为它丢掉这条条目
+		const kw = sanitizeKeywords(rec.kw ?? rec.keywords ?? rec.alias ?? rec.aliases, content)
 		items.push({
 			content,
 			type: (MEMORY_TYPES as readonly string[]).includes(t) ? (t as MemoryType) : "fact",
 			importance: clamp01(Number(rec.importance)),
+			...(kw.length ? {kw} : {}),
 		})
 	}
 	return {summaryText: head || text, topic, items}
@@ -1227,11 +1486,14 @@ export const makeMemoryItem = (input: {
 	importance?: number
 	confidence?: number
 	tags?: string[]
+	/** A1: 关键词/别名 (宽容解析; 解析不出就等于没有这个字段) */
+	kw?: unknown
 }): MemoryItem => {
 	const content = String(input.content ?? "").trim().slice(0, MAX_MEMORY_LEN)
 	const type: MemoryType = input.type && (MEMORY_TYPES as readonly string[]).includes(input.type)
 		? input.type
 		: "fact"
+	const kw = sanitizeKeywords(input.kw, content)
 	const now = Date.now()
 	return {
 		id: uid(),
@@ -1244,6 +1506,7 @@ export const makeMemoryItem = (input: {
 		lastAccessedAt: 0,
 		accessCount: 0,
 		tags: input.tags ?? [],
+		...(kw.length ? {kw} : {}),
 		decayDays: defaultDecayDays(type),
 	}
 }
@@ -1649,6 +1912,8 @@ export const collapseDuplicateMemories = (
 		// 否则「记住我喜欢下雨天」的永久性会被旧的可衰减条目吃掉。
 		// 保留 kept[hit].id (库里仍是同一条, 不产生 churn)。
 		const a = kept[hit]
+		// A1: 存量收敛同样是"两条并一条", 关键词取并集
+		const mergedKw = unionKeywords(a.kw, it.kw)
 		const merged: MemoryItem = {
 			...a,
 			content: it.content.length > a.content.length ? it.content : a.content,
@@ -1656,6 +1921,7 @@ export const collapseDuplicateMemories = (
 			confidence: Math.max(a.confidence, it.confidence),
 			decayDays: a.decayDays === null || it.decayDays === null ? null : a.decayDays,
 			tags: [...new Set([...(a.tags ?? []), ...(it.tags ?? [])])],
+			kw: mergedKw.length ? mergedKw : undefined,
 			updatedAt: Date.now(),
 		}
 		kept[hit] = merged
@@ -1688,7 +1954,14 @@ export const mergeStores = (a: MemoryStoreData, b: MemoryStoreData): MemoryStore
 	for (const it of [...a.memories, ...b.memories]) {
 		if (tombs.has(it.id)) continue
 		const old = mem.get(it.id)
-		mem.set(it.id, old ? newerMemory(old, it) : it)
+		if (!old) { mem.set(it.id, it); continue }
+		const pick = newerMemory(old, it)
+		// A1: 关键词是**弱索引**, 双实例各自写了一份时取并集。
+		// 只按 newerMemory 取较新的一份会把另一边的别名整个丢掉 —— 而"她换了个说法就想不起来"
+		// 恰恰是最需要别名的时候。仅当并集与胜出方不同才新建对象 (避免每次载入无谓 churn)。
+		const kw = unionKeywords(old.kw, it.kw)
+		const sameKw = (pick.kw ?? []).join("\u0000") === kw.join("\u0000")
+		mem.set(it.id, sameKw ? pick : {...pick, kw: kw.length ? kw : undefined})
 	}
 	const sum = new Map<string, MemorySummary>()
 	for (const s of [...a.summaries, ...b.summaries]) {

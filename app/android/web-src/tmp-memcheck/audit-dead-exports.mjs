@@ -22,8 +22,13 @@
  */
 import {readdirSync, readFileSync, statSync} from "node:fs"
 import {join, relative} from "node:path"
+import {fileURLToPath} from "node:url"
 
-const root = process.cwd()
+/* ⚠ 路径必须**按脚本自身位置**解析，不能用 `process.cwd()`。
+   曾经用的是 cwd：手工在 `web-src` 下跑没问题，但 2026-10-08 把它挂进 `run-all-gates` 后
+   整套件是以 `tmp-memcheck` 为工作目录启动的 ⇒ 它去找 `tmp-memcheck/src` 直接 ENOENT 崩掉
+   （门禁里红、单独跑绿，正是最难查的那种差异）。 */
+const root = join(fileURLToPath(new URL(".", import.meta.url)), "..")
 const SRC = join(root, "src")
 const TESTS = join(root, "tmp-memcheck")
 

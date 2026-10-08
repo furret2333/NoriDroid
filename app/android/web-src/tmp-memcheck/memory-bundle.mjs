@@ -72,10 +72,112 @@ var buildDiagJsonl = (meta = {}) => {
   };
   return [JSON.stringify(head), ...ring.map((r) => JSON.stringify(r))].join("\n") + "\n";
 };
+var MAX_INJECT_RECORDS = 60;
+var injectRing = [];
+var injectCount = () => injectRing.length;
+var clearInjects = () => {
+  injectRing.length = 0;
+};
+var recordInject = (rec) => {
+  if (!enabled) return;
+  injectRing.push({ ts: Date.now(), ...rec });
+  if (injectRing.length > MAX_INJECT_RECORDS) injectRing.splice(0, injectRing.length - MAX_INJECT_RECORDS);
+};
+var lastInjectRecord = () => injectRing.length ? { ...injectRing[injectRing.length - 1], hits: injectRing[injectRing.length - 1].hits.map((h) => ({ ...h })) } : null;
+var buildInjectJsonl = (meta = {}) => {
+  const head = {
+    kind: "inject-header",
+    at: (/* @__PURE__ */ new Date()).toISOString(),
+    app: meta.app ?? "NoriDroid",
+    model: meta.model ?? "",
+    records: injectRing.length,
+    cap: MAX_INJECT_RECORDS,
+    ...meta.extra ?? {}
+  };
+  return [JSON.stringify(head), ...injectRing.map((r) => JSON.stringify(r))].join("\n") + "\n";
+};
 
 // ../src/services/memory/core.ts
 var MEMORY_TYPES = ["fact", "preference", "project", "event", "relationship", "core"];
 var isActiveMemory = (m) => !m.invalidAt && !m.fadedAt;
+var MAX_KW_PER_ITEM = 3;
+var MAX_KW_CHARS = 12;
+var KW_STOPWORDS = /* @__PURE__ */ new Set([
+  "\u4E1C\u897F",
+  "\u4E8B\u60C5",
+  "\u65F6\u5019",
+  "\u5730\u65B9",
+  "\u90A3\u4E2A",
+  "\u8FD9\u4E2A",
+  "\u4EC0\u4E48",
+  "\u600E\u4E48",
+  "\u600E\u6837",
+  "\u8FD9\u6837",
+  "\u90A3\u6837",
+  "\u8FD9\u4E9B",
+  "\u90A3\u4E9B",
+  "\u6700\u8FD1",
+  "\u73B0\u5728",
+  "\u76EE\u524D",
+  "\u4E00\u4E0B",
+  "\u4E00\u4E9B",
+  "\u4E00\u70B9",
+  "\u6709\u70B9",
+  "\u975E\u5E38",
+  "\u7279\u522B",
+  "\u4E00\u76F4",
+  "\u5DF2\u7ECF",
+  "\u53EF\u4EE5",
+  "\u53EF\u80FD",
+  "\u559C\u6B22",
+  "\u4E0D\u559C\u6B22",
+  "\u60F3\u8981",
+  "\u89C9\u5F97",
+  "\u77E5\u9053",
+  "\u8BB0\u5F97",
+  "\u5173\u4E8E",
+  "\u5C31\u662F",
+  "\u8FD8\u662F",
+  "\u56E0\u4E3A",
+  "\u6240\u4EE5",
+  "\u800C\u4E14",
+  "\u4F46\u662F",
+  "\u5982\u679C",
+  "\u6216\u8005",
+  "\u7136\u540E",
+  "\u5176\u5B9E",
+  "\u5E94\u8BE5",
+  "\u771F\u7684",
+  "\u7684\u786E",
+  "\u6BD4\u8F83",
+  "\u4E0D\u662F",
+  "\u6CA1\u6709",
+  "\u4EE5\u53CA",
+  "\u7B49\u7B49"
+]);
+var KW_TRIM_RE = /^[\s"'“”‘’《》〈〉【】\[\]（）()、,，。.；;：:!！?？~～·\-—_]+|[\s"'“”‘’《》〈〉【】\[\]（）()、,，。.；;：:!！?？~～·\-—_]+$/g;
+var sanitizeKeywords = (raw, content = "") => {
+  const bucket = Array.isArray(raw) ? raw : [raw];
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const body = normalizeForCompare(content);
+  for (const one of bucket) {
+    if (out.length >= MAX_KW_PER_ITEM) break;
+    if (typeof one !== "string" && typeof one !== "number") continue;
+    for (const piece of String(one).split(/[,，、/;；|]+|\s+/)) {
+      if (out.length >= MAX_KW_PER_ITEM) break;
+      const k = piece.replace(KW_TRIM_RE, "").trim();
+      if (k.length < 2 || k.length > MAX_KW_CHARS) continue;
+      if (KW_STOPWORDS.has(k)) continue;
+      const norm = normalizeForCompare(k);
+      if (!norm || norm === body || seen.has(norm)) continue;
+      seen.add(norm);
+      out.push(k);
+    }
+  }
+  return out;
+};
+var unionKeywords = (a, b) => sanitizeKeywords([...a ?? [], ...b ?? []]);
 var MEMORY_SCHEMA_VERSION = 2;
 var MIN_IMPORTANCE_PASS = 0.5;
 var MIN_IMPORTANCE_SOFT = 0.35;
@@ -265,7 +367,10 @@ var mergeMemories = (newItems, existing) => {
     const mergedImportance = Math.max(prev.importance, item.importance);
     const mergedConfidence = Math.max(prev.confidence, item.confidence);
     const mergedTags = [.../* @__PURE__ */ new Set([...prev.tags ?? [], ...item.tags ?? []])];
-    const noChange = prev.content === mergedContent && prev.importance === mergedImportance && prev.confidence === mergedConfidence && prev.decayDays === decayDays && mergedTags.length === (prev.tags ?? []).length && mergedTags.every((t) => (prev.tags ?? []).includes(t));
+    const mergedKw = unionKeywords(prev.kw, item.kw);
+    const prevKw = prev.kw ?? [];
+    const kwChanged = mergedKw.length !== prevKw.length || mergedKw.some((k) => !prevKw.includes(k));
+    const noChange = prev.content === mergedContent && prev.importance === mergedImportance && prev.confidence === mergedConfidence && prev.decayDays === decayDays && !kwChanged && mergedTags.length === (prev.tags ?? []).length && mergedTags.every((t) => (prev.tags ?? []).includes(t));
     if (noChange) continue;
     updated.push({
       ...prev,
@@ -274,6 +379,7 @@ var mergeMemories = (newItems, existing) => {
       confidence: mergedConfidence,
       updatedAt: now,
       tags: mergedTags,
+      kw: mergedKw.length ? mergedKw : void 0,
       decayDays
     });
   }
@@ -404,6 +510,7 @@ var parseLlmMemories = (raw) => {
     const content = String(record.content ?? record.text ?? "").trim().slice(0, MAX_MEMORY_LEN);
     if (!content) continue;
     const type = TYPES.includes(String(record.type ?? "")) ? String(record.type) : "fact";
+    const kw = sanitizeKeywords(record.kw ?? record.keywords ?? record.alias ?? record.aliases, content);
     items.push({
       id: uid(),
       content,
@@ -415,6 +522,7 @@ var parseLlmMemories = (raw) => {
       lastAccessedAt: 0,
       accessCount: 0,
       tags: ["llm"],
+      ...kw.length ? { kw } : {},
       decayDays: defaultDecayDays(type)
     });
   }
@@ -573,18 +681,88 @@ var scoreMemory = (queryTokens, item, now) => {
   const base = semantic * 2 + item.importance * 0.6 + item.confidence * 0.2 + recencyScore(item, now) * 0.3 + Math.min(item.accessCount, 10) / 10 * 0.1;
   return base * decayFactor(item, now);
 };
-var recallMemories = (items, query, topK = 8) => {
+var recallMemories = (items, query, topK = 8, diversify = false) => {
   const now = Date.now();
   const tokens = tokenize(query);
-  if (!tokens.length) return { hits: [], updated: [] };
+  if (!tokens.length) return { hits: [], updated: [], ranked: [], matched: 0 };
   const scored = items.filter((item) => isActiveMemory(item)).filter((item) => overlapCount(tokens, item) > 0).map((item) => ({ item, score: scoreMemory(tokens, item, now) })).sort((a, b) => b.score - a.score);
-  const hits = scored.filter((s) => s.score > 0.35).slice(0, topK).map((s) => s.item);
-  if (!hits.length) return { hits: [], updated: [] };
+  const passed = scored.filter((s) => s.score > 0.35);
+  const ranked = diversify ? diversifyHits(passed, topK) : passed.slice(0, topK);
+  const hits = ranked.map((s) => s.item);
+  if (!hits.length) return { hits: [], updated: [], ranked: [], matched: passed.length };
   const hitIds = new Set(hits.map((h) => h.id));
   const updated = items.map(
     (item) => hitIds.has(item.id) ? { ...item, lastAccessedAt: now, accessCount: item.accessCount + 1 } : item
   );
-  return { hits, updated };
+  return { hits, updated, ranked, matched: passed.length };
+};
+var kwOverlapCount = (queryTokens, item) => {
+  const kw = item.kw;
+  if (!kw || !kw.length) return 0;
+  const kwTokens = tokenize(kw.join(" "));
+  if (!kwTokens.length) return 0;
+  return queryTokens.filter((t) => kwTokens.includes(t)).length;
+};
+var KW_SIM_WEIGHT = 0.5;
+var KW_FALLBACK_MIN_SCORE = 0.8;
+var KW_FALLBACK_LIMIT = 2;
+var scoreMemoryByKeywords = (queryTokens, item, now) => {
+  if (!queryTokens.length) return 0;
+  const overlap = kwOverlapCount(queryTokens, item);
+  if (!overlap) return 0;
+  const semantic = overlap / Math.sqrt(Math.max(queryTokens.length, 1));
+  const base = semantic * 2 * KW_SIM_WEIGHT + item.importance * 0.6 + item.confidence * 0.2 + recencyScore(item, now) * 0.3 + Math.min(item.accessCount, 10) / 10 * 0.1;
+  return base * decayFactor(item, now);
+};
+var recallMemoriesByKeywords = (items, query, topK = KW_FALLBACK_LIMIT) => {
+  const now = Date.now();
+  const tokens = tokenize(query);
+  if (!tokens.length) return { hits: [], updated: [], ranked: [], matched: 0 };
+  const ranked = items.filter((item) => isActiveMemory(item)).map((item) => ({ item, score: scoreMemoryByKeywords(tokens, item, now) })).filter((s) => s.score > KW_FALLBACK_MIN_SCORE).sort((a, b) => b.score - a.score).slice(0, topK);
+  const hits = ranked.map((s) => s.item);
+  if (!hits.length) return { hits: [], updated: [], ranked: [], matched: 0 };
+  const hitIds = new Set(hits.map((h) => h.id));
+  const updated = items.map(
+    (item) => hitIds.has(item.id) ? { ...item, lastAccessedAt: now, accessCount: item.accessCount + 1 } : item
+  );
+  return { hits, updated, ranked, matched: ranked.length };
+};
+var RECALL_MAX_PER_TYPE = 2;
+var isIdentityMemory = (m) => m.type === "core" || (m.tags ?? []).some((t) => t === "identity" || t === "explicit");
+var diversifyHits = (scored, limit) => {
+  if (limit <= 0 || !scored.length) return [];
+  const picked = [];
+  const perType = /* @__PURE__ */ new Map();
+  for (const s of scored) {
+    if (picked.length >= limit) break;
+    const n = perType.get(s.item.type) ?? 0;
+    if (n >= RECALL_MAX_PER_TYPE) continue;
+    perType.set(s.item.type, n + 1);
+    picked.push(s);
+  }
+  if (picked.length < limit) {
+    const inPicked = new Set(picked.map((p) => p.item.id));
+    for (const s of scored) {
+      if (picked.length >= limit) break;
+      if (inPicked.has(s.item.id)) continue;
+      inPicked.add(s.item.id);
+      picked.push(s);
+    }
+  }
+  if (picked.length && !picked.some((p) => isIdentityMemory(p.item))) {
+    const bestIdx = scored.findIndex((s) => isIdentityMemory(s.item));
+    if (bestIdx >= 0) {
+      let victim = -1;
+      for (let i = picked.length - 1; i >= 0; i -= 1) {
+        if (!isIdentityMemory(picked[i].item)) {
+          victim = i;
+          break;
+        }
+      }
+      if (victim >= 0) picked[victim] = scored[bestIdx];
+    }
+  }
+  return picked.sort((a, b) => b.score - a.score);
 };
 var buildMemoryBlock = (hits, limit = 6) => {
   if (!hits.length) return "";
@@ -616,7 +794,7 @@ var buildSummaryPrompt = (messages, withMemoryBlock = true, known = [], examples
     "\u8BA8\u8BBA\u8FC7\u7684\u91CD\u8981\u4E3B\u9898\u548C\u7ED3\u8BBA\uFF1B\u627F\u8BFA\u8FC7\u7684\u4E8B\u60C5\u3002\u4E0D\u8981\u6DFB\u52A0\u539F\u6587\u6CA1\u6709\u7684\u4FE1\u606F\uFF0C\u4E0D\u8981\u5199\u6210\u5BF9\u8BDD\u5F62\u5F0F\u3002",
     timeRule,
     `\u3010\u7B2C\u4E8C\u90E8\u5206: \u8BB0\u5FC6\u5757\u3011\u53E6\u8D77\u4E00\u884C\u5199\u4E00\u884C ${MEM_SENTINEL}\uFF0C\u7D27\u63A5\u7740\u8F93\u51FA\u4E00\u4E2A JSON \u5BF9\u8C61\uFF1A`,
-    '{"topic":"<8 \u5B57\u4EE5\u5185\u7684\u4E3B\u9898>","items":[{"content":"<\u7B2C\u4E00\u4EBA\u79F0\u77ED\u53E5, 20 \u5B57\u4EE5\u5185>","type":"fact|preference|project|event|relationship|core","importance":0~1}]}',
+    '{"topic":"<8 \u5B57\u4EE5\u5185\u7684\u4E3B\u9898>","items":[{"content":"<\u7B2C\u4E00\u4EBA\u79F0\u77ED\u53E5, 20 \u5B57\u4EE5\u5185>","type":"fact|preference|project|event|relationship|core","importance":0~1,"kw":["<\u522B\u79F0\u6216\u8FD1\u4E49\u8BF4\u6CD5, 1~3 \u4E2A>"]}]}',
     "\u8BB0\u5FC6\u5757\u7684\u89C4\u5219\uFF1A",
     "1. \u5148\u5224\u65AD\u300C\u503C\u4E0D\u503C\u5F97\u957F\u671F\u8BB0\u4F4F\u300D\uFF0C\u6807\u51C6\u53EA\u6709\u4E00\u4E2A\uFF1A**\u4E09\u4E2A\u6708\u540E\u5B83\u8FD8\u6210\u7ACB\u3001\u5E76\u4E14\u4EE5\u540E\u4E3B\u4EBA\u63D0\u5230\u76F8\u5173\u7684\u4E8B\u65F6\u6211\u8FD8\u9700\u8981\u5B83\u5417\uFF1F**",
     "\u4E24\u95EE\u90FD\u662F\u300C\u662F\u300D\u624D\u5199\uFF1B\u53EA\u662F\u300C\u73B0\u5728\u6B63\u5728\u53D1\u751F\u300D\u7684\u4E8B\uFF0C\u4E00\u5F8B\u4E0D\u5199\u3002",
@@ -639,6 +817,10 @@ var buildSummaryPrompt = (messages, withMemoryBlock = true, known = [], examples
     "\u8FD9\u624D\u662F\u6700\u65B0\u7684\u4E8B\u5B9E\uFF0C\u65E7\u8BF4\u6CD5\u4F1A\u88AB\u81EA\u52A8\u4F5C\u5E9F\u7559\u6863\uFF0C\u4E0D\u8981\u56E0\u4E3A\u300C\u5DF2\u7ECF\u8BB0\u8FC7\u300D\u5C31\u4E0D\u5199\uFF1B",
     "9. \u5185\u5BB9\u5199\u6210\u81EA\u7136\u7684\u7B2C\u4E00\u4EBA\u79F0\u77ED\u53E5\uFF0C**\u4E0D\u8981\u52A0\u62EC\u53F7\u6CE8\u91CA\u3001\u5F15\u53F7\u6216\u4E66\u540D\u53F7**\uFF0C\u6BCF\u6761 20 \u5B57\u4EE5\u5185\u3002",
     '10. \u6700\u591A 6 \u6761\uFF1B**\u5B81\u53EF 0 \u6761**\uFF08\u8F93\u51FA {"topic":"","items":[]}\uFF09\uFF0C\u4E5F\u4E0D\u8981\u5199\u4E0D\u503C\u5F97\u8BB0\u7684\u3002',
+    "11. \u6BCF\u6761\u518D\u7ED9 1~3 \u4E2A **kw**\uFF1A\u4E3B\u4EBA**\u4EE5\u540E\u53EF\u80FD\u7528\u6765\u8BF4\u8FD9\u4EF6\u4E8B\u7684\u522B\u79F0\u6216\u8FD1\u4E49\u8BF4\u6CD5** \u2014\u2014 \u4F8B\u5982\u300C\u6211\u6700\u559C\u6B22\u7684\u7535\u5F71\u662F\u661F\u9645\u7A7F\u8D8A\u300D",
+    '\u2192 ["\u90A3\u90E8\u7535\u5F71","\u79D1\u5E7B\u7247"]\u3001\u300C\u6211\u5728\u51C6\u5907\u8003\u7814\u300D\u2192 ["\u8003\u7814","\u90A3\u573A\u8003\u8BD5"]\u3002\u5B83\u662F\u7ED9\u68C0\u7D22\u7528\u7684\u7D22\u5F15\uFF0C\u6240\u4EE5\u53EA\u5199**\u6362\u4E2A\u8BF4\u6CD5\u65F6\u4F1A\u51FA\u73B0**\u7684\u8BCD\uFF0C',
+    "\u6BCF\u6761 2~6 \u4E2A\u5B57\uFF1B**\u4E0D\u8981**\u5199\u6CDB\u8BCD\uFF08\u4E1C\u897F/\u4E8B\u60C5/\u90A3\u4E2A/\u6700\u8FD1/\u559C\u6B22/\u4EC0\u4E48\uFF09\u3001**\u4E0D\u8981**\u628A\u672C\u6761\u5185\u5BB9\u539F\u6837\u6284\u4E00\u904D\u3001\u4E0D\u8981\u51D1\u6570\uFF1B",
+    "\u7ED9\u4E0D\u51FA\u5408\u9002\u7684\u5C31**\u76F4\u63A5\u7701\u6389 kw \u8FD9\u4E2A\u5B57\u6BB5**\uFF08\u5C11\u5199\u4E00\u4E2A\u5B57\u6BB5\u5B8C\u5168\u4E0D\u5F71\u54CD\u8FD9\u6761\u8BB0\u5FC6\uFF09\u3002",
     "\u4E0D\u8981\u8F93\u51FA JSON \u4EE5\u5916\u7684\u89E3\u91CA\u6587\u5B57\u3002"
   ];
   if (examples && ((examples.pos?.length ?? 0) > 0 || (examples.neg?.length ?? 0) > 0)) {
@@ -721,10 +903,12 @@ var parseBlockOutput = (raw) => {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     const t = String(rec.type ?? "").trim();
+    const kw = sanitizeKeywords(rec.kw ?? rec.keywords ?? rec.alias ?? rec.aliases, content);
     items.push({
       content,
       type: MEMORY_TYPES.includes(t) ? t : "fact",
-      importance: clamp01(Number(rec.importance))
+      importance: clamp01(Number(rec.importance)),
+      ...kw.length ? { kw } : {}
     });
   }
   return { summaryText: head || text, topic, items };
@@ -732,6 +916,7 @@ var parseBlockOutput = (raw) => {
 var makeMemoryItem = (input) => {
   const content = String(input.content ?? "").trim().slice(0, MAX_MEMORY_LEN);
   const type = input.type && MEMORY_TYPES.includes(input.type) ? input.type : "fact";
+  const kw = sanitizeKeywords(input.kw, content);
   const now = Date.now();
   return {
     id: uid(),
@@ -744,6 +929,7 @@ var makeMemoryItem = (input) => {
     lastAccessedAt: 0,
     accessCount: 0,
     tags: input.tags ?? [],
+    ...kw.length ? { kw } : {},
     decayDays: defaultDecayDays(type)
   };
 };
@@ -921,6 +1107,7 @@ var collapseDuplicateMemories = (store, limit = COLLAPSE_MAX_MERGES) => {
     removed += 1;
     gone.push(it);
     const a = kept[hit];
+    const mergedKw = unionKeywords(a.kw, it.kw);
     const merged = {
       ...a,
       content: it.content.length > a.content.length ? it.content : a.content,
@@ -928,6 +1115,7 @@ var collapseDuplicateMemories = (store, limit = COLLAPSE_MAX_MERGES) => {
       confidence: Math.max(a.confidence, it.confidence),
       decayDays: a.decayDays === null || it.decayDays === null ? null : a.decayDays,
       tags: [.../* @__PURE__ */ new Set([...a.tags ?? [], ...it.tags ?? []])],
+      kw: mergedKw.length ? mergedKw : void 0,
       updatedAt: Date.now()
     };
     kept[hit] = merged;
@@ -948,7 +1136,14 @@ var mergeStores = (a, b) => {
   for (const it of [...a.memories, ...b.memories]) {
     if (tombs.has(it.id)) continue;
     const old = mem.get(it.id);
-    mem.set(it.id, old ? newerMemory(old, it) : it);
+    if (!old) {
+      mem.set(it.id, it);
+      continue;
+    }
+    const pick = newerMemory(old, it);
+    const kw = unionKeywords(old.kw, it.kw);
+    const sameKw = (pick.kw ?? []).join("\0") === kw.join("\0");
+    mem.set(it.id, sameKw ? pick : { ...pick, kw: kw.length ? kw : void 0 });
   }
   const sum = /* @__PURE__ */ new Map();
   for (const s of [...a.summaries, ...b.summaries]) {
@@ -1427,6 +1622,47 @@ var flushMemoryPersist = async () => {
     flushPersist();
   }
   await writeQueue;
+};
+var lastOrganize = null;
+var noteOrganize = (ok, note = "") => {
+  lastOrganize = { at: Date.now(), ok, note };
+};
+var memoryHealth = () => {
+  const store = load();
+  const summaries = store.summaries ?? [];
+  let lastSummaryAt = null;
+  for (const s of summaries) if (lastSummaryAt === null || (s.createdAt ?? 0) > lastSummaryAt) lastSummaryAt = s.createdAt ?? 0;
+  return {
+    active: store.memories.filter(isActiveMemory).length,
+    faded: store.memories.filter((m) => !!m.fadedAt && !m.invalidAt).length,
+    invalid: store.memories.filter((m) => !!m.invalidAt).length,
+    total: store.memories.length,
+    summaries: summaries.length,
+    blocks: (store.blocks ?? []).length,
+    deleted: (store.deletedBin ?? []).length,
+    lastSummaryAt,
+    lastOrganize: lastOrganize ? { ...lastOrganize } : null,
+    injects: injectCount(),
+    lastInject: lastInjectRecord()
+  };
+};
+var diagInject = (source, query, limit, ranked, considered, matched, note = "") => {
+  recordInject({
+    source,
+    query: String(query ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+    limit,
+    hits: ranked.map(({ item, score }) => ({
+      id: item.id,
+      c: item.content.slice(0, 60),
+      t: item.type,
+      s: Math.round(score * 1e3) / 1e3,
+      // 别名确实参与了命中 (正文也命中时同样标 true —— 这时候 kw 是"锦上添花")
+      ...item.kw?.length && kwOverlapCount(tokenize(String(query ?? "")), item) > 0 ? { kw: true } : {}
+    })),
+    considered,
+    matched,
+    note
+  });
 };
 var memoryStats = () => {
   const store = load();
@@ -2036,11 +2272,34 @@ var pruneStaleMemories = (staleDays = 30, minImportance = 0.6) => {
 var recallForQuery = (query) => {
   const store = load();
   if (!store.memories.length) return "";
-  const { hits, updated } = recallMemories(store.memories, query, MEMORY_BLOCK_LIMIT);
-  if (!hits.length) return "";
-  store.memories = updated;
+  const primary = recallMemories(store.memories, query, MEMORY_BLOCK_LIMIT, true);
+  const considered = store.memories.filter(isActiveMemory).length;
+  let ranked = primary.ranked;
+  let matched = primary.matched;
+  let source = "keyword";
+  let note = "";
+  if (!primary.hits.length) {
+    const byKw = recallMemoriesByKeywords(store.memories, query, KW_FALLBACK_LIMIT);
+    if (byKw.hits.length) {
+      ranked = byKw.ranked;
+      matched = byKw.matched;
+      source = "keyword-kw";
+    } else {
+      note = considered ? "\u6B63\u6587\u4E0E\u522B\u540D\u90FD\u6CA1\u547D\u4E2D" : "\u5E93\u91CC\u6CA1\u6709\u751F\u6548\u8BB0\u5FC6";
+    }
+  }
+  const picked = ranked.map((r) => r.item);
+  if (!picked.length) {
+    diagInject(source, query, MEMORY_BLOCK_LIMIT, [], considered, matched, note);
+    return "";
+  }
+  const hitIds = new Set(picked.map((p) => p.id));
+  store.memories = store.memories.map(
+    (m) => hitIds.has(m.id) ? { ...m, lastAccessedAt: Date.now(), accessCount: m.accessCount + 1 } : m
+  );
   persist();
-  return buildMemoryBlock(hits, MEMORY_BLOCK_LIMIT);
+  diagInject(source, query, MEMORY_BLOCK_LIMIT, ranked, considered, matched, note);
+  return buildMemoryBlock(picked, MEMORY_BLOCK_LIMIT);
 };
 var recallForQuerySmart = async (query, llmCall, topK = MEMORY_BLOCK_LIMIT) => {
   const store = load();
@@ -2054,7 +2313,7 @@ var recallForQuerySmart = async (query, llmCall, topK = MEMORY_BLOCK_LIMIT) => {
     if (all.length <= 20) {
       pre = all;
     } else {
-      const kw = recallMemories(all, query, 15).hits;
+      const kw = recallMemories(all, query, 15, true).hits;
       const byNew = [...all].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
       const byImp = [...all].sort((a, b) => b.importance - a.importance).slice(0, 6);
       const seen = /* @__PURE__ */ new Set();
@@ -2077,7 +2336,7 @@ var recallForQuerySmart = async (query, llmCall, topK = MEMORY_BLOCK_LIMIT) => {
   } catch {
   }
   if (!llmOk && picked.length < 3) {
-    const kw = recallMemories(all, query, topK).hits;
+    const kw = recallMemories(all, query, topK, true).hits;
     for (const m of kw) {
       if (!picked.some((p) => p.id === m.id)) picked.push(m);
       if (picked.length >= topK) break;
@@ -2089,13 +2348,37 @@ var recallForQuerySmart = async (query, llmCall, topK = MEMORY_BLOCK_LIMIT) => {
       if (!picked.some((p) => p.id === m.id)) picked.push(m);
     }
   }
-  picked = picked.slice(0, Math.min(topK, MEMORY_BLOCK_LIMIT));
-  if (!picked.length) return "";
+  const effectiveLimit = Math.min(topK, MEMORY_BLOCK_LIMIT);
+  picked = picked.slice(0, effectiveLimit);
+  const scoreTokens = tokenize(query);
+  const rankedSmart = picked.map((item) => ({ item, score: scoreMemory(scoreTokens, item, Date.now()) }));
+  const sourceSmart = llmOk ? "smart-llm" : "smart-fallback";
+  if (!picked.length) {
+    diagInject(
+      sourceSmart,
+      query,
+      effectiveLimit,
+      [],
+      all.length,
+      0,
+      llmOk ? "AI \u5224\u5B9A\u6CA1\u6709\u76F8\u5173\u8BB0\u5FC6" : "AI \u53EC\u56DE\u5931\u8D25/\u8D85\u65F6, \u5173\u952E\u8BCD\u4E5F\u65E0\u547D\u4E2D"
+    );
+    return "";
+  }
   const hitIds = new Set(picked.map((p) => p.id));
   store.memories = store.memories.map(
     (m) => hitIds.has(m.id) ? { ...m, lastAccessedAt: Date.now(), accessCount: m.accessCount + 1 } : m
   );
   persist();
+  diagInject(
+    sourceSmart,
+    query,
+    effectiveLimit,
+    rankedSmart,
+    all.length,
+    picked.length,
+    llmOk ? "" : "AI \u53EC\u56DE\u5931\u8D25/\u8D85\u65F6 \u2192 \u5173\u952E\u8BCD\u964D\u7EA7"
+  );
   return buildMemoryBlock(picked, MEMORY_BLOCK_LIMIT);
 };
 var OPENING_LIMIT = 8;
@@ -2103,22 +2386,38 @@ var openingMemoryBlock = (query = "", limit = OPENING_LIMIT) => {
   const store = load();
   if (!store.memories.length) return "";
   const picked = [];
+  const ranked = [];
   const seen = /* @__PURE__ */ new Set();
-  const push = (it) => {
+  const push = (it, score) => {
     if (it && it.content && !seen.has(it.id)) {
       seen.add(it.id);
       picked.push(it);
+      ranked.push({ item: it, score });
     }
   };
   const q = (query ?? "").trim();
-  if (q) for (const it of recallMemories(store.memories, q, limit).hits) push(it);
+  if (q) {
+    const tokens = tokenize(q);
+    const now = Date.now();
+    for (const it of recallMemories(store.memories, q, limit, true).hits) push(it, scoreMemory(tokens, it, now));
+  }
   const byValue = store.memories.filter(isActiveMemory).sort((a, b) => b.importance - a.importance || b.createdAt - a.createdAt);
   for (const it of byValue) {
     if (picked.length >= limit) break;
     const t = it.tags ?? [];
     const identity = t.includes("identity") || t.includes("explicit");
-    if (it.type === "core" || identity || it.importance >= 0.8) push(it);
+    if (it.type === "core" || identity || it.importance >= 0.8) push(it, it.importance);
   }
+  const considered = store.memories.filter(isActiveMemory).length;
+  diagInject(
+    "opening",
+    q,
+    limit,
+    ranked,
+    considered,
+    picked.length,
+    picked.length ? "\u5F00\u573A\u6CE8\u5165: \u53EA\u8BFB\u4E0D\u5F3A\u5316, \u6392\u5E8F\u4F9D\u636E = identity/\u91CD\u8981\u5EA6" : "\u5F00\u573A\u6CA1\u6709\u53EF\u6CE8\u5165\u7684\u8BB0\u5FC6"
+  );
   return buildMemoryBlock(picked, limit);
 };
 var summaryBlock = (timeAware = false) => {
@@ -2267,7 +2566,13 @@ var summarizeIfNeeded = async (messages, summarizeCall, withMemoryBlock = true, 
     withMemoryBlock ? knownMemoryList(store) : [],
     withMemoryBlock ? store.exampleSet : null
   );
-  const content = (await summarizeCall(prompt)).trim();
+  let content = "";
+  try {
+    content = (await summarizeCall(prompt)).trim();
+  } catch (e) {
+    noteOrganize(false, `\u8C03\u7528\u5931\u8D25: ${e instanceof Error ? e.message : String(e)}`.slice(0, 120));
+    throw e;
+  }
   const diagBase = {
     msgs: batch,
     startIndex: start,
@@ -2289,6 +2594,7 @@ var summarizeIfNeeded = async (messages, summarizeCall, withMemoryBlock = true, 
       lib: diagLibSnapshot(store),
       note: "\u6A21\u578B\u8FD4\u56DE\u7A7A"
     });
+    noteOrganize(false, "\u6A21\u578B\u8FD4\u56DE\u7A7A");
     return false;
   }
   const parsedBlock = parseBlockOutput(content);
@@ -2307,7 +2613,7 @@ var summarizeIfNeeded = async (messages, summarizeCall, withMemoryBlock = true, 
         deadLink.push(it.content);
         continue;
       }
-      fresh.push(makeMemoryItem({ content: it.content, type: it.type, importance: it.importance }));
+      fresh.push(makeMemoryItem({ content: it.content, type: it.type, importance: it.importance, kw: it.kw }));
     }
   } else if (!blockItems.length && keyFacts.length) {
     for (const fact of keyFacts) {
@@ -2387,6 +2693,7 @@ ${keyFacts.join("\uFF1B")}`;
     lib: diagLibSnapshot(store),
     note: diagNote
   });
+  noteOrganize(true, diagNote);
   persist();
   return true;
 };
@@ -2684,6 +2991,9 @@ var __getSummaryCursorForTest = () => load().summarizedMsgCount;
 var __setSummaryCursorForTest = (n) => {
   load().summarizedMsgCount = Math.max(0, Math.floor(n) || 0);
 };
+var __resetOrganizeStateForTest = () => {
+  lastOrganize = null;
+};
 var reloadMemory = () => {
   cache = null;
   load();
@@ -2691,8 +3001,10 @@ var reloadMemory = () => {
 export {
   CONTEXT_RAW_MAX,
   MAX_DIAG_RECORDS,
+  MAX_INJECT_RECORDS,
   __getSummaryCursorForTest,
   __isReversalForTest,
+  __resetOrganizeStateForTest,
   __setSummaryCursorForTest,
   addGoal,
   addMemoriesFromText,
@@ -2700,12 +3012,14 @@ export {
   applyLlmMemoryDecision,
   backupMemoryNow,
   buildDiagJsonl,
+  buildInjectJsonl,
   buildLlmAnalyzePrompt,
   buildLlmExtractPrompt,
   buildLlmGoalDonePrompt,
   buildLlmMemoryDecisionPrompt,
   buildLlmRelevancePrompt,
   clearDiag,
+  clearInjects,
   clearMemory,
   clearMemoryExamples,
   contextHistory,
@@ -2720,9 +3034,11 @@ export {
   getMemoryExamples,
   goalCarePrompt,
   hasMemoryBackup,
+  injectCount,
   invalidateMemory,
   isMemoryPinned,
   lastDiagRecord,
+  lastInjectRecord,
   listAll,
   listBlocks,
   listDeletedMemories,
@@ -2730,6 +3046,7 @@ export {
   listGoals,
   listInvalidMemories,
   listUnblockedMemories,
+  memoryHealth,
   memoryStats,
   mergeLlmMemories,
   notifyHistoryTrimmed,
@@ -2749,6 +3066,7 @@ export {
   recallForQuery,
   recallForQuerySmart,
   recentTopicsBlock,
+  recordInject,
   recordOrganize,
   reloadMemory,
   removeGoal,

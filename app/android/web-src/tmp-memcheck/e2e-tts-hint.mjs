@@ -102,9 +102,9 @@ try {
 		const url = `http://127.0.0.1:8123/assets/web/index.html?seed=${Buffer.from(JSON.stringify(seed), "utf8").toString("base64url")}`
 		await send("Page.navigate", {url}, sessionId)
 		await sleep(3500)
-		await evalJs(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "设置")?.click()`)
+		await evalJs(`[...document.querySelectorAll(".fab")].find(b => b.querySelector(".fab-label")?.textContent.trim() === "设置")?.click()`)
 		await sleep(700)
-		await evalJs(`[...document.querySelectorAll("button")].find(b => b.textContent.includes("语音合成（TTS）"))?.click()`)
+		await evalJs(`document.querySelector(".settings-tts-entry button")?.click()`)
 		await sleep(700)
 	}
 

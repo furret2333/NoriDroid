@@ -3,18 +3,35 @@
  */
 import {readFile, writeFile} from "../chat"
 import {messageTimeRange} from "../time"
-import {DIAG_PROMPT_MAX, DIAG_RAW_MAX, recordOrganize} from "./diag"
+import {
+	DIAG_PROMPT_MAX,
+	DIAG_RAW_MAX,
+	injectCount,
+	lastInjectRecord,
+	recordInject,
+	recordOrganize,
+	type MemInjectRecord,
+	type MemInjectSource,
+} from "./diag"
 // 记忆诊断日志 (P1): 供界面读写（开关/条数/清空/导出）
 export {
 	buildDiagJsonl,
+	buildInjectJsonl,
 	clearDiag,
+	clearInjects,
 	diagCount,
 	diagEnabled,
+	injectCount,
 	lastDiagRecord,
+	lastInjectRecord,
 	MAX_DIAG_RECORDS,
+	MAX_INJECT_RECORDS,
+	recordInject,
 	recordOrganize,
 	setDiagEnabled,
 	type MemDiagRecord,
+	type MemInjectRecord,
+	type MemInjectSource,
 } from "./diag"
 import {
 	blockIdFor,
@@ -34,6 +51,8 @@ import {
 	isActiveMemory,
 	isSameContent,
 	isWorthRemembering,
+	KW_FALLBACK_LIMIT,
+	kwOverlapCount,
 	makeMemoryItem,
 	makeSummary,
 	MAX_DELETED_BIN,
@@ -53,6 +72,7 @@ import {
 	pruneMemories,
 	rangeOfSummary,
 	recallMemories,
+	recallMemoriesByKeywords,
 	scoreMemory,
 	shouldSkipLlmExtract,
 	summariesOverlap,
@@ -649,6 +669,105 @@ export const flushMemoryPersist = async (): Promise<void> => {
 		flushPersist()
 	}
 	await writeQueue
+}
+
+/* ------------------------------------------------------------------ */
+/* A3 (2026-10-08): 注入侧可观测 —— 把"静默失效"变成"看得见的失效"      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * **本次运行内**最后一次整理的结果（内存态，重启清空）。
+ *
+ * 为什么要它：整理失败此前**完全静默** —— 用户只会体感到"她怎么没记住"，
+ * 却看不到"那一次调用失败了 / 模型返回空 / JSON 没解析出来"。
+ * 持久化的"上次成功整理时间"另有出处（`memoryHealth().lastSummaryAt` 取自 summaries 的最新
+ * createdAt，重启后仍在），这里只补"最新一次是成是败、为什么"。
+ */
+let lastOrganize: {at: number; ok: boolean; note: string} | null = null
+
+/** 整理结果登记（成功/失败都记；供 memoryHealth 与界面展示） */
+const noteOrganize = (ok: boolean, note = ""): void => { lastOrganize = {at: Date.now(), ok, note} }
+
+export interface MemoryHealth {
+	/** 生效条数（会注入、会召回） */
+	active: number
+	/** 已收起（不计入 60/300，但仍在库里可见、可一键「留下」） */
+	faded: number
+	/** 已作废（被新说法取代，可还原） */
+	invalid: number
+	/** 库里条目总数（含已收起 / 已作废） */
+	total: number
+	summaries: number
+	blocks: number
+	deleted: number
+	/** **持久**的上次成功整理时间（所有摘要里最新的 createdAt；重启后仍在） */
+	lastSummaryAt: number | null
+	/** 本次运行内最后一次整理（含失败原因）；重启后为 null */
+	lastOrganize: {at: number; ok: boolean; note: string} | null
+	/** 已记录多少次注入（诊断开关关着时恒为 0） */
+	injects: number
+	/** 上一轮注入的明细（诊断开关关着时恒为 null） */
+	lastInject: MemInjectRecord | null
+}
+
+/**
+ * 记忆健康快照（A3）：一次拿齐"库有多少 / 有多少不生效 / 上次整理成没成 / 上一轮注入了啥"。
+ *
+ * 计数部分**不依赖诊断开关**（它们只是数组长度，零敏感信息），
+ * 所以"她怎么不记得我了"这类问题至少有半截答案随时可见；
+ * 注入**明细**才需要打开开关（明细里含主人的原话与记忆内容，与整理诊断同一隐私口径）。
+ */
+export const memoryHealth = (): MemoryHealth => {
+	const store = load()
+	const summaries = store.summaries ?? []
+	let lastSummaryAt: number | null = null
+	for (const s of summaries) if (lastSummaryAt === null || (s.createdAt ?? 0) > lastSummaryAt) lastSummaryAt = s.createdAt ?? 0
+	return {
+		active: store.memories.filter(isActiveMemory).length,
+		faded: store.memories.filter(m => !!m.fadedAt && !m.invalidAt).length,
+		invalid: store.memories.filter(m => !!m.invalidAt).length,
+		total: store.memories.length,
+		summaries: summaries.length,
+		blocks: (store.blocks ?? []).length,
+		deleted: (store.deletedBin ?? []).length,
+		lastSummaryAt,
+		lastOrganize: lastOrganize ? {...lastOrganize} : null,
+		injects: injectCount(),
+		lastInject: lastInjectRecord(),
+	}
+}
+
+/**
+ * 记一次注入（A3）。开关关着时 `recordInject` 直接返回，**零开销**。
+ *
+ * `ranked` 必须是**真正渲染进上下文**的那几条（与 `buildMemoryBlock` 同源），
+ * 否则这里的"上轮注入 6 条"又变成一句没法核对的空话（"取数与渲染数一致"那条纪律同样适用）。
+ */
+const diagInject = (
+	source: MemInjectSource,
+	query: string,
+	limit: number,
+	ranked: readonly {item: MemoryItem; score: number}[],
+	considered: number,
+	matched: number,
+	note = "",
+): void => {
+	recordInject({
+		source,
+		query: String(query ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+		limit,
+		hits: ranked.map(({item, score}) => ({
+			id: item.id,
+			c: item.content.slice(0, 60),
+			t: item.type,
+			s: Math.round(score * 1000) / 1000,
+			// 别名确实参与了命中 (正文也命中时同样标 true —— 这时候 kw 是"锦上添花")
+			...(item.kw?.length && kwOverlapCount(tokenize(String(query ?? "")), item) > 0 ? {kw: true} : {}),
+		})),
+		considered,
+		matched,
+		note,
+	})
 }
 
 export const memoryStats = (): {memoryCount: number; summaryCount: number; fadedCount: number; deletedCount: number} => {
@@ -1660,11 +1779,41 @@ export const recallForQuery = (query: string): string => {
 	// 多出来的第 7、8 名从未进过上下文却照样 accessCount+1 —— 而 accessCount 既参与
 	// pruneMemories 的价值评分, 又是 expireMemories 的免死条件 (>=2 则不过期),
 	// 等于给"没被用过的记忆"发免死金牌, 真正被用过的反而更容易被裁掉。
-	const {hits, updated} = recallMemories(store.memories, query, MEMORY_BLOCK_LIMIT)
-	if (!hits.length) return ""
-	store.memories = updated
+	//
+	// A2 (2026-10-08): 第四个参数 = **注入侧**多样性配额 (identity/core 至少 1 条 + 同 type ≤2)。
+	// 只有读侧传 true; 写入侧挑判重候选仍走纯按分取前 N (配额会削弱判重)。
+	const primary = recallMemories(store.memories, query, MEMORY_BLOCK_LIMIT, true)
+	const considered = store.memories.filter(isActiveMemory).length
+	// A1 (2026-10-08) 兜底: **正文词面一条都没命中**时才改用关键词/别名找。
+	// 只加不抢 —— 主路径有命中时它根本不跑, 泛词不可能挤掉真相关的。
+	let ranked = primary.ranked
+	let matched = primary.matched
+	let source: MemInjectSource = "keyword"
+	let note = ""
+	if (!primary.hits.length) {
+		const byKw = recallMemoriesByKeywords(store.memories, query, KW_FALLBACK_LIMIT)
+		if (byKw.hits.length) {
+			ranked = byKw.ranked
+			matched = byKw.matched
+			source = "keyword-kw"
+		} else {
+			note = considered ? "正文与别名都没命中" : "库里没有生效记忆"
+		}
+	}
+	const picked = ranked.map(r => r.item)
+	if (!picked.length) {
+		// A3: **没召回**这件事本身也要留痕 —— 否则"她怎么不记得"永远只能猜
+		diagInject(source, query, MEMORY_BLOCK_LIMIT, [], considered, matched, note)
+		return ""
+	}
+	// 强化只发给**真正进上下文**的那几条 (kw 兜底命中的也算被用到: 它确实被注入并影响了回复)
+	const hitIds = new Set(picked.map(p => p.id))
+	store.memories = store.memories.map(m =>
+		hitIds.has(m.id) ? {...m, lastAccessedAt: Date.now(), accessCount: m.accessCount + 1} : m
+	)
 	persist()
-	return buildMemoryBlock(hits, MEMORY_BLOCK_LIMIT)
+	diagInject(source, query, MEMORY_BLOCK_LIMIT, ranked, considered, matched, note)
+	return buildMemoryBlock(picked, MEMORY_BLOCK_LIMIT)
 }
 
 /**
@@ -1701,7 +1850,7 @@ export const recallForQuerySmart = async (
 		if (all.length <= 20) {
 			pre = all
 		} else {
-			const kw = recallMemories(all, query, 15).hits
+			const kw = recallMemories(all, query, 15, true).hits
 			const byNew = [...all].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6)
 			const byImp = [...all].sort((a, b) => b.importance - a.importance).slice(0, 6)
 			const seen = new Set<string>()
@@ -1725,7 +1874,7 @@ export const recallForQuerySmart = async (
 	//    - LLM 成功但空结果 → 只补"字面强命中"的 ≤2 条 (关键词分很高才算强, 防弱噪音,
 	//      也避免 LLM 误判把铁相关的记忆丢掉)
 	if (!llmOk && picked.length < 3) {
-		const kw = recallMemories(all, query, topK).hits
+		const kw = recallMemories(all, query, topK, true).hits
 		for (const m of kw) {
 			if (!picked.some(p => p.id === m.id)) picked.push(m)
 			if (picked.length >= topK) break
@@ -1746,8 +1895,18 @@ export const recallForQuerySmart = async (
 	}
 	// 统一收敛到"实际会渲染的条数": 调用方若传了比渲染上限更大的 topK,
 	// 多出来的条目会只被强化却进不了上下文 (与 recallForQuery 曾经的 8/6 不一致同源)
-	picked = picked.slice(0, Math.min(topK, MEMORY_BLOCK_LIMIT))
-	if (!picked.length) return ""
+	const effectiveLimit = Math.min(topK, MEMORY_BLOCK_LIMIT)
+	picked = picked.slice(0, effectiveLimit)
+	// A3: 得分的计算必须在**强化之前**做 —— 那才是"被选中时的依据";
+	// 先 +1 再算, 记录里显示的分数与当时的决策就不是一回事了。
+	const scoreTokens = tokenize(query)
+	const rankedSmart = picked.map(item => ({item, score: scoreMemory(scoreTokens, item, Date.now())}))
+	const sourceSmart: MemInjectSource = llmOk ? "smart-llm" : "smart-fallback"
+	if (!picked.length) {
+		diagInject(sourceSmart, query, effectiveLimit, [], all.length, 0,
+			llmOk ? "AI 判定没有相关记忆" : "AI 召回失败/超时, 关键词也无命中")
+		return ""
+	}
 	// 3) 更新强化信息 (lastAccessedAt/accessCount) 并持久化.
 	//    从"当前 store.memories"出发而不是 await 前捕获的 all: LLM 调用期间
 	//    adoptFromDisk 可能已把另一实例的写入合并进来, 按旧 all 全量回写会把它们抹掉
@@ -1756,6 +1915,8 @@ export const recallForQuerySmart = async (
 		hitIds.has(m.id) ? {...m, lastAccessedAt: Date.now(), accessCount: m.accessCount + 1} : m
 	)
 	persist()
+	diagInject(sourceSmart, query, effectiveLimit, rankedSmart, all.length, picked.length,
+		llmOk ? "" : "AI 召回失败/超时 → 关键词降级")
 	return buildMemoryBlock(picked, MEMORY_BLOCK_LIMIT)
 }
 
@@ -1784,12 +1945,19 @@ export const openingMemoryBlock = (query = "", limit = OPENING_LIMIT): string =>
 	const store = load()
 	if (!store.memories.length) return ""
 	const picked: MemoryItem[] = []
+	/** A3: 与 picked 一一对应的"选择依据" —— 召回路 = 相关性得分, 身份保底路 = 重要度 */
+	const ranked: {item: MemoryItem; score: number}[] = []
 	const seen = new Set<string>()
-	const push = (it?: MemoryItem): void => {
-		if (it && it.content && !seen.has(it.id)) { seen.add(it.id); picked.push(it) }
+	const push = (it: MemoryItem | undefined, score: number): void => {
+		if (it && it.content && !seen.has(it.id)) { seen.add(it.id); picked.push(it); ranked.push({item: it, score}) }
 	}
 	const q = (query ?? "").trim()
-	if (q) for (const it of recallMemories(store.memories, q, limit).hits) push(it)
+	if (q) {
+		// A2: 注入侧多样性配额 (与 recallForQuery 同一规则, 只影响注入不影响写入)
+		const tokens = tokenize(q)
+		const now = Date.now()
+		for (const it of recallMemories(store.memories, q, limit, true).hits) push(it, scoreMemory(tokens, it, now))
+	}
 	// 只从**有效**记忆里挑: 作废条 (被改口纠正取代) 若不滤掉, 会在这里被当成
 	// "importance ≥ 0.8 的身份记忆" 注入语音开场 —— 名字/身份恰恰最容易走到作废那条路
 	const byValue = store.memories.filter(isActiveMemory)
@@ -1798,8 +1966,12 @@ export const openingMemoryBlock = (query = "", limit = OPENING_LIMIT): string =>
 		if (picked.length >= limit) break
 		const t = it.tags ?? []
 		const identity = t.includes("identity") || t.includes("explicit")
-		if (it.type === "core" || identity || it.importance >= 0.8) push(it)
+		if (it.type === "core" || identity || it.importance >= 0.8) push(it, it.importance)
 	}
+	// A3: 开场注入以往完全不可见 —— 而"开场她到底知不知道我是谁"恰恰是这个函数存在的理由
+	const considered = store.memories.filter(isActiveMemory).length
+	diagInject("opening", q, limit, ranked, considered, picked.length,
+		picked.length ? "开场注入: 只读不强化, 排序依据 = identity/重要度" : "开场没有可注入的记忆")
 	return buildMemoryBlock(picked, limit)
 }
 
@@ -2078,7 +2250,14 @@ export const summarizeIfNeeded = async (
 		withMemoryBlock ? knownMemoryList(store) : [],
 		withMemoryBlock ? store.exampleSet : null,
 	)
-	const content = (await summarizeCall(prompt)).trim()
+	let content = ""
+	try {
+		content = (await summarizeCall(prompt)).trim()
+	} catch (e) {
+		// A3: 整理失败此前**完全静默** —— 记下来再原样抛出 (调用方的错误处理路径一个字不变)
+		noteOrganize(false, `调用失败: ${e instanceof Error ? e.message : String(e)}`.slice(0, 120))
+		throw e
+	}
 	/* 诊断日志 (P1) 的公共字段: 提示词与原始输出 —— 开关关着时 recordOrganize 直接返回, 零开销 */
 	const diagBase = {
 		msgs: batch,
@@ -2091,6 +2270,7 @@ export const summarizeIfNeeded = async (
 	if (!content) {
 		recordOrganize({...diagBase, topic: "", items: [], gated: [], deadLink: [], write: {...NO_WRITE},
 			summaryChars: 0, blockId: null, lib: diagLibSnapshot(store), note: "模型返回空"})
+		noteOrganize(false, "模型返回空")
 		return false
 	}
 	// ⑩ 摘要/记忆块两段式解析 (P2): 摘要本体只存纯叙述 (注入上下文干净), 记忆块进结构化记忆
@@ -2114,7 +2294,8 @@ export const summarizeIfNeeded = async (
 			// 已作废的旧说法不再从旧对话里回流成活记忆 (见 matchesInvalidated)
 			if (matchesInvalidated(store, it.content)) { deadLink.push(it.content); continue }
 			// 显式要求记住的给 core 类型 ⇒ decayDays=null (永不衰减), 与规则通道的 explicit 同效
-			fresh.push(makeMemoryItem({content: it.content, type: it.type, importance: it.importance}))
+			// A1: `kw` 必须**一起带过来** —— 少了它等于关键词/别名解析完就扔, A1 白做
+			fresh.push(makeMemoryItem({content: it.content, type: it.type, importance: it.importance, kw: it.kw}))
 		}
 	} else if (!blockItems.length && keyFacts.length) {
 		for (const fact of keyFacts) {
@@ -2191,6 +2372,8 @@ export const summarizeIfNeeded = async (
 		lib: diagLibSnapshot(store),
 		note: diagNote,
 	})
+	// A3: 成功也登记一次 (带降级说明) —— 界面上"上次整理成功"与"最近一次怎么了"都靠它
+	noteOrganize(true, diagNote)
 	persist()
 	return true
 }
@@ -2677,6 +2860,13 @@ export const __isReversalForTest = (oldContent: string, newContent: string): boo
 export const __setSummaryCursorForTest = (n: number): void => {
 	load().summarizedMsgCount = Math.max(0, Math.floor(n) || 0)
 }
+
+/**
+ * 仅供测试: 清掉"本次运行最后一次整理"的登记 (模拟 App 刚启动)。
+ * 为什么要暴露: `lastOrganize` 是模块级内存态, 一旦某个用例整理过它就有值 ——
+ * 没有这个钩子就**永远测不到**"刚启动时它是空的"这个初始态 (A3 的诚实性靠它)。
+ */
+export const __resetOrganizeStateForTest = (): void => { lastOrganize = null }
 
 /**
  * 重新从磁盘加载记忆库: 悬浮窗等另一实例可能已写入新记忆, 而本实例的 cache

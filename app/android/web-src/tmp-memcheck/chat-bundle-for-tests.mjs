@@ -50,13 +50,23 @@ var formatLocalTime = (date) => {
 var isValidTimestamp = (ts) => typeof ts === "number" && Number.isFinite(ts) && ts > 0 && Number.isFinite(new Date(ts).getTime());
 
 // ../src/services/chat/index.ts
-var localTimeBlock = (now = /* @__PURE__ */ new Date()) => {
+var localTimeBlock = (now = /* @__PURE__ */ new Date(), gapMs = 0) => {
   const week = ["\u661F\u671F\u65E5", "\u661F\u671F\u4E00", "\u661F\u671F\u4E8C", "\u661F\u671F\u4E09", "\u661F\u671F\u56DB", "\u661F\u671F\u4E94", "\u661F\u671F\u516D"][now.getDay()];
   const hour = now.getHours();
   const period = hour < 5 ? "\u51CC\u6668" : hour < 8 ? "\u6E05\u6668" : hour < 12 ? "\u4E0A\u5348" : hour < 14 ? "\u4E2D\u5348" : hour < 18 ? "\u4E0B\u5348" : "\u665A\u4E0A";
+  const gapHint = gapMs >= 5 * 60 * 1e3 ? `\u8DDD\u79BB\u4E0A\u4E00\u6761\u5386\u53F2\u6D88\u606F\u7EA6 ${formatElapsed(gapMs)}\uFF0C\u8BF7\u4EE5\u5F53\u524D\u65F6\u95F4\u4E3A\u51C6\uFF0C\u4E0D\u8981\u628A\u5386\u53F2\u6D88\u606F\u4E2D\u7684\u201C\u73B0\u5728\u3001\u4ECA\u5929\u3001\u6628\u665A\u201D\u5F53\u4F5C\u5F53\u524D\u4E8B\u5B9E\u3002
+` : "";
   return `\u3010\u5F53\u524D\u65F6\u95F4\u3011${formatLocalTime(now)} ${week}
 \u5F53\u524D\u65F6\u6BB5\uFF1A${period}\u3002
-\u8FD9\u662F\u672C\u8F6E\u8BF7\u6C42\u53D1\u51FA\u65F6\u7684\u8BBE\u5907\u672C\u5730\u65F6\u95F4\uFF0C\u662F\u5224\u65AD\u300C\u73B0\u5728\u3001\u4ECA\u5929\u3001\u660E\u5929\u3001\u4E0B\u5468\u4E09\u300D\u7684\u4F9D\u636E\u3002\u5373\u4F7F\u7528\u6237\u6CA1\u95EE\u65F6\u95F4\uFF0C\u95EE\u5019\u3001\u4F5C\u606F\u5EFA\u8BAE\u548C\u6D89\u53CA\u300C\u73B0\u5728\u300D\u7684\u8868\u8FBE\u4E5F\u8981\u4E0E\u672C\u8F6E\u65F6\u95F4\u4E00\u81F4\uFF1B\u81EA\u7136\u804A\u5929\uFF0C\u4E0D\u5FC5\u6BCF\u53E5\u8BDD\u62A5\u65F6\u3002\u5386\u53F2\u6D88\u606F\u7684\u53D1\u9001\u65F6\u95F4\u548C\u6458\u8981\u7684\u539F\u5BF9\u8BDD\u65F6\u95F4\u53EA\u4EE3\u8868\u5F53\u65F6\uFF0C\u5176\u4E2D\u7684\u300C\u4ECA\u5929\u3001\u6628\u665A\u3001\u665A\u5B89\u300D\u4E0D\u80FD\u5F53\u4F5C\u73B0\u5728\uFF1B\u53D1\u9001\u65F6\u95F4\u4E5F\u4E0D\u7B49\u4E8E\u6587\u4E2D\u4E8B\u4EF6\u53D1\u751F\u65F6\u95F4\u3002\u4E0D\u8981\u987A\u7740\u65E7\u7684\u591C\u95F4\u5BF9\u8BDD\u8BA4\u5B9A\u73B0\u5728\u8FD8\u662F\u665A\u4E0A\uFF0C\u4E5F\u4E0D\u8981\u4EC5\u56E0\u7528\u6237\u8BF4\u300C\u56F0\u4E86\u3001\u7D2F\u4E86\u300D\u5C31\u8BA4\u5B9A\u5DF2\u5230\u6DF1\u591C\u3002`;
+${gapHint}\u8FD9\u662F\u672C\u8F6E\u8BF7\u6C42\u53D1\u51FA\u65F6\u7684\u8BBE\u5907\u672C\u5730\u65F6\u95F4\uFF0C\u662F\u5224\u65AD\u300C\u73B0\u5728\u3001\u4ECA\u5929\u3001\u660E\u5929\u3001\u4E0B\u5468\u4E09\u300D\u7684\u4F9D\u636E\u3002\u5373\u4F7F\u7528\u6237\u6CA1\u95EE\u65F6\u95F4\uFF0C\u95EE\u5019\u3001\u4F5C\u606F\u5EFA\u8BAE\u548C\u6D89\u53CA\u300C\u73B0\u5728\u300D\u7684\u8868\u8FBE\u4E5F\u8981\u4E0E\u672C\u8F6E\u65F6\u95F4\u4E00\u81F4\uFF1B\u81EA\u7136\u804A\u5929\uFF0C\u4E0D\u5FC5\u6BCF\u53E5\u8BDD\u62A5\u65F6\u3002\u5386\u53F2\u6D88\u606F\u7684\u53D1\u9001\u65F6\u95F4\u548C\u6458\u8981\u7684\u539F\u5BF9\u8BDD\u65F6\u95F4\u53EA\u4EE3\u8868\u5F53\u65F6\uFF0C\u5176\u4E2D\u7684\u300C\u4ECA\u5929\u3001\u6628\u665A\u3001\u665A\u5B89\u300D\u4E0D\u80FD\u5F53\u4F5C\u73B0\u5728\uFF1B\u53D1\u9001\u65F6\u95F4\u4E5F\u4E0D\u7B49\u4E8E\u6587\u4E2D\u4E8B\u4EF6\u53D1\u751F\u65F6\u95F4\u3002\u4E0D\u8981\u987A\u7740\u65E7\u7684\u591C\u95F4\u5BF9\u8BDD\u8BA4\u5B9A\u73B0\u5728\u8FD8\u662F\u665A\u4E0A\uFF0C\u4E5F\u4E0D\u8981\u4EC5\u56E0\u7528\u6237\u8BF4\u300C\u56F0\u4E86\u3001\u7D2F\u4E86\u300D\u5C31\u8BA4\u5B9A\u5DF2\u5230\u6DF1\u591C\u3002\u65B9\u62EC\u53F7\u4E2D\u7684\u65F6\u95F4\u6807\u7B7E\u662F\u5185\u90E8\u63D0\u793A\uFF0C\u7EDD\u5BF9\u4E0D\u8981\u5728\u56DE\u590D\u4E2D\u590D\u8FF0\u3001\u5F15\u7528\u6216\u8F93\u51FA\u3002`;
+};
+var formatElapsed = (ms) => {
+  const totalMinutes = Math.max(1, Math.round(ms / 6e4));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes} \u5206\u949F`;
+  if (minutes <= 0) return `${hours} \u5C0F\u65F6`;
+  return `${hours} \u5C0F\u65F6 ${minutes} \u5206\u949F`;
 };
 var DEFAULT_SETTINGS = {
   apiKey: "",
@@ -347,8 +357,12 @@ var buildApiMessages = (messages, options) => {
     if (firstText < 0) parts.unshift({ type: "text", text: label.trimEnd() });
     return { ...api, content: parts };
   });
+  const latestUser = messages.map((m, i) => m.role === "user" ? i : -1).filter((i) => i >= 0).pop() ?? -1;
+  const previousConversation = latestUser > 0 ? [...messages.slice(0, latestUser)].reverse().find((m) => m.role !== "system") : void 0;
+  const now = /* @__PURE__ */ new Date();
+  const gapMs = previousConversation && isValidTimestamp(previousConversation.ts) && isValidTimestamp(messages[latestUser]?.ts) ? Math.max(0, messages[latestUser].ts - previousConversation.ts) : 0;
   const firstConversation = result.findIndex((m) => m.role !== "system");
-  result.splice(firstConversation < 0 ? result.length : firstConversation, 0, { role: "system", content: localTimeBlock() });
+  result.splice(firstConversation < 0 ? result.length : firstConversation, 0, { role: "system", content: localTimeBlock(now, gapMs) });
   return result;
 };
 var buildChatFile = () => {

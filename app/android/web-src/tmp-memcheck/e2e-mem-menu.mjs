@@ -79,6 +79,8 @@ try {
 	/* 打开设置 */
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 	await sleep(900)
+	await evalJs(`(() => { const d = document.querySelector("#settings-memory"); if (d && !d.open) d.querySelector("summary")?.click() })()`)
+	await sleep(200)
 	const lv1 = await evalJs(`(() => {
 		const sheet = document.querySelector(".sheet")
 		if (!sheet) return {err: "没有 .sheet"}

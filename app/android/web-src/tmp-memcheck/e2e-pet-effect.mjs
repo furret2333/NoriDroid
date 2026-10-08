@@ -391,7 +391,35 @@ try {
 
 		/* C) **移出边界**: 摸上头之后把手指挪到模型**外面**(上方空白/左右空白) 必须很快转头外。
 		   实机反馈: 之前留驻只判 y 一条线 -> 往上挪进空白区仍算"摸头", 一直拖到抬手才取消。 */
-		for (const [tag, far] of [["上方", {x: headPt2.x, y: 8}], ["左侧", {x: 4, y: headPt2.y}]]) {
+		const modelBox = (await evalJs(`window.__noriPetDebug ? window.__noriPetDebug().modelBox : null`))
+		const leashMargin = Math.max(12, Math.abs((modelBox?.top ?? 0) - (modelBox?.bottom ?? 0)) * 0.06)
+		/* ⚠ 坐标空间别混（这里踩过）: `modelBox` 是**模型坐标**（y 轴向上, ARGNori 约 y∈[-0.57, 0.88]），
+		   不是屏幕像素 —— 拿它去 `±12` 像素再 `Math.max(8, …)` 只会得到一个常数（+12→24px, -12→8px）。
+		   判定本体在 `inHeadZoneHysteresis`: "已经在摸"时用**有界 leash 盒**
+		   `y ∈ [分界线−6%模型高, 模型顶+2%模型高]`。要"从上方出界"就得让屏幕 y 比**模型顶**更高，
+		   而这份布局里模型顶几乎贴着视口顶端 ⇒ 只能移到视口之外
+		   （`press` 直接派发 clientY, 不走命中测试, 负值有效）。
+		   左侧能靠 `Math.max(4, …)` 通过, 是因为模型左右两侧在视口内还有余量 —— 上下没有。 */
+		const findUpwardExitY = async () => {
+			for (const y of [-16, -40, -90, -160]) {
+				await evalJs(press("pointerdown", headPt2.x, headPt2.y))
+				await sleep(420)
+				await evalJs(press("pointermove", headPt2.x, y))
+				await sleep(300)
+				const d = await evalJs(dbgInfo)
+				await evalJs(press("pointerup", headPt2.x, y))
+				await sleep(250)
+				if (d?.onHead === false) return y
+			}
+			return null
+		}
+		const upExitY = await findUpwardExitY()
+		const farPoints = [
+			// upExitY 为 null ⇒ 一路试到视口外都没出界 = leash 无界（真回归）; 断言会红并打出详情
+			["上方", {x: headPt2.x, y: upExitY ?? -16}],
+			["左侧", {x: Math.max(4, Math.floor((modelBox?.left ?? headPt2.x) - leashMargin - 12)), y: headPt2.y}],
+		]
+		for (const [tag, far] of farPoints) {
 			await evalJs(press("pointerdown", headPt2.x, headPt2.y))
 			await sleep(420)
 			const c1 = await evalJs(dbgInfo)
