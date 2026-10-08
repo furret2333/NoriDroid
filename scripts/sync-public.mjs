@@ -249,8 +249,8 @@ const CONTENT_RULES = [
 	{id: "本机绝对路径（D 盘仓库树）", re: /D:[\\/]{1,2}norinew/i},
 	{id: "本机绝对路径（C 盘用户目录）", re: /C:[\\/]{1,2}Users\b/i},
 	{id: "本机用户名（Windows 默认管理员账号）", re: new RegExp("Administ" + "rator")},
-	{id: "macOS 家目录（/Users）", re: /\/Users\//},
-	{id: "Linux 家目录（/home）", re: /\/home\//},
+	{id: "macOS 家目录（/Users）", re: /\/Users\//, urlExempt: true},
+	{id: "Linux 家目录（/home）", re: /\/home\//, urlExempt: true},
 	{id: "签名口令字段 storePassword/keyPassword", re: /(?:store|key)Password\b/, passwordField: true, secret: true},
 	{id: "私钥块 -----BEGIN … PRIVATE KEY-----", re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/, secret: true},
 	{id: "API Key 字面量 sk-…", re: /sk-[A-Za-z0-9_-]{16,}/, secret: true},
@@ -316,6 +316,14 @@ const snippetOf = (h) => {
 	if (h.secret) for (const r of CONTENT_RULES) if (r.secret) s = s.replace(r.re, "[已屏蔽]")
 	return s.length > 80 ? s.slice(0, 80) + "…" : s
 }
+/** 一行里所有 http(s) URL 的区间 —— 仅供 urlExempt 规则判断"这一处是不是落在 URL 里" */
+const URL_SPAN = /https?:\/\/[^\s"'`<>()[\]]+/g
+const insideUrl = (line, idx) => {
+	for (const u of line.matchAll(URL_SPAN)) {
+		if (idx >= u.index && idx < u.index + u[0].length) return true
+	}
+	return false
+}
 const scanHits = []
 const scanAllowed = []
 const pathHints = []
@@ -341,6 +349,17 @@ let scannedText = 0
 				if (rel === SCANNER_SELF && SELF_SKIP_RULES.has(r.id)) continue
 				const m = line.match(r.re)
 				if (!m) continue
+				/* 家目录规则（/home、/Users）会撞上**产品里的合法公网 URL**（如 `…/home/api-keys`）——
+				   落在 http(s) URL 段内的不算本机路径泄露；真文件路径/注释里的照拦。
+				   逐处匹配而不是只看第一处：同一行"URL + 真路径"并存时仍要拦。 */
+				if (r.urlExempt) {
+					const g = new RegExp(r.re.source, r.re.flags.includes("g") ? r.re.flags : r.re.flags + "g")
+					let outside = null
+					for (const mm of line.matchAll(g)) {
+						if (!insideUrl(line, mm.index)) { outside = mm; break }
+					}
+					if (!outside) { scanAllowed.push({rel, line: i + 1, id: r.id, snippet: line}); continue }
+				}
 				if (r.passwordField) {
 					const tail = line.slice(m.index + m[0].length, m.index + m[0].length + 200)
 					if (SAFE_PASSWORD_VALUE.test(tail)) { scanAllowed.push({rel, line: i + 1, id: r.id, snippet: tail.trim()}); continue }
