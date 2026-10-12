@@ -145,14 +145,17 @@ box("③ 红线②: 别名**不参与**主门槛 (只加不抢)")
 		mem.reloadMemory()
 	}
 	seed([X, Y])
-	const block1 = mem.recallForQuery(q)
-	check("③ 端到端: 注入块里有 X、没有 Y (主路径有收获时兜底不跑)",
-		block1.includes("我在准备考研") && !block1.includes("我喜欢玩游戏"),
+	const block1 = mem.recallForQuery("我的考研考试安排得怎么样")
+	check("③ 端到端: 正文和别名候选并存，正文命中不再阻断别名",
+		block1.includes("我在准备考研") && block1.includes("我喜欢玩游戏"),
 		JSON.stringify(block1.slice(0, 60)))
 
 	// 主路径空 → 兜底接住, 并且**真的算被用到** (与"取数与渲染数一致"同一条纪律)
 	seed([Y])
-	const block2 = mem.recallForQuery(q)
+	const selection2 = mem.selectRecall(q)
+	const ready2 = mem.materializeRecall(selection2)
+	mem.commitRecall(selection2, "kw-probe-2", ready2.ids)
+	const block2 = ready2.text
 	const yAfter = mem.listAll().memories.find(m => m.id === "y")
 	check("③ 主路径空 → 别名兜底接住, 且 accessCount+1 (不会给没用过的记忆发免死金牌)",
 		block2.includes("我喜欢玩游戏") && (yAfter?.accessCount ?? 0) === 1,

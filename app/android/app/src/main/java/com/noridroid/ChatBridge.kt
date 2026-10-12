@@ -122,7 +122,7 @@ class ChatBridge(private val appContext: Context) {
     @android.webkit.JavascriptInterface
     fun isStorageReady(): Boolean {
         
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return true
         return appContext.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
     }
@@ -131,7 +131,7 @@ class ChatBridge(private val appContext: Context) {
     @android.webkit.JavascriptInterface
     fun requestStoragePermission() {
         mainHandler.post {
-            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
                 (appContext as? Activity)?.requestPermissions(
                     arrayOf(
                         android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
@@ -172,7 +172,8 @@ class ChatBridge(private val appContext: Context) {
         else false
     }.getOrDefault(false)
 
-    private fun useDirectFile(): Boolean = hasAllFilesAccess()
+    private fun useDirectFile(): Boolean = hasAllFilesAccess() ||
+        (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && Environment.isExternalStorageLegacy() && isStorageReady())
 
     /** 是否已获得「所有文件访问权限」(前端用来显示状态/决定要不要引导去授权) */
     @android.webkit.JavascriptInterface
@@ -212,7 +213,10 @@ class ChatBridge(private val appContext: Context) {
         if (!dir.isDirectory) dir.mkdirs()
         // Same-directory replace keeps the previous file until the replacement is ready.
         val tmp = File(dir, "$n.tmp")
-        tmp.writeText(content)
+        java.io.FileOutputStream(tmp).use { stream ->
+            stream.write(content.toByteArray(Charsets.UTF_8))
+            stream.fd.sync()
+        }
         val dst = File(dir, n)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             runCatching {
@@ -391,7 +395,36 @@ class ChatBridge(private val appContext: Context) {
     }
 
     @android.webkit.JavascriptInterface
-    fun readFile(name: String): String {
+    fun readFile(name: String): String = synchronized(FILE_LOCK) { readFileUnlocked(name) }
+
+    /** 记忆主库必须区分“确实不存在”和“暂时读不到”，否则空缓存会覆盖旧资料。 */
+    @android.webkit.JavascriptInterface
+    fun readFileState(name: String): String = synchronized(FILE_LOCK) { readFileStateUnlocked(name).toString() }
+
+    private fun readFileStateUnlocked(name: String): JSONObject {
+        val n = safeName(name)
+        return runCatching {
+            if (useDirectFile() || (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && isStorageReady())) {
+                val dir = legacyDir()
+                if (dir.exists() && !dir.canRead()) error("公共目录不可读")
+                val f = File(dir, n)
+                if (!f.exists()) return@runCatching JSONObject().put("status", "missing").put("content", "")
+                if (!f.isFile || !f.canRead()) error("记忆文件不可读")
+                JSONObject().put("status", "ok").put("content", f.readText(Charsets.UTF_8))
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val uri = findOwnFileUri(n)
+                val text = if (uri != null) cr.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    ?: error("记忆文件读取失败") else {
+                    val f = File(legacyDir(), n)
+                    if (f.isFile && f.canRead()) f.readText(Charsets.UTF_8)
+                    else error("需要公共目录读取权限，无法确认旧记忆是否存在")
+                }
+                JSONObject().put("status", "ok").put("content", text)
+            } else error("需要存储权限")
+        }.getOrElse { JSONObject().put("status", "error").put("message", it.message ?: "文件读取失败") }
+    }
+
+    private fun readFileUnlocked(name: String): String {
         val n = safeName(name)
         val raw = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -440,7 +473,19 @@ class ChatBridge(private val appContext: Context) {
     }
 
     @android.webkit.JavascriptInterface
-    fun writeFile(name: String, content: String): String {
+    fun writeFile(name: String, content: String): String = synchronized(FILE_LOCK) { writeFileUnlocked(name, content) }
+
+    /** 两个 WebView 共享同一锁；校验和替换必须处在同一临界区。 */
+    @android.webkit.JavascriptInterface
+    fun writeFileIfUnchanged(name: String, expected: String, content: String): String = synchronized(FILE_LOCK) {
+        if (safeName(name) != "memory.json") return@synchronized "err:unsupported"
+        val state = readFileStateUnlocked(name)
+        if (state.optString("status") == "error") return@synchronized "err:read"
+        if (state.optString("content") != expected) return@synchronized "conflict"
+        writeFileUnlocked(name, content)
+    }
+
+    private fun writeFileUnlocked(name: String, content: String): String {
         val n = safeName(name)
         return runCatching {
             val storedContent = if (n == SETTINGS_FILE) secureSettingsForWrite(content) else content
@@ -494,8 +539,7 @@ class ChatBridge(private val appContext: Context) {
             } else {
                 if (!isStorageReady()) return "err:perm"
                 val dir = legacyDir(); dir.mkdirs()
-                File(dir, n).writeText(storedContent)
-                "ok"
+                writeFileDirect(n, storedContent)
             }
         }.getOrElse { "err:${it.message}" }
     }
@@ -576,6 +620,36 @@ class ChatBridge(private val appContext: Context) {
     fun chat(baseUrl: String, apiKey: String, model: String, messagesJson: String, thinkingMode: String) {
         ioExecutor.execute {
             postToJs("__noriChatRes", chatSync(baseUrl, apiKey, model, messagesJson, thinkingMode))
+        }
+    }
+
+    private class PendingChat {
+        @Volatile var cancelled = false
+        val connection = java.util.concurrent.atomic.AtomicReference<HttpURLConnection?>(null)
+    }
+    private val pendingChats = java.util.concurrent.ConcurrentHashMap<String, PendingChat>()
+
+    @android.webkit.JavascriptInterface
+    fun chatRequest(requestId: String, baseUrl: String, apiKey: String, model: String, messagesJson: String, thinkingMode: String) {
+        val pending = PendingChat()
+        pendingChats[requestId] = pending
+        ioExecutor.execute {
+            try {
+                if (pending.cancelled) return@execute
+                val result = chatSync(baseUrl, apiKey, model, messagesJson, thinkingMode, pending)
+                if (!pending.cancelled) postToJs("__noriChatRes", JSONObject(result).put("requestId", requestId).toString())
+            } finally {
+                pending.connection.getAndSet(null)?.disconnect()
+                pendingChats.remove(requestId, pending)
+            }
+        }
+    }
+
+    @android.webkit.JavascriptInterface
+    fun chatRequestStop(requestId: String) {
+        pendingChats[requestId]?.let {
+            it.cancelled = true
+            it.connection.getAndSet(null)?.disconnect()
         }
     }
 
@@ -1329,7 +1403,7 @@ class ChatBridge(private val appContext: Context) {
         }
     }
 
-    private fun chatSync(baseUrl: String, apiKey: String, model: String, messagesJson: String, thinkingMode: String): String {
+    private fun chatSync(baseUrl: String, apiKey: String, model: String, messagesJson: String, thinkingMode: String, pending: PendingChat? = null): String {
         return runCatching {
             val base = normalizeBase(baseUrl)
             val req = JSONObject()
@@ -1337,7 +1411,13 @@ class ChatBridge(private val appContext: Context) {
                 .put("messages", JSONArray(messagesJson))
                 .put("stream", false)
             putThinking(req, thinkingMode)
-            val conn = open(base + "/chat/completions", "POST", apiKey, "application/json", req.toString())
+            val conn = open(base + "/chat/completions", "POST", apiKey, "application/json", req.toString(), onConnection = { connection ->
+                pending?.connection?.set(connection)
+                if (pending?.cancelled == true) {
+                    connection.disconnect()
+                    throw java.io.IOException("已停止")
+                }
+            })
             val body = conn.readBody()
             val json = JSONObject(body)
             if (json.has("error")) {
@@ -1383,7 +1463,7 @@ class ChatBridge(private val appContext: Context) {
         return b
     }
 
-    private fun open(url: String, method: String, apiKey: String, contentType: String?, body: String?, extraHeaders: Map<String, String>? = null): HttpURLConnection {
+    private fun open(url: String, method: String, apiKey: String, contentType: String?, body: String?, extraHeaders: Map<String, String>? = null, onConnection: ((HttpURLConnection) -> Unit)? = null): HttpURLConnection {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 60_000
@@ -1395,6 +1475,7 @@ class ChatBridge(private val appContext: Context) {
                 for ((k, v) in extraHeaders) setRequestProperty(k, v)
             }
         }
+        onConnection?.invoke(conn)
         if (body != null) {
             conn.doOutput = true
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
@@ -2263,6 +2344,9 @@ class ChatBridge(private val appContext: Context) {
 
     companion object {
         private const val TAG = "ChatBridge"
+
+        /** 原生桥实例间共享，含主界面、悬浮窗和气泡窗口。 */
+        private val FILE_LOCK = Any()
         private const val MEMORY_FILE = "memory.txt"
         private const val SETTINGS_FILE = "settings.json"
         private const val KEY_ALIAS = "nori_settings_key"

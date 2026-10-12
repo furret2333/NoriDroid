@@ -32,6 +32,7 @@ const rawPlugin = {
 }
 
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/chat/index.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/chat-bundle.mjs"),
@@ -112,7 +113,7 @@ const mkMsg = (role, content, ts) => ({role, content, ts})
 	}, false, ac.signal)
 	ac.abort() // 任务尚未起跑时 abort: task 开跑检测 signal.aborted → onAbort
 	await tick()
-	check("M10: abort 调用原生 chatStop", chatStopCalls === 1, `calls=${chatStopCalls}`)
+	check("M10: 起跑前 abort 不干扰原生当前流", chatStopCalls === 0, `calls=${chatStopCalls}`)
 	check("M10: abort 走 onError(已停止)", got[0] === "已停止", `got=${JSON.stringify(got)}`)
 	await tick()
 	check("M10: abort 后队列解锁 (下一路能发起)", chatStreamCalls === 2, `calls=${chatStreamCalls}`)

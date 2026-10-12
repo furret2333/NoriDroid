@@ -54,15 +54,16 @@ let clock = 1_700_000_000_000
 for (let round = 0; round < 150; round += 1) {
 	messages.push({role: "user", content: `u${round}`, ts: clock++})
 	messages.push({role: "assistant", content: `a${round}`, ts: clock++})
-	const summarized = await mem.summarizeIfNeeded(messages, async () => "【摘要】片段。")
+	const summarized = await mem.summarizeIfNeeded(messages, async () => "【摘要】片段。\n===MEM===\n{\"items\":[]}")
 	await mem.flushMemoryPersist()
 	if (summarized && messages.length > HISTORY_KEEP) {
+		const dropped = mem.safeTrimDrop(messages.length)
 		const kept = [
 			{role: "system", content: "（更早的对话已压缩）", ts: clock++, placeholder: true},
-			...messages.slice(-HISTORY_KEEP),
+			...messages.slice(dropped),
 		]
 		messages = kept
-		mem.notifyHistoryTrimmed(kept.length)
+		mem.notifyHistoryTrimmed(dropped)
 		await mem.flushMemoryPersist()
 	}
 }

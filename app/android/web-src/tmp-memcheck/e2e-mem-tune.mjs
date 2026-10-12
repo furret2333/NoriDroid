@@ -2,8 +2,8 @@
  *
  * 断言真实 DOM + 真实持久化:
  *   ① 小节存在: 标题「记忆优化」+ 自动优化开关(默认关) + 三个按钮;
- *   ② 点「立即优化」→ 生成示例并落盘 (exampleSet: pos 来自生效记忆, neg 来自回收站);
- *   ③ 「查看示例」展开显示 该记/不该记 + "只是风格示例"的说明;
+ *   ② 点「立即优化」→ 生成示例并落盘 (pos 来自生效记忆，普通删除不生成 neg);
+ *   ③ 「查看示例」展开显示正例和说明，没有反例时不展示反例行;
  *   ④ 「清除示例」→ 落盘里 exampleSet 消失, 按钮回到禁用;
  *   ⑤ 首次点会先弹一次"建议先自己过一遍记忆"的确认 (这里自动确认)。
  *
@@ -75,7 +75,7 @@ try {
 	await evalJs(`document.querySelector(".intro-mask")?.remove()`)
 	await evalJs(`window.confirm = () => true`)   // 首次确认自动通过
 
-	/* 造 14 条生效记忆 (过冷启动阈值) + 回收站 1 条 (反例来源) */
+	/* 造 14 条生效记忆 (过冷启动阈值) + 回收站 1 条普通删除 */
 	const ts0 = Date.now() - 3600_000
 	await evalJs(`(() => {
 		const mk = (id, content, type, over = {}) => ({id, content, type, importance:0.7, confidence:0.9,
@@ -132,8 +132,8 @@ try {
 		}
 	})()`)
 	console.log(`   立即优化后: ${JSON.stringify(after)}`)
-	check("②点了「立即优化」→ 示例落盘 (正例来自生效记忆、反例来自回收站)",
-		!!after.ex && after.ex.pos.length > 0 && after.ex.neg.some(t => t.includes("准备去睡觉")) && after.ex.basedOn >= 12,
+	check("②点了「立即优化」→ 示例落盘 (正例来自生效记忆，普通删除不当反例)",
+		!!after.ex && after.ex.pos.length > 0 && after.ex.neg.length === 0 && after.ex.basedOn >= 12,
 		JSON.stringify(after.ex))
 	check("②说明行显示条数, 「清除示例」变为可用",
 		/正例\s*\d+\s*条\s*\/\s*反例\s*\d+\s*条/.test(after.info) && after.clearDisabled === false,
@@ -144,8 +144,8 @@ try {
 	await sleep(500)
 	const detail = await evalJs(`(() => { const d = document.querySelector(".sheet .mem-tune-detail"); return d ? d.innerText : null })()`)
 	console.log(`   示例详情: ${JSON.stringify(String(detail).slice(0, 160))}`)
-	check("③「查看示例」展开显示 该记/不该记 + 「只是风格示例」说明",
-		!!detail && /该记：/.test(detail) && /不该记：/.test(detail) && /只是风格示例/.test(detail),
+	check("③「查看示例」显示正例和说明，普通删除不产生反例行",
+		!!detail && /该记：/.test(detail) && !/不该记：/.test(detail) && /只是风格示例/.test(detail),
 		String(detail).slice(0, 120))
 
 	/* ④ 清除示例 */

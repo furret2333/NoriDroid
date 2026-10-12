@@ -11,6 +11,7 @@
  * 记忆/总结: 与主 App 共用同一份 chat.json / memory 库 —— 剥离表情标记、
  * 追加历史、写长期记忆、生成历史总结, 悬浮窗对话与主 App 无缝衔接.
  */
+import {memoryChatOptions, selectRecallWithinBudget} from "../services/memory/context"
 import {nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue"
 import {
 	loadSettings, sendChat, sendChatStream, loadChat, persistChat, flushChatPersist, setChatTrimCutoff,
@@ -19,9 +20,9 @@ import {
 import {parseMarkerDelta} from "../services/chat/markers"
 import {
 	extractMemoriesSmart,
-	recallForQuery, recallForQuerySmart, summaryBlock, summarizeIfNeeded, flushMemoryPersist,
-	notifyHistoryTrimmed, contextHistory, safeTrimDrop, recentTopicsBlock,
-	goalCarePrompt, shouldSkipLlmExtract, setDiagEnabled,
+	summarizeIfNeeded, flushMemoryPersist,
+	notifyHistoryTrimmed, contextHistory, safeTrimDrop,
+	shouldSkipLlmExtract, setDiagEnabled,
 } from "../services/memory"
 import {bufferDiarySource} from "../services/nori-diary"
 import {
@@ -195,36 +196,15 @@ const send = async () => {	const text = draft.value.trim()
 		// P5: 原文窗口 = 近端 20 条 + 一整个待总结批次 (空窗清零), 与主界面同一规则
 		const history = contextHistory(loadChat())
 		// 记忆系统: 召回长期记忆 + 历史总结, 注入上下文 (smartRecall 开 → LLM 语义召回).
-		// 发送延迟优化: 语义召回只等预算期, 超时先用关键词兜底发送, 迟到结果后台自行收尾
-		let memoryBlock = ""
-		const llmRecallCall = async (prompt: string): Promise<string> => {
-			const r = await sendChat(s.baseUrl, s.apiKey, s.model, [
-				{role: "system", content: prompt} as ChatMsg,
-			])
-			return r.ok ? (r.content ?? "") : ""
-		}
-		if (s.smartRecall && !shouldSkipLlmExtract(text)) {
-			const smart = recallForQuerySmart(text, llmRecallCall).catch(() => "")
-			const fast = new Promise<string>((resolve) =>
-				setTimeout(() => resolve(recallForQuery(text)), RECALL_BUDGET_MS)
-			)
-			memoryBlock = await Promise.race([smart, fast])
-			void smart.catch(() => { /* 已兜底, 后台自行收尾 */ })
-		} else {
-			memoryBlock = recallForQuery(text)
-		}
-		const summary = summaryBlock(s.timeAware !== false)
+		// 语义召回超时走关键词兜底，并取消辅助请求。
+		const selection = await selectRecallWithinBudget(text, s.smartRecall && !shouldSkipLlmExtract(text) ? async (prompt, signal) => {
+			const r = await sendChat(s.baseUrl, s.apiKey, s.model, [{role: "system", content: prompt} as ChatMsg], false, {signal})
+			if (!r.ok) throw new Error(r.message ?? "召回失败")
+			return r.content ?? ""
+		} : null, RECALL_BUDGET_MS, ac.signal)
 		const context: ChatMsg[] = []
 		const personaText = personaPrompt()
 		if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
-		if (summary) context.push({role: "system", content: summary} as ChatMsg)
-		if (memoryBlock) context.push({role: "system", content: memoryBlock} as ChatMsg)
-		// 近况注入 (P5): 最近聊过的话题 (与主界面同一规则; 摘要不重复注入)
-		const recentTopics = recentTopicsBlock()
-		if (recentTopics) context.push({role: "system", content: recentTopics} as ChatMsg)
-		// 目标陪伴: 有超过 3 天没被关心的目标时注入提示, 让 Nori 自然地问问进展
-		const goalCare = goalCarePrompt()
-		if (goalCare) context.push({role: "system", content: goalCare} as ChatMsg)
 		// 当前时间由共用发送层刷新，避免排队等待后仍使用旧时间。
 		const payload: ChatMsg[] = [...context, ...history, userMessage]
 
@@ -288,7 +268,7 @@ const send = async () => {	const text = draft.value.trim()
 					else replyText.value = reply
 					resolve()
 				},
-			}, s.deepseekThinking, ac.signal, {timeAware: s.timeAware !== false})
+			}, s.deepseekThinking, ac.signal, memoryChatOptions(selection, payload, s.timeAware !== false))
 		})
 
 		// 表演兜底: 全程没收到标记 → 用正文关键词驱动 (与主 App triggerEmotion/pickMotionByKeyword 一致)
@@ -343,7 +323,7 @@ const send = async () => {	const text = draft.value.trim()
 				} finally {
 					flushChatPersist()
 				}
-			})()
+			})().catch(e => console.error("[mem] 悬浮窗后台整理失败", e))
 		}
 	} catch (e: any) {
 		replyText.value = `⚠ ${e?.message ?? String(e)}`

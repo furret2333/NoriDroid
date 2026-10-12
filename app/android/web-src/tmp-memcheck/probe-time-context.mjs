@@ -1,4 +1,4 @@
-/* 真 Vue 页面 + 假原生桥，检查实际发送的时间上下文，不评价真实模型回复。 */
+/* 真 Vue 主界面/戳戳/悬浮窗 + 假原生桥，检查时间和记忆实际发送，不评价真实模型回复。 */
 import {spawn} from "node:child_process"
 import {mkdtempSync} from "node:fs"
 import {tmpdir} from "node:os"
@@ -47,7 +47,8 @@ const INIT = `(() => {
 			bridge = nc;
 			nc.writeFile("chat.json", JSON.stringify(history));
 			nc.writeFile("persona.md", "你是 Nori，温和自然地和用户聊天。");
-			nc.writeFile("memory.json", JSON.stringify({memories: [], summaries: [
+			nc.writeFile("memory.json", JSON.stringify({memories: [{id:"cat", content:"我喜欢猫", type:"preference",
+				importance:0.8, confidence:0.9, createdAt:Date.now(), updatedAt:Date.now(), lastAccessedAt:0, accessCount:0, tags:[], decayDays:null}], summaries: [
 				{id: "known", content: "用户昨晚准备早睡。", createdAt: ts("2026-10-07T08:00:00+08:00"), msgCount: 2, tokenCount: 10,
 					fromTs: ts("2026-10-06T22:00:00+08:00"), toTs: ts("2026-10-06T23:00:00+08:00")},
 				{id: "old", content: "之前聊过游戏。", createdAt: ts("2026-10-05T10:00:00+08:00"), msgCount: 2, tokenCount: 10}
@@ -143,6 +144,7 @@ try {
 	const poke = await evalJs("window.__payloads.at(-1)")
 	check("戳戳共用最新时间和正确 system 顺序", validOrder(poke) && timeBlock(poke).includes("2026-10-08 00:01") && poke.at(-1).content.includes("戳戳"))
 	check("戳戳历史没有丢掉发送时间", poke.some(m => m.role === "assistant" && m.content.includes("2026-10-06 23:31") && m.content.includes("已经很晚")))
+	check("戳戳开场记忆不强化", await evalJs('JSON.parse(window.NoriChat.readFile("memory.json")).memories.find(m => m.id === "cat").accessCount === 0'))
 	check("时间标记没有污染聊天 UI 或落盘正文", await evalJs('!document.querySelector(".chat-msgs").textContent.includes("消息发送时间") && !window.NoriChat.readFile("chat.json").includes("消息发送时间")'))
 	await open(false)
 	const disabled = await sendText("我回来啦")
@@ -164,6 +166,25 @@ try {
 	await open(false, true)
 	const bubbleDisabled = await sendText("我回来啦", true)
 	check("悬浮聊天关闭时没有时间注入", !timeBlock(bubbleDisabled) && !JSON.stringify(bubbleDisabled).includes("消息发送时间"))
+	for (const bubble of [false, true]) {
+		await open(false, bubble)
+		const label = bubble ? "悬浮聊天" : "主聊天"
+		const memoryPayload = await sendText("喜欢猫吗", bubble)
+		check(`${label}实际发送相关记忆`, memoryPayload.some(m => m.role === "system" && m.content.includes("我喜欢猫")))
+		await until(() => evalJs('JSON.parse(window.NoriChat.readFile("memory.json")).memories.find(m => m.id === "cat")?.accessCount === 1'), `${label}召回计数落盘`)
+		check(`${label}一次实际发送只强化一次`, await evalJs('JSON.parse(window.NoriChat.readFile("memory.json")).memories.find(m => m.id === "cat").accessCount === 1'))
+		await evalJs(`(() => {
+			const data = JSON.parse(window.NoriChat.readFile("memory.json"));
+			const cat = data.memories.find(m => m.id === "cat");
+			data.memories = data.memories.filter(m => m.id !== "cat");
+			data.tombstones.push({id:"cat", at:Date.now()});
+			data.deletedBin = [{...cat, deletedAt:Date.now()}];
+			data.summaries.push({id:"s-cat", content:"用户喜欢猫。", createdAt:Date.now(), msgCount:1, tokenCount:5});
+			window.NoriChat.writeFile("memory.json", JSON.stringify(data));
+		})()`)
+		const deleted = await sendText("喜欢猫吗", bubble)
+		check(`${label}重读磁盘删除后，条目与关联摘要不注入`, deleted.filter(m => m.role === "system").every(m => !m.content.includes("喜欢猫")))
+	}
 } catch (error) {
 	check("执行过程", false, String(error.stack || error))
 } finally {

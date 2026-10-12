@@ -30,6 +30,8 @@ const ONLY = val("--only")
 /** 套件表: kind = unit(纯 Node) / probe(探针) / probe-h(需要 harness) / probe-eval(评估用) / e2e(需要 harness) */
 const SUITES = [
 	{name: "run-tests", kind: "unit"},
+	{name: "run-memory-lifecycle-tests", kind: "unit"},
+	{name: "probe-recall-summary-quality", kind: "probe", args: ["--strict"]},
 	{name: "run-memory-collapse-tests", kind: "unit"},
 	{name: "run-lipsync-tests", kind: "unit"},        // 口型包络/振幅映射/PCM 头/写参数闸门 (补齐"注释声称有、实际没有"的单测)
 	{name: "audit-memory", kind: "probe"},            // C1: 记忆侧结构审计 (原为手工脚本, 2026-10-08 挂进门禁)
@@ -162,7 +164,7 @@ if (needHarness) {
 const results = []
 for (const s of willRun) {
 	process.stdout.write(`\r  ${s.name} …`.padEnd(60))
-	const r = await runCmd(process.execPath, [`${s.name}.mjs`], {cwd: memDir, tag: s.name})
+	const r = await runCmd(process.execPath, [`${s.name}.mjs`, ...(s.args ?? [])], {cwd: memDir, tag: s.name})
 	const verdict = r.code === 0 ? "PASS" : "FAIL"
 	const cnt = tailCount(r.logFile)
 	results.push({name: s.name, kind: s.kind, verdict, cnt, ms: r.ms, log: r.logFile})

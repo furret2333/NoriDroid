@@ -578,7 +578,7 @@
 										</span>
 										<span class="mem-sub">{{ fmtTs(m.createdAt) }} · 重要度 {{ m.importance.toFixed(2) }}<template v-if="m.decayDays == null"> · 不淡忘</template></span>
 										<button class="mem-op" @click="doTogglePin(m)">{{ isPinnedId(m.id) ? "取消固定" : "固定" }}</button>
-										<button class="mem-op" title="先收起来：不删除，随时能「留下」放回；再说起它会自己回来" @click="doFadeMemory(m)">收起</button>
+										<button class="mem-op" title="暂时停用并保留；手动收起后需点「留下」恢复" @click="doFadeMemory(m)">收起</button>
 										<button class="mem-op danger" @click="doDeleteMemory(m)">删除</button>
 									</div>
 								</div>
@@ -604,7 +604,7 @@
 							     不注入、不召回, 但点「留下」就能放回生效 —— 自动路径永不真删。 -->
 							<details v-if="fadedMems.length && !memSearch && !memFilter" class="mem-sec mem-faded">
 								<summary class="mem-sec-title">已收起（{{ fadedMems.length }}）</summary>
-								<div class="hint">这些是太久没提或到期自动收起来的（不是被推翻）。点「留下」就放回生效；再说一次这个话题它也会自己回来</div>
+								<div class="hint">收起表示暂时不用，内容仍保留。手动收起需点「留下」恢复；自动收起可在你之后重新明确提及时恢复。</div>
 								<div v-for="m in fadedMems" :key="m.id" class="mem-item">
 									<span class="mem-text">{{ m.content }}</span>
 									<span class="mem-sub">{{ fadeReasonLabel(m) }} · 收起于 {{ fmtTs(m.fadedAt ?? 0) }}</span>
@@ -614,7 +614,7 @@
 							<!-- 已删除 (2026-09-28, 回收站): 手删的条目带内容留在这里, 可还原; 确认不要再「永久删除」 -->
 							<details v-if="deletedMems.length && !memSearch && !memFilter" class="mem-sec mem-deleted">
 								<summary class="mem-sec-title">已删除（{{ deletedMems.length }}）</summary>
-								<div class="hint">你删掉的记忆会先放这里（最多留 20 条），点「还原」能救回来；确认不要了就「永久删除」</div>
+								<div class="hint">删除后停止使用，旧对话不会重新记回。回收站最多留 20 条；还原保留删除前状态。永久删除移除回收站条目，不清除原聊天或已有导出。</div>
 								<div v-for="m in deletedMems" :key="m.id" class="mem-item">
 									<span class="mem-text">{{ m.content }}</span>
 									<span class="mem-sub">删除于 {{ fmtTs(m.deletedAt ?? 0) }}</span>
@@ -653,9 +653,10 @@
 									（历史总结 {{ health.summaries }} 条 · 记忆块 {{ health.blocks }} 个 · 回收站 {{ health.deleted }} 条）
 								</div>
 								<div class="hint">
-									上次成功整理：<b>{{ fmtWhen(health.lastSummaryAt) }}</b>
+									最近保存摘要：<b>{{ fmtWhen(health.lastSummaryAt) }}</b>
+									<span v-if="health.lastPersistError" class="bad"> · {{ health.lastPersistError }}</span>
 									<template v-if="health.lastOrganize">
-										· 本次运行最后一次整理：<b :class="{bad: health.lastOrganize?.ok === false}">{{ health.lastOrganize?.ok ? "成功" : "失败" }}</b><template v-if="health.lastOrganize?.note">（{{ health.lastOrganize?.note }}）</template>
+										· 本次运行最后一次整理：<b :class="{bad: health.lastOrganize?.ok === false}">{{ /部分完成/.test(health.lastOrganize?.note ?? "") ? "部分完成" : health.lastOrganize?.ok ? "成功" : "失败" }}</b><template v-if="health.lastOrganize?.note">（{{ health.lastOrganize?.note }}）</template>
 									</template>
 									<template v-else>· 本次运行还没整理过</template>
 								</div>
@@ -1315,6 +1316,7 @@
 </template>
 
 <script setup lang="ts">
+import {memoryChatOptions, selectRecallWithinBudget} from "./services/memory/context"
 import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from "vue"
 import {
 	createLive2D,
@@ -1375,15 +1377,11 @@ import {
 	addMemoriesFromText,
 	extractMemoriesSmart,
 	pruneDoneGoals,
-	recallForQuery,
-	recallForQuerySmart,
-	openingMemoryBlock,
-	summaryBlock,
+	selectOpeningRecall,
 	summarizeIfNeeded,
 	notifyHistoryTrimmed,
 	safeTrimDrop,
 	contextHistory,
-	recentTopicsBlock,
 	flushMemoryPersist,
 	clearMemory,
 	pruneStaleMemories,
@@ -1896,23 +1894,12 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt">, type
 	// 身份/核心记忆（type=core 或 tags 含 identity/explicit，或 importance ≥ 0.8）。
 	// 它**只读不强化**（不涨 accessCount）—— 戳戳每次会话都会触发，算强化会让同一批高分
 	// 记忆永远霸榜，真正这次被问到的反而挤不进来。
-	const memoryBlock = openingMemoryBlock(text)
-	const summary = summaryBlock(cfg.timeAware)
+	const selection = selectOpeningRecall(text)
 	const context: ChatMsg[] = []
 	const personaText = personaPrompt()
 	if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
 	context.push({role: "system", content: poke ? POKE_DIRECTIVE : TOUCH_DIRECTIVE} as ChatMsg)
-	if (summary) context.push({role: "system", content: summary} as ChatMsg)
-	if (memoryBlock) context.push({role: "system", content: memoryBlock} as ChatMsg)
 	if (poke) {
-		const recent = recentTopicsBlock()
-		if (recent) context.push({role: "system", content: recent} as ChatMsg)
-		const goalCare = goalCarePrompt()
-		if (goalCare) context.push({role: "system", content: goalCare} as ChatMsg)
-		else {
-			const goals = listGoals().slice(0, 2).map((g) => g.content.slice(0, 120))
-			if (goals.length) context.push({role: "system", content: `【用户在做的事】${goals.join("；")}。仅供闲聊参考，不必问进度。`} as ChatMsg)
-		}
 		if (pomo.value.phase !== "idle") context.push({role: "system", content: `【当前状态】用户${pomoPhaseText.value}，可以轻轻回应，别催促或打断。`} as ChatMsg)
 	}
 	const hist = messages.value.filter(m => !m.error).slice(-14).map(({role, content, ts}) => ({role, content, ts}) as ChatMsg)
@@ -2034,7 +2021,7 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt">, type
 					persistChat(messages.value)
 					resolve()
 				},
-			}, cfg.deepseekThinking, chatAbort.signal, {timeAware: cfg.timeAware})
+			}, cfg.deepseekThinking, chatAbort.signal, memoryChatOptions(selection, payload, cfg.timeAware))
 		})
 
 		// 收尾: 剩余文本 + 结束朗读会话
@@ -3710,43 +3697,22 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 
 	typing.value = true
 	showPortraitReply("…")
+	stopRequested = false
+	const chatAbort = new AbortController()
+	activeChatAbort = chatAbort
 	try {
 		// 记忆系统: 按当前消息召回长期记忆 + 读取历史总结, 注入上下文
 		// smartRecall 开 → LLM 语义召回 (更准); 关 → 关键词召回 (免费快)
-		let memoryBlock = ""
-		// 记忆召回 (发送延迟优化): 语义召回是一次 LLM 调用, 原先阻塞在首字之前最坏 3s.
-		// ① 寒暄/过短消息直接走关键词召回 (这类消息也不需要记忆);
-		// ② 语义召回只等 RECALL_BUDGET_MS, 超时先用关键词兜底发送,
-		//    迟到的语义结果在后台自行完成强化写库, 不阻塞也不浪费
-		const llmRecallCall = async (prompt: string): Promise<string> => {
-			const r = await sendChat(cfg.baseUrl, cfg.apiKey, cfg.model, [
-				{role: "system", content: prompt} as ChatMsg,
-			])
-			return r.ok ? (r.content ?? "") : ""
-		}
-		if (cfg.smartRecall && cfg.apiKey.trim() && cfg.model.trim() && !shouldSkipLlmExtract(userText)) {
-			const smart = recallForQuerySmart(userText, llmRecallCall).catch(() => "")
-			const fast = new Promise<string>((resolve) =>
-				setTimeout(() => resolve(recallForQuery(userText)), RECALL_BUDGET_MS)
-			)
-			memoryBlock = await Promise.race([smart, fast])
-			void smart.catch(() => { /* 已用关键词兜底, 后台自行收尾 */ })
-		} else {
-			memoryBlock = recallForQuery(userText)
-		}
-		const summary = summaryBlock(cfg.timeAware)
+		const smartEnabled = cfg.smartRecall && cfg.apiKey.trim() && cfg.model.trim() && !shouldSkipLlmExtract(userText)
+		const selection = await selectRecallWithinBudget(userText, smartEnabled ? async (prompt, signal) => {
+			const r = await sendChat(cfg.baseUrl, cfg.apiKey, cfg.model, [{role: "system", content: prompt} as ChatMsg], false, {signal})
+			if (!r.ok) throw new Error(r.message ?? "召回失败")
+			return r.content ?? ""
+		} : null, RECALL_BUDGET_MS, chatAbort.signal)
+		if (chatAbort.signal.aborted) return
 		const context: ChatMsg[] = []
 		const personaText = personaPrompt()
 		if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
-		if (summary) context.push({role: "system", content: summary} as ChatMsg)
-		if (memoryBlock) context.push({role: "system", content: memoryBlock} as ChatMsg)
-		// 近况注入 (P5): 最近聊过的话题 —— 指代类提问 ("那个游戏") 与情感连贯的抓手;
-		// 摘要已由 summaryBlock 注入, 这里只给块主题, 不重复灌摘要
-		const recentTopics = recentTopicsBlock()
-		if (recentTopics) context.push({role: "system", content: recentTopics} as ChatMsg)
-		// 目标陪伴: 有超过 3 天没被关心的目标时注入提示, 让 Nori 自然地问问进展
-		const goalCare = goalCarePrompt()
-		if (goalCare) context.push({role: "system", content: goalCare} as ChatMsg)
 		// 专注数据: 三个闸门都过才注入 (话题相关 + 有值得说的 + 今天还没提过)。
 		// 刻意做成"回复内提一句"而不是 Ambient 主动搭话 —— 后者每次会话只有 3 条预算,
 		// 用去报数字就把陪伴变成打卡提醒了。注入文本自带"最多提这一件事"的克制约束,
@@ -3780,9 +3746,6 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 		chatStreaming.value = true
 
 		// 停止生成: 本地 AbortController (即使原生桥丢弃回包也能正常结束) + 原生桥 chatStop
-		stopRequested = false
-		const chatAbort = new AbortController()
-		activeChatAbort = chatAbort
 
 		// 滚动节流: 长回复时避免每增量都滚动 (仅近底部才滚, 150ms 限频)
 		let lastScrollAt = 0
@@ -3902,7 +3865,7 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 					persistChat(messages.value)
 					resolve()
 				},
-			}, cfg.deepseekThinking, chatAbort.signal, {timeAware: cfg.timeAware})
+			}, cfg.deepseekThinking, chatAbort.signal, memoryChatOptions(selection, payload, cfg.timeAware))
 		})
 		if (activeChatAbort === chatAbort) activeChatAbort = null
 		if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = null }
@@ -3956,9 +3919,10 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 					notifyHistoryTrimmed(dropN)
 					scrollChatBottom()
 				}
-			})()
+			})().catch(e => { console.error("[mem] 后台整理失败", e); refreshMemView() })
 		}
 	} finally {
+		if (activeChatAbort === chatAbort) activeChatAbort = null
 		typing.value = false
 		scrollChatBottom()
 	}
@@ -4144,6 +4108,9 @@ const diagN = ref<number>(diagCount())
 const injectN = ref<number>(injectCount())
 /** 记忆健康快照：生效/已收起/已作废、上次成功整理、本次运行最后一次整理的结果、上轮注入明细 */
 const health = ref<MemoryHealth>(memoryHealth())
+const onMemoryPersist = (): void => { health.value = memoryHealth() }
+onMounted(() => window.addEventListener("nori-memory-persist", onMemoryPersist))
+onBeforeUnmount(() => window.removeEventListener("nori-memory-persist", onMemoryPersist))
 
 /** 时刻→人话 (诊断区共用; 没有记录时给一个明确的占位而不是空白) */
 const fmtWhen = (t: number | null | undefined): string =>
@@ -4196,7 +4163,7 @@ const doRestoreFaded = (m: MemoryItem) => {
 const doRestoreDeleted = (m: MemoryItem) => {
 	if (!restoreDeletedMemory(m.id)) { triggerBubble("这条已经不在回收站里了"); return }
 	refreshMemView()
-	triggerBubble("已还原，我又记起来啦")
+	triggerBubble(m.invalidAt ? "已还原到已作废，需另行还原才会生效" : m.fadedAt ? "已还原到已收起，点留下才会生效" : "已还原到生效列表")
 }
 
 /** 记忆优化 (整理优化) 的界面状态: 当前示例集 + 是否展开查看 */
@@ -4207,7 +4174,7 @@ const tunePos = computed(() => tuneSet.value?.pos ?? [])
 const tuneNeg = computed(() => tuneSet.value?.neg ?? [])
 const tuneInfo = computed(() => {
 	const e = tuneSet.value
-	if (!e || (!e.pos.length && !e.neg.length)) return "还没有示例。例子来自你「保留的」记忆（该记）和你「删掉的」记忆（不该记），点「立即优化」生成"
+	if (!e || (!e.pos.length && !e.neg.length)) return "还没有示例。例子来自生效中的记忆；删除和收起不会自动当反例。点「立即优化」生成"
 	return `上次优化：${fmtTs(e.builtAt)} · 正例 ${e.pos.length} 条 / 反例 ${e.neg.length} 条（基于当时 ${e.basedOn} 条记忆）`
 })
 
@@ -4216,7 +4183,7 @@ const doRebuildExamples = () => {
 	if (!tuneHas.value) {
 		const ok = window.confirm(
 			"例子是从你**留下的**记忆里学的，没用的先删掉更好 ——\n" +
-			"删掉的会当反例，教它别再记那类；留着不管的话，垃圾会被学成风格、越滚越多。\n\n" +
+			"删除可能是重复、过时或隐私原因，不会自动当反例；先检查生效记忆是否准确。\n\n" +
 			"确定现在就生成示例吗？（先取消，去把没用的记忆删掉也行）",
 		)
 		if (!ok) { triggerBubble("那我等你整理好啦"); return }
@@ -4311,12 +4278,10 @@ const filteredMems = computed(() => {
 	return list
 })
 
-/** 展示列表: 记忆来源标注 (B2) —— 「你声明」= 从你的原话里直接记下的规则命中;
- *  「我推断」= Nori 用模型从对话里推断出来的 (tag=llm)。用户要求"分清哪句是我说的、
- *  哪句是她猜的", 因为推断错的条目最该被纠正。 */
-const isInferred = (m: MemoryItem): boolean => (m.tags ?? []).includes("llm")
-const memProvenance = (m: MemoryItem): string => (isInferred(m) ? "我推断" : "你声明")
-const PROV_TIP = "你声明 = 从你原话里直接记下的；我推断 = Nori 自己推断出来的，错了可以删/纠正"
+/** 来源标注说明处理方式；旧记录来源不完整，不能直接称为用户声明。 */
+const isInferred = (m: MemoryItem): boolean => m.sourceKind === "llm" || (m.tags ?? []).includes("llm")
+const memProvenance = (m: MemoryItem): string => (isInferred(m) ? "AI 整理" : m.sourceKind === "rule" ? "原话提取" : "旧记录/手动")
+const PROV_TIP = "原话提取 = 规则命中；AI 整理 = 模型从对话筛出，需要核对；旧记录的来源可能不完整"
 
 /** 类型在记忆库里的展示顺序 (分组小节的先后; 目标单独一节, 不在此列) */
 const TYPE_ORDER: MemoryType[] = ["core", "fact", "preference", "project", "event", "relationship"]
@@ -4441,7 +4406,7 @@ const doTogglePin = (m: MemoryItem) => {
 
 /**
  * 「收起」一条记忆 (2026-09-29 用户要求: 条目行原来只有删除)。
- * 意图 = "这条现在不重要，但别删" ⇒ 进「已收起」，可一键「留下」；再说起它会自动放回。
+ * 意图 = "这条现在不重要，但别删" ⇒ 进「已收起」，点「留下」放回。
  */
 const doFadeMemory = (m: MemoryItem) => {
 	if (!fadeMemoryManually(m.id)) { triggerBubble("这条已经收起来了"); return }
@@ -4731,7 +4696,7 @@ const doPruneMemories = () => {
 	const removed = pruneStaleMemories()
 	if (removed > 0) {
 		refreshMemView()
-		memPruneMsg.value = `已清理 ${removed} 条低频记忆（30 天未提及且不重要的）`
+		memPruneMsg.value = `已收起 ${removed} 条低频记忆，可在「已收起」里点「留下」放回`
 		memPruneMsgOk.value = true
 	} else {
 		memPruneMsg.value = "没有需要清理的低频记忆（都很新鲜或有价值）"
@@ -6239,11 +6204,13 @@ const onVisibility = () => {
 		pomoUpdateDisplay()
 		pomoRefreshDate()
 		flushChatPersist()
+		void flushMemoryPersist()
 		stopTTS()
 		pauseBgm()
 		setStageRenderPaused(true)
 	} else {
 		setStageRenderPaused(false)
+		if (health.value.lastPersistError) refreshMemFromDisk()
 		if (!bgmHeld()) resumeBgm()
 		if (!chatStreaming.value && !touchStreaming.value) {
 			// 切回前台: 重新加载聊天记录 —— 悬浮窗对话框可能已写入共享的 chat.json,

@@ -1,7 +1,8 @@
 /**
  * Android 记忆服务: 存储走 NoriChat 文件桥 (memory.json, 与 chat.json 同在公共下载目录)
  */
-import {readFile, writeFile} from "../chat"
+import {compareAndWriteFile, readFileState, writeFile} from "../chat"
+import {contentBlocked, filteredSummary, filterDeletedText, setContentAction, summaryFactKeys, summaryUsable, suppressRelatedSummaries, textMentionsMemory} from "./lifecycle"
 import {messageTimeRange} from "../time"
 import {
 	DIAG_PROMPT_MAX,
@@ -59,6 +60,8 @@ import {
 	MEMORY_SCHEMA_VERSION,
 	mergeMemories,
 	mergeStores,
+	memoryContentKey,
+	reconcileSelfFacts,
 	MAX_METAS,
 	NEAR_DUP_DICE,
 	normalizeContent,
@@ -67,7 +70,7 @@ import {
 	parseBlockOutput,
 	parseLlmMemories,
 	parseLlmMemoryDecision,
-	parseLlmRelevance,
+	parseLlmRelevanceResult,
 	pickExpiredMemories,
 	pruneMemories,
 	rangeOfSummary,
@@ -77,7 +80,9 @@ import {
 	shouldSkipLlmExtract,
 	summariesOverlap,
 	summaryIdFor,
+	diversifyHits,
 	tokenize,
+	selfFact,
 	type MemoryBlock,
 	type MemoryDecision,
 	type MemoryItem,
@@ -134,6 +139,17 @@ let cache: MemoryStoreData | null = null
 /* ---------------- 双实例一致性状态 (主 App / 悬浮窗共享同一 memory.json) ---------------- */
 /** 本实例最近一次成功写盘的原文: 落盘时若磁盘内容 ≠ 它, 说明被别的实例改过 */
 let lastWrittenRaw: string | null = null
+const unreadableFiles = new Set<string>()
+const readFile = (name: string): string => {
+	const state = readFileState(name)
+	if (state.status === "error") {
+		unreadableFiles.add(name)
+		lastPersistError = "旧记忆暂时读不到，已暂停保存；请检查公共目录权限"
+		return ""
+	}
+	unreadableFiles.delete(name)
+	return state.content
+}
 /** 本会话删除过的 id (墓碑): 落盘合并时不再把它们从磁盘旧副本"复活" */
 const deletedIds = new Set<string>()
 /** 墓碑上限: 超出按时间丢最旧的 (磁盘上早被清掉的 id 不再需要记) */
@@ -192,20 +208,11 @@ let skipDiskMerge = false
 /** 磁盘版本合并进本地 cache (先剔除本会话已删的墓碑, 再 id 并集 + 游标取 max) */
 const adoptFromDisk = (disk: MemoryStoreData): void => {
 	if (!cache) return
-	if (deletedIds.size) {
-		disk = {
-			...disk,
-			memories: disk.memories.filter(m => !deletedIds.has(m.id)),
-			summaries: disk.summaries.filter(s => !deletedIds.has(s.id)),
-		}
-	}
 	// 本会话显式还原 / 永久删除过的 id: 磁盘上那份**还没更新**的副本不能赢 ——
 	// 否则还原后又被过期墓碑过滤掉、永久删除后又被过期回收站带回来 (T32-F/G 实测)
-	if (restoredIds.size || purgedIds.size || examplesCleared) {
+	if (examplesCleared) {
 		disk = {
 			...disk,
-			tombstones: (disk.tombstones ?? []).filter(t => !restoredIds.has(t.id)),
-			deletedBin: (disk.deletedBin ?? []).filter(m => !restoredIds.has(m.id) && !purgedIds.has(m.id)),
 			exampleSet: examplesCleared ? undefined : disk.exampleSet,
 		}
 	}
@@ -213,6 +220,12 @@ const adoptFromDisk = (disk: MemoryStoreData): void => {
 	// 持有 store 引用 —— 整体重赋值 cache 会让唤醒后的写入落在"孤儿对象"上,
 	// 改动静默丢失; 游标推进丢失还会引发对同一区间的重复摘要
 	const merged = mergeStores(disk, cache)
+	cache.resetAt = merged.resetAt
+	cache.resetId = merged.resetId
+	cache.revision = merged.revision
+	cache.organizeRetry = merged.organizeRetry
+	cache.contentActions = merged.contentActions
+	cache.suppressedSummaryIds = merged.suppressedSummaryIds
 	cache.memories = merged.memories
 	cache.summaries = merged.summaries
 	cache.summarizedMsgCount = merged.summarizedMsgCount
@@ -225,6 +238,19 @@ const adoptFromDisk = (disk: MemoryStoreData): void => {
 	cache.deletedBin = merged.deletedBin
 	cache.exampleSet = merged.exampleSet
 	cache.schemaVersion = merged.schemaVersion
+}
+
+const generationOf = (store: MemoryStoreData): string => `${store.resetAt ?? 0}:${store.resetId ?? ""}`
+const syncMemoryFromDisk = (): MemoryStoreData => {
+	const store = load()
+	const raw = readFile(FILE)
+	const disk = raw !== lastWrittenRaw ? tryParse(raw) : null
+	if (disk) adoptFromDisk(disk)
+	else if (!raw && !unreadableFiles.has(FILE) && unreadableFiles.has(FILE_BAK)) {
+		const backup = tryParse(readFile(FILE_BAK))
+		if (backup) adoptFromDisk(backup)
+	}
+	return store
 }
 
 /**
@@ -328,18 +354,51 @@ const tryParse = (raw: string): MemoryStoreData | null => {
 	if (!raw) return null
 	try {
 		const parsed = JSON.parse(raw) as Partial<MemoryStoreData>
+		if (!parsed || typeof parsed !== "object") return null
 		if (!Array.isArray(parsed.memories) && !Array.isArray(parsed.summaries)) return null
 		// 删除墓碑 (旧数据没有该字段 → 空数组)
 		const tombstones = Array.isArray(parsed.tombstones)
 			? parsed.tombstones.filter(t => t && typeof t.id === "string" && t.id)
 				.map(t => ({id: String(t.id), at: Number(t.at) || 0}))
 			: []
+		const validItems = (input: unknown): MemoryItem[] => !Array.isArray(input) ? [] : input
+			.filter(m => m && typeof m.id === "string" && m.id && typeof m.content === "string" && m.content.trim())
+			.map(m => ({...m,
+				type: ["core", "fact", "preference", "project", "event", "relationship"].includes(m.type) ? m.type : "fact",
+				importance: Number.isFinite(m.importance) ? Math.min(1, Math.max(0, m.importance)) : 0.5,
+				confidence: Number.isFinite(m.confidence) ? Math.min(1, Math.max(0, m.confidence)) : 0.5,
+				createdAt: Number.isFinite(m.createdAt) ? m.createdAt : 0,
+				updatedAt: Number.isFinite(m.updatedAt) ? m.updatedAt : 0,
+				lastAccessedAt: Number.isFinite(m.lastAccessedAt) ? m.lastAccessedAt : 0,
+				accessCount: Number.isFinite(m.accessCount) ? Math.max(0, m.accessCount) : 0,
+				tags: Array.isArray(m.tags) ? m.tags.filter((t: unknown) => typeof t === "string") : [],
+				kw: Array.isArray(m.kw) ? m.kw.filter((t: unknown) => typeof t === "string") : undefined,
+				sourceTs: Number.isFinite(m.sourceTs) ? m.sourceTs : undefined,
+				invalidAt: Number.isFinite(m.invalidAt) ? m.invalidAt : undefined,
+				fadedAt: Number.isFinite(m.fadedAt) ? m.fadedAt : undefined,
+				decayDays: m.decayDays === null ? null : Number.isFinite(m.decayDays) && m.decayDays >= 0 ? m.decayDays : defaultDecayDays(m.type),
+			}))
+		const bin = validItems(parsed.deletedBin)
+		const actions = Array.isArray(parsed.contentActions) ? parsed.contentActions
+			.filter(x => x && typeof x.id === "string" && typeof x.key === "string" && Number.isFinite(x.at) && ["deleted", "purged", "restored"].includes(x.state))
+			.map(x => ({...x, summaryKeys: Array.isArray(x.summaryKeys) ? x.summaryKeys.filter(k => typeof k === "string") : []})) : []
+		for (const m of bin) if (!actions.some(x => x.key === memoryContentKey(m.content))) {
+			actions.push({id: m.id, key: memoryContentKey(m.content), at: m.deletedAt ?? 0, state: "deleted", summaryKeys: summaryFactKeys(m.content)})
+		}
+		for (const op of actions) {
+			const m = bin.find(m => memoryContentKey(m.content) === op.key)
+			if (m) op.summaryKeys = [...new Set([...op.summaryKeys, ...summaryFactKeys(m.content)])]
+		}
 		return {
+			resetAt: Number(parsed.resetAt) || 0,
+			resetId: typeof parsed.resetId === "string" ? parsed.resetId : "",
+			revision: Math.max(0, Number(parsed.revision) || 0),
+			organizeRetry: parsed.organizeRetry && typeof parsed.organizeRetry.id === "string" && Number.isFinite(parsed.organizeRetry.at) && Number.isFinite(parsed.organizeRetry.attempts) ? parsed.organizeRetry : undefined,
+			contentActions: actions,
+			suppressedSummaryIds: Array.isArray(parsed.suppressedSummaryIds) ? parsed.suppressedSummaryIds.filter(x => typeof x === "string") : [],
 			// 坏元素防御: 单个 null/缺 content 的元素曾让 tokenize 在召回时整表抛错
-			memories: Array.isArray(parsed.memories)
-				? parsed.memories.filter(m => !!m && typeof m === "object" && typeof m.content === "string")
-				: [],
-			summaries: Array.isArray(parsed.summaries) ? parsed.summaries : [],
+			memories: reconcileSelfFacts(validItems(parsed.memories)).filter(m => !actions.some(x => x.key === memoryContentKey(m.content) && x.state !== "restored")),
+			summaries: Array.isArray(parsed.summaries) ? parsed.summaries.filter(s => !!s && typeof s.id === "string" && typeof s.content === "string" && Number.isFinite(s.createdAt) && Number.isFinite(s.msgCount)) : [],
 			summarizedMsgCount: typeof parsed.summarizedMsgCount === "number" ? parsed.summarizedMsgCount : 0,
 			trimmedMsgCount: typeof parsed.trimmedMsgCount === "number" ? parsed.trimmedMsgCount : 0,
 			tombstones,
@@ -347,7 +406,7 @@ const tryParse = (raw: string): MemoryStoreData | null => {
 			meta: Array.isArray(parsed.meta)
 				? parsed.meta.filter(m => !!m && typeof m === "object"
 					&& typeof m.id === "string" && m.id
-					&& typeof m.content === "string" && m.content)
+					&& typeof m.content === "string" && m.content && Number.isFinite(m.createdAt))
 				: [],
 			// 记忆块 (P1): 旧数据没有该字段 → 空数组; 坏元素必须过滤, 否则块视图/注入会抛错
 			blocks: Array.isArray(parsed.blocks)
@@ -367,18 +426,17 @@ const tryParse = (raw: string): MemoryStoreData | null => {
 					}))
 				: [],
 			// 回收站 (2026-09-28): 手删的条目连内容一起留着, 才能还原。旧数据没有该字段 → 空数组
-			deletedBin: Array.isArray(parsed.deletedBin)
-				? parsed.deletedBin.filter(m => !!m && typeof m === "object" && typeof m.content === "string")
-				: [],
+			deletedBin: bin.filter(m => !actions.some(x => x.key === memoryContentKey(m.content) && x.state !== "deleted")),
 			// 示例集 (整理优化): 形状不对就当没有
 			exampleSet: (() => {
 				const e = parsed.exampleSet as MemoryExamples | undefined
 				if (!e || typeof e !== "object" || typeof e.builtAt !== "number") return undefined
 				return {
+					policyVersion: e.policyVersion,
 					builtAt: e.builtAt,
 					basedOn: Number(e.basedOn) || 0,
 					pos: Array.isArray(e.pos) ? e.pos.filter(x => typeof x === "string" && x) : [],
-					neg: Array.isArray(e.neg) ? e.neg.filter(x => typeof x === "string" && x) : [],
+					neg: e.policyVersion === 2 && Array.isArray(e.neg) ? e.neg.filter(x => typeof x === "string" && x) : [],
 				}
 			})(),
 			schemaVersion: typeof parsed.schemaVersion === "number" ? parsed.schemaVersion : 1,
@@ -393,10 +451,12 @@ const tryParse = (raw: string): MemoryStoreData | null => {
  *  使落盘合并被跳过, 删除被静默回滚 */
 const applySessionTombstones = (store: MemoryStoreData): MemoryStoreData => {
 	if (!deletedIds.size) return store
+	const restored = new Set((store.contentActions ?? []).filter(x => x.state === "restored").map(x => x.id))
+	const blocked = new Set([...deletedIds].filter(id => !restored.has(id)))
 	return {
 		...store,
-		memories: store.memories.filter(m => !deletedIds.has(m.id)),
-		summaries: store.summaries.filter(s => !deletedIds.has(s.id)),
+		memories: store.memories.filter(m => !blocked.has(m.id)),
+		summaries: store.summaries.filter(s => !blocked.has(s.id)),
 	}
 }
 
@@ -555,7 +615,7 @@ const load = (): MemoryStoreData => {
 		trimSummariesToMax()
 		// 用恢复的数据(已补字段)回写主文件; 损坏的旧内容留档备查
 		const json = JSON.stringify(cache)
-		if (writeFile(FILE, json)) lastWrittenRaw = json
+		if (!unreadableFiles.has(FILE) && compareAndWriteFile(FILE, rawMain, json) === "ok") lastWrittenRaw = json
 		if (rawMain) writeFile(`${FILE}.corrupt-${Date.now()}`, rawMain)
 		return cache
 	}
@@ -599,6 +659,19 @@ const PERSIST_DEBOUNCE_MS = 400
 let persistTimer: ReturnType<typeof setTimeout> | null = null
 /** 串行写队列: 一次只写一个文件快照, 杜绝交错覆盖 */
 let writeQueue: Promise<unknown> = Promise.resolve()
+let lastPersistError = ""
+let backupDirty = false
+let retryCount = 0
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+
+const schedulePersistRetry = (): void => {
+	if (retryTimer || retryCount >= 3) return
+	retryTimer = setTimeout(() => {
+		retryTimer = null
+		retryCount++
+		flushPersist()
+	}, 1000 * (retryCount + 1))
+}
 
 /**
  * 持久化 (防抖): 300ms 内的多次改动合并成一次写盘.
@@ -624,40 +697,68 @@ const flushPersist = (): void => {
 	if (!cache) return
 	writeQueue = writeQueue.then(async () => {
 		try {
-			let diskRaw: string | null = null
-			if (!skipDiskMerge) {
-				diskRaw = readFile(FILE)
-				const disk = tryParse(diskRaw)
-				if (disk && diskRaw !== lastWrittenRaw) {
-					adoptFromDisk(disk)
-					trimSummariesToMax()
-					// 两个实例的墓碑并集可能超上限 → 落盘前收一次 (按时间留最新的)
-					const tombs = cache?.tombstones
-					if (tombs && tombs.length > MAX_TOMBSTONES) {
-						tombs.sort((x, y) => y.at - x.at)
-						if (cache) cache.tombstones = tombs.slice(0, MAX_TOMBSTONES)
-					}
+			for (let attempt = 0; attempt < 4; attempt++) {
+				const diskRaw = readFile(FILE)
+				if (unreadableFiles.has(FILE)) { schedulePersistRetry(); return }
+				// 主文件为空时，不能拿不完整的缓存覆盖尚未读到的备份。
+				if (!tryParse(diskRaw) && unreadableFiles.has(FILE_BAK)) {
+					const backup = tryParse(readFile(FILE_BAK))
+					if (unreadableFiles.has(FILE_BAK)) { schedulePersistRetry(); return }
+					if (backup) adoptFromDisk(backup)
 				}
-			} else {
-				skipDiskMerge = false
-			}
-			const json = JSON.stringify(cache)
-			// 零变化跳写: 内容与磁盘完全一致时不落盘 (否则无待办分支每轮对话都全量双写,
-			// 白磨 flash 且拉大双实例竞态窗口)
-			if (diskRaw !== null && json === diskRaw) {
-				lastWrittenRaw = json
+				if (!skipDiskMerge) {
+					const disk = tryParse(diskRaw)
+					if (disk && diskRaw !== lastWrittenRaw) {
+						adoptFromDisk(disk)
+						trimSummariesToMax()
+						// 两个实例的墓碑并集可能超上限 → 落盘前收一次 (按时间留最新的)
+						const tombs = cache?.tombstones
+						if (tombs && tombs.length > MAX_TOMBSTONES) {
+							tombs.sort((x, y) => y.at - x.at)
+							if (cache) cache.tombstones = tombs.slice(0, MAX_TOMBSTONES)
+						}
+					}
+				} else {
+					skipDiskMerge = false
+				}
+				const json = JSON.stringify(cache)
+				// 零变化跳写: 内容与磁盘完全一致时不落盘 (否则无待办分支每轮对话都全量双写,
+				// 白磨 flash 且拉大双实例竞态窗口)
+				if (diskRaw !== null && json === diskRaw) {
+					lastWrittenRaw = json
+					if (backupDirty) {
+						backupDirty = !writeFile(FILE_BAK, json)
+						if (backupDirty) { lastPersistError = "备份尚未保存"; schedulePersistRetry() }
+						else { lastPersistError = ""; retryCount = 0 }
+					}
+					return
+				}
+				// 主文件 + 备份双写: 任一损坏都能从另一份恢复
+				if (!cache) return
+				cache.revision = Math.max(cache.revision ?? 0, tryParse(diskRaw)?.revision ?? 0) + 1
+				const next = JSON.stringify(cache)
+				const result = compareAndWriteFile(FILE, diskRaw, next)
+				if (result === "conflict") continue
+				const ok1 = result === "ok"
+				const ok2 = ok1 && writeFile(FILE_BAK, next)
+				backupDirty = ok1 && !ok2
+				if (ok1) lastWrittenRaw = next
+				if (!ok1 || !ok2) {
+					lastPersistError = ok1 ? "备份尚未保存" : "记忆尚未保存，请检查存储权限"
+					schedulePersistRetry()
+					console.error("[mem] persist write failed", {ok1, ok2, file: FILE})
+				} else { lastPersistError = ""; retryCount = 0 }
 				return
 			}
-			// 主文件 + 备份双写: 任一损坏都能从另一份恢复
-			const ok1 = writeFile(FILE, json)
-			const ok2 = writeFile(FILE_BAK, json)
-			if (ok1) lastWrittenRaw = json
-			if (!ok1 || !ok2) {
-				console.error("[mem] persist write failed", {ok1, ok2, file: FILE})
-			}
+			lastPersistError = "另一个窗口正在更新记忆，稍后重试"
+			schedulePersistRetry()
 		} catch (e) {
+			lastPersistError = "记忆保存失败"
+			schedulePersistRetry()
 			console.error("[mem] persist error", e)
 		}
+	}).finally(() => {
+		if (typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") window.dispatchEvent(new CustomEvent("nori-memory-persist"))
 	})
 }
 
@@ -668,6 +769,7 @@ export const flushMemoryPersist = async (): Promise<void> => {
 		persistTimer = null
 		flushPersist()
 	}
+	else if (lastPersistError || backupDirty) flushPersist()
 	await writeQueue
 }
 
@@ -689,6 +791,7 @@ let lastOrganize: {at: number; ok: boolean; note: string} | null = null
 const noteOrganize = (ok: boolean, note = ""): void => { lastOrganize = {at: Date.now(), ok, note} }
 
 export interface MemoryHealth {
+	lastPersistError: string
 	/** 生效条数（会注入、会召回） */
 	active: number
 	/** 已收起（不计入 60/300，但仍在库里可见、可一键「留下」） */
@@ -723,6 +826,7 @@ export const memoryHealth = (): MemoryHealth => {
 	let lastSummaryAt: number | null = null
 	for (const s of summaries) if (lastSummaryAt === null || (s.createdAt ?? 0) > lastSummaryAt) lastSummaryAt = s.createdAt ?? 0
 	return {
+		lastPersistError,
 		active: store.memories.filter(isActiveMemory).length,
 		faded: store.memories.filter(m => !!m.fadedAt && !m.invalidAt).length,
 		invalid: store.memories.filter(m => !!m.invalidAt).length,
@@ -855,7 +959,7 @@ export const listAll = (includeInvalid = false): MemoryViewData => {
  * 作废只是标记, 合并时按"较新的一份"取 (谁后写谁赢, 与其它字段同一套规则)。
  */
 export const invalidateMemory = (id: string): boolean => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const m = store.memories.find(x => x.id === id)
 	if (!m || m.invalidAt) return false
 	// 同时刷 updatedAt, 并且**严格大于**原值:
@@ -870,19 +974,20 @@ export const invalidateMemory = (id: string): boolean => {
 
 /** 还原一条被作废的记忆 (用户点"还原")。返回是否真的改了。 */
 export const restoreMemory = (id: string): boolean => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const m = store.memories.find(x => x.id === id)
 	if (!m || !m.invalidAt) return false
 	store.memories = store.memories.map(x => {
 		if (x.id !== id) return x
-		const {invalidAt: _drop, ...rest} = x
+		const {invalidAt: _drop, supersededBy: _s, ...rest} = x
 		// **必须严格大于"作废那一版"的 updatedAt** —— 不只是 invalidAt:
 		// 作废时把 updatedAt 设成了 max(now, 旧值+1), 所以它可能正好是 invalidAt+1;
 		// 只按 invalidAt+1 还原会与磁盘上那份**平局**, 而 core.newerMemory 平局时偏袒"已作废"
 		// ⇒ 还原被静默吃掉 (T29-B 实测踩到, 见 tmp-memcheck/probe-restore-rollback.mjs)
 		const base = Math.max(x.updatedAt ?? 0, x.invalidAt ?? 0)
-		return {...rest, updatedAt: Math.max(Date.now(), base + 1)}
+		return {...rest, sourceTs: Math.max(Date.now(), base + 1), updatedAt: Math.max(Date.now(), base + 1)}
 	})
+	store.memories = reconcileSelfFacts(store.memories)
 	persist()
 	return true
 }
@@ -901,7 +1006,7 @@ export const listFadedMemories = (): MemoryItem[] => {
 
 /** 「留下」一条被收起的记忆: 放回生效列表 (与作废还原同一套"严格递增 updatedAt"防平局逻辑) */
 export const restoreFadedMemory = (id: string): boolean => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const m = store.memories.find(x => x.id === id)
 	if (!m || !m.fadedAt) return false
 	store.memories = store.memories.map(x => {
@@ -941,9 +1046,9 @@ const stripFromExamples = (store: MemoryStoreData, content: string, alsoNeg: boo
 	else e.builtAt = Math.max((e.builtAt ?? 0) + 1, Date.now())
 }
 
-/** 手工收起一条 (条目行「收起」按钮): 与自动收起同语义, 可一键「留下」 */
+/** 手工收起只允许通过「留下」恢复，新的提取不会自动放回。 */
 export const fadeMemoryManually = (id: string): boolean => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const m = store.memories.find(x => x.id === id)
 	if (!m || !isActiveMemory(m)) return false
 	fadeItems(store, [m], "manual")
@@ -965,13 +1070,14 @@ export const listDeletedMemories = (): MemoryItem[] => {
  * 留着墓碑会让它在下次落盘合并时又被过滤掉 (表现为"还原了但重启又没了")。
  */
 export const restoreDeletedMemory = (id: string): boolean => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const bin = store.deletedBin ?? (store.deletedBin = [])
 	const idx = bin.findIndex(m => m.id === id)
 	if (idx < 0) return false
 	const {deletedAt: _d, ...item} = bin[idx]
 	bin.splice(idx, 1)
 	removeTombstone(id)
+	setContentAction(store, item, "restored")
 	store.memories = [
 		...store.memories,
 		{...item, updatedAt: Math.max(Date.now(), (item.updatedAt ?? item.createdAt ?? 0) + 1)},
@@ -982,12 +1088,16 @@ export const restoreDeletedMemory = (id: string): boolean => {
 
 /** 永久删除: 从回收站里也抹掉 (墓碑保留, 免得磁盘旧副本带回来); 同时把它从示例集里摘干净 */
 export const deleteMemoryForever = (id: string): boolean => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const bin = store.deletedBin ?? []
 	const item = bin.find(m => m.id === id)
 	const before = bin.length
 	store.deletedBin = bin.filter(m => m.id !== id)
 	if (store.deletedBin.length === before) return false
+	if (item) {
+		setContentAction(store, item, "purged")
+		suppressRelatedSummaries(store, item)
+	}
 	purgedIds.add(id)     // 磁盘上那份还没更新的回收站副本不许把它带回来 (见 adoptFromDisk)
 	markDeleted([{id}])   // 已经在墓碑里也无妨 (markDeleted 会去重)
 	// 你都点"永久删除"了: 正例/反例里都不该再留着它的文字 (用户 2026-09-29 明确要求)
@@ -998,12 +1108,23 @@ export const deleteMemoryForever = (id: string): boolean => {
 
 /**
  * 从用户消息提取记忆并入库存 (规则法 + 记忆合并). 返回本次"净新增"条数.
- * 合并: 与旧记忆高度重叠时升级旧记忆 (重要性取 max、时间刷新), 不重复堆叠.
+ * 合并：严格判定为同一说法时刷新旧记忆，不重复堆叠。
  */
 export const addMemoriesFromText = (text: string): number => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const before = store.memories.length
-	const res = applyMerge(store, extractMemories(text))
+	const liveAt = Math.max(Date.now(), store.memories.reduce((at, m) => Math.max(at, m.fadedAt ?? 0, m.sourceTs ?? 0), 0) + 1)
+	const already = store.memories.find(m => isActiveMemory(m) && isSameContent(m.content, text))
+	const fresh = extractMemories(text).map(m => ({...m, content: already?.content ?? m.content, sourceTs: liveAt, sourceKind: "rule" as const}))
+	// 只有当前用户的新指令可以撤销删除；旧对话整理永远不走这个入口。
+	if (/(?:记住|记着|别忘了|帮我记下|记一下)/.test(text)) {
+		for (const m of fresh) if ((m.tags ?? []).includes("explicit")) {
+			for (const old of store.deletedBin ?? []) if (textMentionsMemory(m.content, old)) removeTombstone(old.id)
+			setContentAction(store, m, "restored")
+			store.deletedBin = (store.deletedBin ?? []).filter(old => !textMentionsMemory(m.content, old))
+		}
+	}
+	const res = applyMerge(store, fresh)
 	if (res.changed) persist()
 	// 净新增 ≈ 长度差 (prune 可能删旧记忆, 仅作展示近似)
 	return Math.max(0, store.memories.length - before)
@@ -1167,6 +1288,7 @@ const invalidateReversals = (store: MemoryStoreData, fresh: MemoryItem[]): numbe
 		if (!it.content || !isActiveMemory(it)) continue
 		for (const old of store.memories) {
 			if (!isActiveMemory(old) || !old.content) continue   // 作废条不参与 (别重复计数)
+			if ((it.sourceTs ?? it.createdAt) < (old.sourceTs ?? old.createdAt)) continue
 			if (hit.has(old.id)) continue
 			// 同方向/无关的一律不动 (交给 merge 合并升级) —— 这条注释守着 T27 的反向守卫
 			if (isReversal(old.content, it.content)) hit.add(old.id)
@@ -1216,7 +1338,12 @@ const invalidateIntraBatchReversals = (fresh: MemoryItem[]): number => {
 /** 内部: 应用合并结果到 store (升级旧记忆 + 追加新增 + 类型化过期 + 遗忘清理).
  *  返回 {added 净新增条数, updated 被升级旧条数, changed 是否发生变化} —— 计数用于
  *  "记住了"气泡门控: 走 merge 兜底升级(如新说法更完整)也算 updated, 不然真升级不弹泡. */
+const writableItems = (store: MemoryStoreData, fresh: MemoryItem[]): MemoryItem[] =>
+	fresh.filter(it => !contentBlocked(store, it.content) && !store.memories.some(m =>
+		isSameContent(m.content, it.content) && (m.invalidAt ||
+			(m.fadedAt && (m.fadedReason === "manual" || (it.sourceTs ?? 0) <= m.fadedAt)))))
 const applyMerge = (store: MemoryStoreData, fresh: MemoryItem[]): {added: number; updated: number; changed: boolean; invalidated: number; expired: number; lowvalue: number; revived: number; addedItems: MemoryItem[]; updatedItems: MemoryItem[]} => {
+	fresh = writableItems(store, fresh)
 	// ① 改口消解 (先于 mergeMemories): 同一件事 + 方向相反 → 把**旧条作废**, 让最新方向落库.
 	// 必须在 merge 之前做: mergeMemories 的"取长保留"策略会把更长的旧方向当更完整,
 	// 导致用户改口("我不喜欢下雨天了"→"我喜欢下雨天")时方向反而保留旧的.
@@ -1225,9 +1352,8 @@ const applyMerge = (store: MemoryStoreData, fresh: MemoryItem[]): {added: number
 	//   - 由"真删(墓碑)"改为**作废**(可还原) —— 与 AI 决策 DELETE 的语义统一, 误判代价从"永久丢"降到"点一下";
 	//   - 判据从"偏好族 + 要求新旧都是 preference"放宽为 `isReversal`(偏好族 ∪ 意愿族, **跨类型**),
 	//     因为实机「我想养猫」(project) →「我不想养猫了」(preference) 被类型不一致整条漏掉 (见 isWillReversal 注释)。
-	const invalidated = invalidateReversals(store, fresh)
-	// ⓪ **再次被提到 = 复活**（2026-09-28）: 之前被"收起"的条目若又被说到, 先把它放回生效状态,
-	// 这样它就能正常参与下面的合并（用户担心的"误收起之后一点都不记了"由这条兜住）。
+	let invalidated = invalidateReversals(store, fresh)
+	// 自动收起只由收起之后的新证据恢复；手动收起保持不生效。
 	const revived = reviveFaded(store, fresh)
 	const {added, updated} = mergeMemories(fresh, store.memories)
 	if (updated.length) {
@@ -1237,6 +1363,9 @@ const applyMerge = (store: MemoryStoreData, fresh: MemoryItem[]): {added: number
 	if (added.length) {
 		store.memories = [...store.memories, ...added]
 	}
+	const beforeInvalid = store.memories.filter(m => !!m.invalidAt).length
+	store.memories = reconcileSelfFacts(store.memories)
+	invalidated += store.memories.filter(m => !!m.invalidAt).length - beforeInvalid
 	// 类型化到期 (④): 每次写库惰性处理过期的随口偏好/一次性事件 (显式记住永不参与)。
 	// **2026-09-28 改语义: 到期 = 收起(fadedAt), 不再真删** —— 用户明确担心误删之后彻底不记;
 	// 收起后仍在库里可见、「留下」一键可还原, 且叙事层面还有历史总结兜底。
@@ -1267,7 +1396,7 @@ const applyMerge = (store: MemoryStoreData, fresh: MemoryItem[]): {added: number
  *
  * 为什么不是删除：用户明确担心「误删掉之后模型一点都不记了」。收起后
  * ①仍在文件里（记忆库「已收起」折叠区可见、可一键「留下」）；
- * ②叙事层不受影响（历史总结照旧注入上下文）；
+ * ②命中该内容的已知摘要暂不注入，恢复后可重新使用；
  * ③与 `invalidAt` 分工清楚：作废=被新说法取代，收起=不再重要/太久没提。
  *
  * `updatedAt` 必须**严格大于**原值：双实例落盘合并按"最后改动时间"取胜，
@@ -1288,14 +1417,13 @@ const fadeItems = (store: MemoryStoreData, items: readonly MemoryItem[], reason:
 }
 
 /**
- * **再次被提到 = 复活**：把库里"已收起"的条目与这批新条目做同一件事比对，命中就放回生效状态。
- * 这样"误收起"不会变成"彻底忘掉" —— 用户再说一次它就回来了（并且会被 merge 正常升级）。
+ * 自动收起的条目由更晚的新证据恢复，旧批次和手动收起不会自动放回。
  * 只认"同一件事"（`isSameContent`，与写入合并同一把尺子）；作废条**不复活**（那是被推翻的旧说法）。
  * @returns 复活条数
  */
 const reviveFaded = (store: MemoryStoreData, fresh: readonly MemoryItem[]): number => {
 	if (!fresh.length) return 0
-	const faded = store.memories.filter(m => !!m.fadedAt && !m.invalidAt)
+	const faded = store.memories.filter(m => !!m.fadedAt && m.fadedReason !== "manual" && !m.invalidAt)
 	if (!faded.length) return 0
 	const now = Date.now()
 	const hits = new Set<string>()
@@ -1303,7 +1431,7 @@ const reviveFaded = (store: MemoryStoreData, fresh: readonly MemoryItem[]): numb
 		if (!f.content) continue
 		for (const it of fresh) {
 			if (!it.content) continue
-			if (isSameContent(f.content, it.content)) { hits.add(f.id); break }
+			if ((it.sourceTs ?? 0) > (f.fadedAt ?? 0) && isSameContent(f.content, it.content)) { hits.add(f.id); break }
 		}
 	}
 	if (!hits.size) return 0
@@ -1387,12 +1515,16 @@ export const addMemoriesWithLlm = async (
 	text: string,
 	llmCall: (prompt: string) => Promise<string>,
 ): Promise<number> => {
-	const store = load()
+	const store = syncMemoryFromDisk()
+	const generation = generationOf(store)
+	const evidenceAt = Date.now()
 	const before = store.memories.length
-	let changed = applyMerge(store, extractMemories(text)).changed
+	let changed = applyMerge(store, extractMemories(text).map(m => ({...m, sourceTs: evidenceAt, sourceKind: "rule" as const}))).changed
 	// LLM 提取 (可选增强, 失败/超时静默)
 	try {
-		changed = applyMerge(store, parseLlmMemories(await llmCall(buildLlmExtractPrompt(text)))).changed || changed
+		const raw = await llmCall(buildLlmExtractPrompt(text))
+		if (generationOf(syncMemoryFromDisk()) !== generation || store !== cache) return 0
+		changed = applyMerge(store, parseLlmMemories(raw).map(m => ({...m, sourceTs: evidenceAt, sourceKind: "llm" as const}))).changed || changed
 	} catch {
 		// 忽略
 	}
@@ -1450,7 +1582,10 @@ export const applyLlmMemoryDecision = async (
 	llmCall: (prompt: string) => Promise<string>,
 ): Promise<MemoryWriteResult> => {
 	if (!facts.length) return {added: 0, updated: 0, deleted: 0, invalidated: 0, usedLlm: false}
-	const store = load()
+	const store = syncMemoryFromDisk()
+	const generation = generationOf(store)
+	facts = writableItems(store, facts)
+	if (!facts.length) return {added: 0, updated: 0, deleted: 0, invalidated: 0, usedLlm: false}
 	/**
 	 * 参与判重/候选/归属的旧记忆池 —— **只含仍然有效的**。
 	 * 作废条 (invalidAt) 必须整体退出这条流水线, 否则三种事故都会发生:
@@ -1544,7 +1679,7 @@ export const applyLlmMemoryDecision = async (
 		}
 	}
 	const existing = [...candidates.values()].slice(0, DECISION_CANDIDATES)
-	// 决策前的"原文包含"归属 (兜底去重用, 见 3b): 记下"能 100% 确定新事实是旧条同一件事"
+	// 决策前的严格归一化归属 (兜底去重用, 见 3b): 记下可确定是同一说法的旧条
 	// 的那条旧记忆 id。必须在这里定下来 —— 决策的 UPDATE 会改写旧条文本, 事后现算会
 	// 把被改写的旧条认成"包含该事实", 于是新事实全被吸收、真正的新信息反而丢了。
 	const factOwner: (string | null)[] = facts.map(f => {
@@ -1582,6 +1717,9 @@ export const applyLlmMemoryDecision = async (
 	} catch {
 		decisions = []
 	}
+	if (generationOf(syncMemoryFromDisk()) !== generation || cache !== store) return {added: 0, updated: 0, deleted: 0, invalidated: 0, usedLlm: false}
+	// 等待期间被修改的候选不再接受旧决策，仍可走当前状态下的确定性合并。
+	if (existing.some(old => !store.memories.some(m => m.id === old.id && m.updatedAt === old.updatedAt && isActiveMemory(m)))) decisions = []
 	// 3a) 执行 UPDATE / DELETE (只认库内真实 id; "new" 与编造的 id 一律忽略)
 	let updated = 0
 	let deleted = 0
@@ -1619,6 +1757,10 @@ export const applyLlmMemoryDecision = async (
 			// 会按 merge 兜底 (只认原文包含) 又新增一条 (实测: 近重复场景 added=1)
 			if (d.event === "NONE") { resolvedIds.add(d.id); continue }
 			if (d.event !== "UPDATE" || !d.text) continue
+			if (!writableItems(store, [{...old, content: d.text, sourceTs: now}]).length) continue
+			const oldFact = selfFact(old.content), nextFact = selfFact(d.text)
+			// 单值改口应保留旧条，交给确定性写入作废，不能直接覆盖历史。
+			if (oldFact && nextFact && (oldFact.key !== nextFact.key || oldFact.value !== nextFact.value)) continue
 			// UPDATE 只在"新信息不比旧条少"时改写, 避免把更完整的旧记忆改写成更简的版本;
 			// 更简的改写请求不是"没判重", 而是"AI 认为这两条本来是一件事" ——
 			// 所以旧条不动 (它更全), 但**新事实也不算新增** (否则同一件事又并存两条)。
@@ -1638,7 +1780,8 @@ export const applyLlmMemoryDecision = async (
 		}
 		if (patch.size) {
 			store.memories = store.memories.map(m =>
-				patch.has(m.id) ? {...m, content: patch.get(m.id) as string, updatedAt: now} : m
+				patch.has(m.id) ? {...m, content: patch.get(m.id) as string, sourceKind: "llm" as const,
+					sourceTs: Math.max(...facts.map(f => f.sourceTs ?? f.createdAt)), updatedAt: Math.max(now, m.updatedAt + 1)} : m
 			)
 			updated = patch.size
 		}
@@ -1663,8 +1806,7 @@ export const applyLlmMemoryDecision = async (
 	}
 	// 3b) 未被 UPDATE 吸收的新事实入库 (与库内重叠的自动合并升级, 不会重复堆叠)
 	//
-	// 兜底去重: 决策漏判 (或压根没调决策) 时, 只要库里的旧条**原文包含**新事实
-	// (归一化后包含 = 100% 同一件事, 不需要语义判断), 就只强化旧条, 不算新增 ——
+	// 兜底去重: 决策漏判时，严格归一化相等的事实只刷新旧条，不算新增。
 	// 否则"重复说同一句话"又攒出一条一模一样的记忆。
 	// 判据在决策**改动库之前**就固定下来 (factOwner): UPDATE 会把旧条文本改写成新事实,
 	// 事后现算的话每个事实都能"找到"刚刚被改写出来的自己, 变成全部吸收。
@@ -1673,11 +1815,11 @@ export const applyLlmMemoryDecision = async (
 		const owner = factOwner[i]
 		if (!owner) continue
 		absorbed.add(i)
-		store.memories = store.memories.map(m => m.id === owner ? {...m, updatedAt: Date.now()} : m)
+		store.memories = store.memories.map(m => m.id === owner ? {...m, updatedAt: Math.max(Date.now(), m.updatedAt + 1)} : m)
 	}
 	const toWrite = absorbed.size ? facts.filter((_, i) => !absorbed.has(i)) : facts
 	const mres = toWrite.length ? applyMerge(store, toWrite) : {added: 0, updated: 0, changed: false, invalidated: 0}
-	if (mres.changed) persist()
+	if (mres.changed || updated || deleted || invalidated || absorbed.size) persist()
 	// updated = 决策改写 + merge 升级 (新说法更完整时走 merge, 也该算"改写"供气泡门控)
 	return {
 		added: mres.added, updated: updated + mres.updated, deleted,
@@ -1702,6 +1844,8 @@ export const extractMemoriesSmart = async (
 	recentContext: {role: string; content: string}[] = [],
 ): Promise<SmartExtractResult> => {
 	const result: SmartExtractResult = {added: 0, updated: 0, deleted: 0, invalidated: 0, usedLlm: false, tips: []}
+	const generation = generationOf(syncMemoryFromDisk())
+	const evidenceAt = Date.now()
 	// 1) 规则通道 (免费, 永远跑)
 	try {
 		const ruleItems = extractMemories(userText)
@@ -1714,7 +1858,8 @@ export const extractMemoriesSmart = async (
 	if (!llmCall || shouldSkipLlmExtract(userText)) return result
 	try {
 		const raw = await llmCall(buildLlmExtractPrompt(userText, recentContext))
-		const facts = parseLlmMemories(raw)
+		if (generationOf(syncMemoryFromDisk()) !== generation) return result
+		const facts = parseLlmMemories(raw).map(m => ({...m, sourceTs: evidenceAt, sourceKind: "llm" as const}))
 		if (!facts.length) return result
 		const write = await applyLlmMemoryDecision(facts, llmCall)
 		result.added += write.added
@@ -1756,65 +1901,102 @@ export const pruneStalePreview = (staleDays = 30, minImportance = 0.6): number =
  * @returns 本次删除条数
  */
 export const pruneStaleMemories = (staleDays = 30, minImportance = 0.6): number => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const drop = staleDrop(store, staleDays, minImportance)
 	if (!drop.length) return 0
-	markDeleted(drop)
-	const dropIds = new Set(drop.map(d => d.id))
-	store.memories = store.memories.filter(it => !dropIds.has(it.id))
-	pruneBlockRefs(store)   // 低频清理也要清块里的悬空引用 (被清掉的条目不该还挂在块上)
+	fadeItems(store, drop, "lowvalue")
 	persist()
 	return drop.length
 }
 
 /**
- * 按当前用户消息召回相关记忆.
- * 命中会更新强化信息 (lastAccessedAt/accessCount) 并持久化.
- * @returns 注入上下文的 system 块文本 (空串 = 无相关记忆)
+ * 只读召回候选；真正发送前重新校验，发送后按请求编号计数。
  */
-export const recallForQuery = (query: string): string => {
-	const store = load()
-	if (!store.memories.length) return ""
-	// 取数与渲染数必须一致: recallMemories 默认取 8 条, 而 buildMemoryBlock 只渲染 6 条,
-	// 多出来的第 7、8 名从未进过上下文却照样 accessCount+1 —— 而 accessCount 既参与
-	// pruneMemories 的价值评分, 又是 expireMemories 的免死条件 (>=2 则不过期),
-	// 等于给"没被用过的记忆"发免死金牌, 真正被用过的反而更容易被裁掉。
-	//
-	// A2 (2026-10-08): 第四个参数 = **注入侧**多样性配额 (identity/core 至少 1 条 + 同 type ≤2)。
-	// 只有读侧传 true; 写入侧挑判重候选仍走纯按分取前 N (配额会削弱判重)。
-	const primary = recallMemories(store.memories, query, MEMORY_BLOCK_LIMIT, true)
-	const considered = store.memories.filter(isActiveMemory).length
-	// A1 (2026-10-08) 兜底: **正文词面一条都没命中**时才改用关键词/别名找。
-	// 只加不抢 —— 主路径有命中时它根本不跑, 泛词不可能挤掉真相关的。
-	let ranked = primary.ranked
-	let matched = primary.matched
-	let source: MemInjectSource = "keyword"
-	let note = ""
-	if (!primary.hits.length) {
-		const byKw = recallMemoriesByKeywords(store.memories, query, KW_FALLBACK_LIMIT)
-		if (byKw.hits.length) {
-			ranked = byKw.ranked
-			matched = byKw.matched
-			source = "keyword-kw"
-		} else {
-			note = considered ? "正文与别名都没命中" : "库里没有生效记忆"
-		}
-	}
-	const picked = ranked.map(r => r.item)
-	if (!picked.length) {
-		// A3: **没召回**这件事本身也要留痕 —— 否则"她怎么不记得"永远只能猜
-		diagInject(source, query, MEMORY_BLOCK_LIMIT, [], considered, matched, note)
-		return ""
-	}
-	// 强化只发给**真正进上下文**的那几条 (kw 兜底命中的也算被用到: 它确实被注入并影响了回复)
-	const hitIds = new Set(picked.map(p => p.id))
-	store.memories = store.memories.map(m =>
-		hitIds.has(m.id) ? {...m, lastAccessedAt: Date.now(), accessCount: m.accessCount + 1} : m
-	)
-	persist()
-	diagInject(source, query, MEMORY_BLOCK_LIMIT, ranked, considered, matched, note)
-	return buildMemoryBlock(picked, MEMORY_BLOCK_LIMIT)
+export interface MemoryRecall {
+	query: string
+	generation: string
+	limit: number
+	ranked: {item: MemoryItem; score: number}[]
+	considered: number
+	matched: number
+	source: MemInjectSource
+	note: string
+	historical?: boolean
 }
+
+export const historicalFactKey = (query: string): string | null => {
+	if (!/以前|过去|原来|曾经|之前|旧/.test(query)) return null
+	if (/名字|叫什么|称呼/.test(query)) return "self:name"
+	if (/住在|居住|住哪|城市/.test(query)) return "self:home"
+	if (/生日/.test(query)) return "self:birthday"
+	return null
+}
+const recallPool = (store: MemoryStoreData, query: string): MemoryItem[] => {
+	const key = historicalFactKey(query)
+	return store.memories.filter(m => !contentBlocked(store, m.content) && (isActiveMemory(m) ||
+		(!!key && !!m.invalidAt && !m.fadedAt && selfFact(m.content)?.key === key)))
+		.map(m => m.invalidAt ? {...m, invalidAt: undefined} : m)
+}
+
+/** 候选选择不更新次数、不记录已发送。 */
+export const selectRecall = (query: string): MemoryRecall => {
+	const store = syncMemoryFromDisk()
+	const pool = recallPool(store, query)
+	const primary = recallMemories(pool, query, MEMORY_BLOCK_LIMIT + KW_FALLBACK_LIMIT, true)
+	const aliases = recallMemoriesByKeywords(pool, query, KW_FALLBACK_LIMIT)
+	const candidates = new Map(primary.ranked.map(r => [r.item.id, r]))
+	for (const r of aliases.ranked) if (!candidates.has(r.item.id)) candidates.set(r.item.id, r)
+	let ranked = diversifyHits([...candidates.values()].sort((a, b) => b.score - a.score), MEMORY_BLOCK_LIMIT)
+	let matched = candidates.size
+	let source: MemInjectSource = "keyword"
+	if (!primary.ranked.length && aliases.ranked.length) source = "keyword-kw"
+	const factKey = historicalFactKey(query) ?? (/(?:我|主人|用户)/.test(query)
+		? /名字|叫什么|称呼|姓名/.test(query) ? "self:name" : /住哪|住在|居住|住哪里/.test(query)
+			? "self:home" : /生日/.test(query) ? "self:birthday" : null : null)
+	if (factKey) {
+		const direct = pool.filter(m => selfFact(m.content)?.key === factKey)
+		for (const m of direct) if (!ranked.some(r => r.item.id === m.id)) ranked.push({item: m, score: m.importance})
+		ranked = ranked.slice(0, MEMORY_BLOCK_LIMIT)
+		matched = Math.max(matched, direct.length)
+	}
+	return {query, generation: generationOf(store), limit: MEMORY_BLOCK_LIMIT, ranked,
+		considered: pool.length, matched, source, historical: !!historicalFactKey(query),
+		note: ranked.length ? "" : pool.length ? "正文与别名都没命中" : "库里没有生效记忆"}
+}
+
+/** 在真正发起请求前按 id 重新读取；整条放入预算，避免计数未发送的尾部。 */
+export const materializeRecall = (selection: MemoryRecall, maxChars = 1800): {text: string; ids: string[]} => {
+	const store = syncMemoryFromDisk()
+	if (generationOf(store) !== selection.generation) return {text: "", ids: []}
+	const items: MemoryItem[] = []
+	for (const {item} of selection.ranked.slice(0, selection.limit)) {
+		const current = store.memories.find(m => m.id === item.id)
+		if (!current || contentBlocked(store, current.content) || current.fadedAt) continue
+		if (current.invalidAt && !(selection.historical && selfFact(current.content)?.key === historicalFactKey(selection.query))) continue
+		const rendered = current.invalidAt ? {...current, content: `${current.content}（已作废的旧说法，仅供历史回顾）`} : current
+		if (buildMemoryBlock([...items, rendered], selection.limit).length <= maxChars) items.push(rendered)
+	}
+	return {text: buildMemoryBlock(items, selection.limit), ids: items.map(m => m.id)}
+}
+const dispatchedRecalls = new Set<string>()
+/** 调用桥成功接受请求后提交一次，开场仍不强化。 */
+export const commitRecall = (selection: MemoryRecall, requestId: string, sentIds: string[]): void => {
+	if (dispatchedRecalls.has(requestId)) return
+	dispatchedRecalls.add(requestId)
+	if (dispatchedRecalls.size > 500) dispatchedRecalls.delete(dispatchedRecalls.values().next().value!)
+	const store = syncMemoryFromDisk()
+	if (generationOf(store) !== selection.generation) return
+	const ids = new Set(sentIds)
+	const ranked = selection.ranked.filter(r => ids.has(r.item.id))
+	if (selection.source !== "opening" && ids.size) {
+		store.memories = store.memories.map(m => ids.has(m.id) ? {...m, lastAccessedAt: Date.now(), accessCount: m.accessCount + 1} : m)
+		persist()
+	}
+	diagInject(selection.source, selection.query, selection.limit, ranked, selection.considered,
+		selection.matched, selection.note)
+}
+/** 字符串接口兼容旧调用方，保持只读。 */
+export const recallForQuery = (query: string): string => materializeRecall(selectRecall(query)).text
 
 /**
  * LLM 语义召回 (①): 用 LLM 判断真正相关的记忆, 解决关键词字面匹配抓不到
@@ -1828,21 +2010,22 @@ export const recallForQuery = (query: string): string => {
  * @param topK 最多注入几条 (LLM 命中 + 关键词兜底合并后取前 topK)
  * @returns 注入上下文的 system 块 (空串 = 无)
  */
-export const recallForQuerySmart = async (
+export const selectRecallSmart = async (
 	query: string,
 	llmCall: (prompt: string) => Promise<string>,
 	topK = MEMORY_BLOCK_LIMIT,
-): Promise<string> => {
-	const store = load()
-	if (!store.memories.length) return ""
+): Promise<MemoryRecall> => {
+	const store = syncMemoryFromDisk()
+	const fallback = selectRecall(query)
+	if (!store.memories.length) return fallback
 	// 只拿**有效**记忆当候选: 作废条从这里漏出去就会又被注入 (它连"高重要/最新"两路
 	// 粗筛都能进, 与 openingMemoryBlock 同一个坑)
-	const all = store.memories.filter(isActiveMemory)
-	if (!all.length) return ""
+	const all = recallPool(store, query)
+	if (!all.length) return fallback
 	let picked: MemoryItem[] = []
 	let llmOk = false // LLM 成功返回 (即使无命中)
 	// 1) LLM 判断 (候选过多时先按关键词粗筛到 Top 20, 控制 prompt 长度)
-	//    带超时: LLM 慢/挂起时 8s 后放弃 → 走关键词降级, 避免对话卡死
+	//    带超时: LLM 慢/挂起时 3s 后放弃 → 走关键词降级, 避免对话卡死
 	try {
 		// 候选筛选: 全量 ≤20 时全给 LLM; 超量时混合取 (关键词 Top + 最新 + 高重要),
 		// 避免只按关键词粗筛导致"指代性提问"把真相关记忆筛掉
@@ -1850,51 +2033,29 @@ export const recallForQuerySmart = async (
 		if (all.length <= 20) {
 			pre = all
 		} else {
-			const kw = recallMemories(all, query, 15, true).hits
-			const byNew = [...all].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6)
-			const byImp = [...all].sort((a, b) => b.importance - a.importance).slice(0, 6)
+			// 正文和别名的并集先进入候选，最近/重要条目只补充剩余位置。
+			const relevant = [...fallback.ranked.map(r => r.item), ...recallMemories(all, query, 12, true).hits,
+				...recallMemoriesByKeywords(all, query).hits]
+			const byNew = [...all].sort((a, b) => b.createdAt - a.createdAt).slice(0, 4)
+			const byImp = [...all].sort((a, b) => b.importance - a.importance).slice(0, 4)
 			const seen = new Set<string>()
 			pre = []
-			for (const m of [...kw, ...byNew, ...byImp]) {
+			for (const m of [...relevant, ...byNew, ...byImp]) {
 				if (!seen.has(m.id)) { seen.add(m.id); pre.push(m) }
 				if (pre.length >= 20) break
 			}
 		}
 		if (pre.length) {
 			const raw = await withTimeout(llmCall(buildLlmRelevancePrompt(query, pre.map(m => ({id: m.id, content: m.content})))), LLM_TIMEOUT_MS)
-			llmOk = true
 			const valid = new Set(pre.map(m => m.id))
-			const llmIds = parseLlmRelevance(raw, valid)
+			const parsed = parseLlmRelevanceResult(raw, valid)
+			llmOk = parsed.ok
+			const llmIds = parsed.ids
 			// 保持 LLM 输出顺序, 只取有效的
 			picked = llmIds.map(id => all.find(m => m.id === id)).filter((m): m is MemoryItem => !!m)
 		}
 	} catch { /* LLM 失败/超时 → llmOk=false → 走关键词兜底 */ }
-	// 2) 降级/补漏:
-	//    - LLM 失败/超时 → 用关键词完整兜底 (保底可用);
-	//    - LLM 成功但空结果 → 只补"字面强命中"的 ≤2 条 (关键词分很高才算强, 防弱噪音,
-	//      也避免 LLM 误判把铁相关的记忆丢掉)
-	if (!llmOk && picked.length < 3) {
-		const kw = recallMemories(all, query, topK, true).hits
-		for (const m of kw) {
-			if (!picked.some(p => p.id === m.id)) picked.push(m)
-			if (picked.length >= topK) break
-		}
-	} else if (llmOk && picked.length === 0) {
-		// 关键词强命中: 分数 > 1.5 (明显字面重叠 + 较高重要度) 才补, 最多 2 条。
-		// 与 recallMemories 同一道相关性门槛: 先把词面重叠为 0 的记忆排除,
-		// 否则"高重要 + 新鲜"的无关记忆也可能靠静态分进入注入上下文。
-		const qt = tokenize(query)
-		const scored = all
-			.filter(m => overlapCount(qt, m) > 0)
-			.map(m => ({m, score: scoreMemory(qt, m, Date.now())}))
-			.filter(s => s.score > 1.5)
-			.sort((a, b) => b.score - a.score)
-		for (const {m} of scored.slice(0, 2)) {
-			if (!picked.some(p => p.id === m.id)) picked.push(m)
-		}
-	}
-	// 统一收敛到"实际会渲染的条数": 调用方若传了比渲染上限更大的 topK,
-	// 多出来的条目会只被强化却进不了上下文 (与 recallForQuery 曾经的 8/6 不一致同源)
+	// A valid empty selection stays empty; only failures use lexical fallback.
 	const effectiveLimit = Math.min(topK, MEMORY_BLOCK_LIMIT)
 	picked = picked.slice(0, effectiveLimit)
 	// A3: 得分的计算必须在**强化之前**做 —— 那才是"被选中时的依据";
@@ -1902,23 +2063,12 @@ export const recallForQuerySmart = async (
 	const scoreTokens = tokenize(query)
 	const rankedSmart = picked.map(item => ({item, score: scoreMemory(scoreTokens, item, Date.now())}))
 	const sourceSmart: MemInjectSource = llmOk ? "smart-llm" : "smart-fallback"
-	if (!picked.length) {
-		diagInject(sourceSmart, query, effectiveLimit, [], all.length, 0,
-			llmOk ? "AI 判定没有相关记忆" : "AI 召回失败/超时, 关键词也无命中")
-		return ""
-	}
-	// 3) 更新强化信息 (lastAccessedAt/accessCount) 并持久化.
-	//    从"当前 store.memories"出发而不是 await 前捕获的 all: LLM 调用期间
-	//    adoptFromDisk 可能已把另一实例的写入合并进来, 按旧 all 全量回写会把它们抹掉
-	const hitIds = new Set(picked.map(p => p.id))
-	store.memories = store.memories.map(m =>
-		hitIds.has(m.id) ? {...m, lastAccessedAt: Date.now(), accessCount: m.accessCount + 1} : m
-	)
-	persist()
-	diagInject(sourceSmart, query, effectiveLimit, rankedSmart, all.length, picked.length,
-		llmOk ? "" : "AI 召回失败/超时 → 关键词降级")
-	return buildMemoryBlock(picked, MEMORY_BLOCK_LIMIT)
+	if (!llmOk) return {...fallback, source: "smart-fallback", note: "AI 召回失败/超时 → 关键词降级"}
+	return {...fallback, limit: effectiveLimit, ranked: rankedSmart, source: sourceSmart,
+		matched: picked.length, note: picked.length ? "" : "AI 判定没有相关记忆"}
 }
+export const recallForQuerySmart = async (query: string, llmCall: (prompt: string) => Promise<string>, topK = MEMORY_BLOCK_LIMIT): Promise<string> =>
+	materializeRecall(await selectRecallSmart(query, llmCall, topK)).text
 
 /** 开场注入的条数上限（**语音会话开始**这类"没有当前提问"的场合用） */
 const OPENING_LIMIT = 8
@@ -1941,9 +2091,8 @@ const OPENING_LIMIT = 8
  * 开场注入每次会话都会发生；如果算强化，同一批高分记忆会被反复加分、永远霸榜（价值评分灌水），
  * 真正"这次被问到"的记忆反而挤不进来。⇒ 开场块**只读**，强化留给真正的按需召回。
  */
-export const openingMemoryBlock = (query = "", limit = OPENING_LIMIT): string => {
-	const store = load()
-	if (!store.memories.length) return ""
+export const selectOpeningRecall = (query = "", limit = OPENING_LIMIT): MemoryRecall => {
+	const store = syncMemoryFromDisk()
 	const picked: MemoryItem[] = []
 	/** A3: 与 picked 一一对应的"选择依据" —— 召回路 = 相关性得分, 身份保底路 = 重要度 */
 	const ranked: {item: MemoryItem; score: number}[] = []
@@ -1970,17 +2119,20 @@ export const openingMemoryBlock = (query = "", limit = OPENING_LIMIT): string =>
 	}
 	// A3: 开场注入以往完全不可见 —— 而"开场她到底知不知道我是谁"恰恰是这个函数存在的理由
 	const considered = store.memories.filter(isActiveMemory).length
-	diagInject("opening", q, limit, ranked, considered, picked.length,
-		picked.length ? "开场注入: 只读不强化, 排序依据 = identity/重要度" : "开场没有可注入的记忆")
-	return buildMemoryBlock(picked, limit)
+	return {query: q, generation: generationOf(store), limit, ranked, considered, matched: picked.length,
+		source: "opening", note: "开场注入：只读不强化"}
 }
+export const openingMemoryBlock = (query = "", limit = OPENING_LIMIT): string =>
+	materializeRecall(selectOpeningRecall(query, limit)).text
 
 /**
  * 读取当前可注入的历史总结块 (空串 = 无)
  */
-export const summaryBlock = (timeAware = false): string => {
-	const store = load()
-	return buildSummaryBlock(store.summaries, {metas: store.meta ?? [], timeAware})
+export const summaryBlock = (timeAware = false, historical = false): string => {
+	const store = syncMemoryFromDisk()
+	const usable = (list: MemorySummary[]): MemorySummary[] => list
+		.map(s => filteredSummary(store, s, historical)).filter((s): s is MemorySummary => !!s)
+	return buildSummaryBlock(usable(store.summaries), {metas: usable(store.meta ?? []), timeAware})
 }
 
 /**
@@ -2013,13 +2165,13 @@ const splitSummaryKeys = (text: string): {summaryText: string; keyFacts: string[
  * 为什么需要: 作废 (invalidAt) 只让旧条**不再注入**, 条目本身还留在库里。而摘要要点是从
  * **旧对话**里再提取一遍的 —— 那段旧对话里往往还留着被纠正掉的旧说法 (「我叫小明」),
  * 回流时会重新造出一条**活的**记忆, 把刚纠正完的事实又顶回去 (实测复现见
- * tmp-memcheck/run-tests.mjs T29 组)。判据用原文包含 (isSameContent), 与写入合并同一把尺子。
+ * tmp-memcheck/run-tests.mjs T29 组)。判据用严格归一化相等，与写入合并同一把尺子。
  *
  * 只挡自动回流, **不挡用户当场再说一遍** —— 用户主动改回来是合法意图 (那条路径走正常写入,
  * 另有「还原」按钮可用)。
  */
 const matchesInvalidated = (store: MemoryStoreData, content: string): boolean =>
-	store.memories.some(m => !isActiveMemory(m) && isSameContent(m.content, content))
+	contentBlocked(store, content) || store.memories.some(m => !!m.invalidAt && isSameContent(m.content, content))
 
 /**
  * 喂给摘要提示词的「已经记住的内容」(去重方案 ④, 2026-09-28)。
@@ -2057,8 +2209,8 @@ const knownMemoryList = (store: MemoryStoreData): string[] => {
  * 用户的想法: 记忆库给一个「整理优化」按钮 + 「自动优化」开关（默认关），
  * 每隔若干条入库就把库里已有记忆提炼成**示例**，写进整理提示词当 few-shot。
  *
- * 为什么这样有效: 例子来自**主人自己保留的**（正例）与**主人删掉的**（反例，来自回收站）
- * —— 这是最强的口味信号，比任何写死的规则都准；而且**零额外调用**（例子就是记忆原文）。
+ * 正例来自生效记忆；反例须显式标记，普通删除/收起不代表不该记这一类。
+ * 不额外调用模型，示例只供整理阶段使用。
  * 为什么默认关: 早期库里若还堆着垃圾，例子会把垃圾风味固化 ⇒ 首次使用要提示主人先自己过一遍。
  */
 /** 生效记忆少于这个数不生成示例 (样本太小, 学出来的口味没意义) */
@@ -2072,6 +2224,7 @@ const EXAMPLE_ITEM_CHARS = 24
 const EXAMPLE_TOTAL_CHARS = 400
 
 export interface MemoryExamples {
+	policyVersion?: number
 	builtAt: number
 	basedOn: number
 	pos: string[]
@@ -2103,9 +2256,11 @@ const pickExamplePos = (store: MemoryStoreData): string[] => {
 	return out
 }
 
-/** 反例候选: 回收站里"主人删掉的"内容 (最近删的优先) */
+/** 反例候选：回收站内显式标记为反例的内容，最近的优先。 */
 const pickExampleNeg = (store: MemoryStoreData): string[] => {
-	const bin = [...(store.deletedBin ?? [])].sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0))
+	// 删除可能表示重复、过时或隐私，不能推断为「这类不该记」。只保留未来明确标记的反例。
+	const bin = [...(store.deletedBin ?? [])].filter(m => (m.tags ?? []).includes("negative-example"))
+		.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0))
 	const out: string[] = []
 	const seen = new Set<string>()
 	for (const m of bin) {
@@ -2128,7 +2283,7 @@ export const getMemoryExamples = (): MemoryExamples | null => {
 /**
  * 重建示例集 (「立即优化」按钮 / 自动模式触发)。
  * 冷启动保护: 生效记忆 < `EXAMPLE_COLD_START` 条 → 不生成 (返回 false)。
- * 反例来自回收站; 回收站空着就只有正例 (照样有用)。
+ * 没有显式标记的反例时只生成正例。
  */
 export const rebuildMemoryExamples = (): boolean => {
 	const store = load()
@@ -2146,7 +2301,7 @@ export const rebuildMemoryExamples = (): boolean => {
 		used += s.length
 		return true
 	})
-	store.exampleSet = {builtAt: Date.now(), basedOn: active.length, pos, neg: negFit}
+	store.exampleSet = {policyVersion: 2, builtAt: Date.now(), basedOn: active.length, pos, neg: negFit}
 	persist()
 	console.log(`[mem] 示例已重建: 正例 ${pos.length} 条 / 反例 ${negFit.length} 条`)
 	return true
@@ -2239,25 +2394,52 @@ export const summarizeIfNeeded = async (
 	const disk = tryParse(diskRaw)
 	if (disk && disk.summarizedMsgCount > store.summarizedMsgCount) {
 		adoptFromDisk(disk)
-		return summarizeIfNeeded(messages, summarizeCall)
+		return summarizeIfNeeded(messages, summarizeCall, withMemoryBlock, force)
 	}
 	// 只取新增区间里最旧的 MAX_SUMMARIZE_BATCH 条 (按时间正序)
-	const batch = Math.min(pending, MAX_SUMMARIZE_BATCH)
+	let batch = Math.min(pending, MAX_SUMMARIZE_BATCH)
+	let chars = 0
+	for (let i = 0; i < batch; i++) {
+		chars += messages[start + i]!.content.length
+		if (chars > 9000 && i > 0) { batch = i; break }
+	}
 	const newer = messages.slice(start, start + batch)
-	const prompt = buildSummaryPrompt(
-		newer,
-		withMemoryBlock,
-		withMemoryBlock ? knownMemoryList(store) : [],
-		withMemoryBlock ? store.exampleSet : null,
-	)
+	const batchId = summaryIdFor(newer, start)
+	if (!force && store.organizeRetry?.id === batchId && !store.organizeRetry.ok && store.organizeRetry.attempts >= 3) {
+		const status = store.summaries.some(s => s.id === batchId) ? "部分完成" : "未完成"
+		noteOrganize(false, `${status}：整理已失败 3 次，原文保留；可点立即整理重试`)
+		return false
+	}
+	const recordAttempt = (ok: boolean): void => {
+		store.organizeRetry = {id: batchId, attempts: (store.organizeRetry?.id === batchId ? store.organizeRetry.attempts : 0) + 1,
+			at: Math.max(Date.now(), (store.organizeRetry?.at ?? 0) + 1), ok}
+	}
+	const pieces: typeof newer[] = newer.length === 1 && newer[0]!.content.length > 9000
+		? Array.from({length: Math.ceil(newer[0]!.content.length / 9000)}, (_, i) => [{...newer[0]!, content: newer[0]!.content.slice(i * 9000, (i + 1) * 9000)}]) : [newer]
+	if (pieces.length > 8) { noteOrganize(false, "单条消息过长，原文保留，请分段整理"); return false }
+	// 整理输入剔除已删除事实；收起事实保留原文和之后新证据的恢复通路。
+	const prompts = pieces.map(piece => buildSummaryPrompt(piece.map(msg => ({...msg,
+		content: filterDeletedText(store, msg.content)})), withMemoryBlock,
+		withMemoryBlock ? knownMemoryList(store) : [], withMemoryBlock ? store.exampleSet : null))
+	const prompt = prompts[0]!
+	const generation = generationOf(store)
 	let content = ""
+	const outputs: string[] = []
 	try {
-		content = (await summarizeCall(prompt)).trim()
+		for (const part of prompts) {
+			outputs.push((await summarizeCall(part)).trim())
+			if (generationOf(syncMemoryFromDisk()) !== generation || cache !== store) return false
+		}
+		content = outputs.join("\n")
 	} catch (e) {
+		if (generationOf(syncMemoryFromDisk()) !== generation || cache !== store) return false
+		recordAttempt(false)
+		persist()
 		// A3: 整理失败此前**完全静默** —— 记下来再原样抛出 (调用方的错误处理路径一个字不变)
 		noteOrganize(false, `调用失败: ${e instanceof Error ? e.message : String(e)}`.slice(0, 120))
 		throw e
 	}
+	if (generationOf(syncMemoryFromDisk()) !== generation || cache !== store) return false
 	/* 诊断日志 (P1) 的公共字段: 提示词与原始输出 —— 开关关着时 recordOrganize 直接返回, 零开销 */
 	const diagBase = {
 		msgs: batch,
@@ -2268,16 +2450,21 @@ export const summarizeIfNeeded = async (
 		raw: content.slice(0, DIAG_RAW_MAX),
 	}
 	if (!content) {
+		recordAttempt(false)
+		persist()
 		recordOrganize({...diagBase, topic: "", items: [], gated: [], deadLink: [], write: {...NO_WRITE},
 			summaryChars: 0, blockId: null, lib: diagLibSnapshot(store), note: "模型返回空"})
 		noteOrganize(false, "模型返回空")
 		return false
 	}
 	// ⑩ 摘要/记忆块两段式解析 (P2): 摘要本体只存纯叙述 (注入上下文干净), 记忆块进结构化记忆
-	const parsedBlock = parseBlockOutput(content)
+	const parsedParts = outputs.map(parseBlockOutput)
+	const extractionOk = !withMemoryBlock || parsedParts.every(p => p.status === "valid")
+	const parsedBlock = {summaryText: parsedParts.map(p => p.summaryText).join("\n"),
+		topic: parsedParts.map(p => p.topic).filter(Boolean).join("、").slice(0, 16), items: parsedParts.flatMap(p => p.items)}
 	// 摘要优先: 哨兵后什么都没有也必须有摘要文本 (模型只答了一半时不能把摘要丢了)
-	const {summaryText, keyFacts} = splitSummaryKeys(parsedBlock.summaryText || content)
-	let storedText = summaryText
+	const {summaryText, keyFacts} = splitSummaryKeys(parsedBlock.summaryText)
+	const storedText = filterDeletedText(store, summaryText)
 	// 条目来源: ① 记忆块 JSON (主通道) → ② 「记忆要点」文本 (降级通道, 兼容旧格式/模型不听话)
 	const blockItems = parsedBlock.items
 	// **写入门槛 (S2)**: 提示词之外的确定性兜底 —— 一次性事件/低重要度的"垃圾"不进长期记忆。
@@ -2295,13 +2482,16 @@ export const summarizeIfNeeded = async (
 			if (matchesInvalidated(store, it.content)) { deadLink.push(it.content); continue }
 			// 显式要求记住的给 core 类型 ⇒ decayDays=null (永不衰减), 与规则通道的 explicit 同效
 			// A1: `kw` 必须**一起带过来** —— 少了它等于关键词/别名解析完就扔, A1 白做
-			fresh.push(makeMemoryItem({content: it.content, type: it.type, importance: it.importance, kw: it.kw}))
+			const m = makeMemoryItem({content: it.content, type: it.type, importance: it.importance, kw: it.kw, tags: ["llm"]})
+			const evidence = [...newer].reverse().find(msg => msg.role === "user" && textMentionsMemory(msg.content, m))
+			fresh.push({...m, sourceKind: "llm", sourceTs: evidence?.ts ?? newer[newer.length - 1]?.ts ?? 0,
+				sourceFromTs: newer[0]?.ts ?? 0})
 		}
 	} else if (!blockItems.length && keyFacts.length) {
 		for (const fact of keyFacts) {
 			for (const it of extractMemories(fact)) {
 				if (matchesInvalidated(store, it.content)) { deadLink.push(it.content); continue }
-				fresh.push(it)
+				fresh.push({...it, sourceKind: "rule", sourceTs: newer[newer.length - 1]?.ts ?? 0, sourceFromTs: newer[0]?.ts ?? 0})
 			}
 		}
 	}
@@ -2309,7 +2499,8 @@ export const summarizeIfNeeded = async (
 	let write = {...NO_WRITE}
 	let diagBlockId: string | null = null
 	let diagNote = ""
-	if (!blockItems.length) diagNote = keyFacts.length ? "记忆块 JSON 未解析出来 → 记忆要点文本通道" : "记忆块 JSON 未解析出来且无要点"
+	if (!blockItems.length) diagNote = withMemoryBlock && extractionOk ? "合法空记忆块" : keyFacts.length
+		? "记忆要点文本通道" : withMemoryBlock ? "记忆块 JSON 未解析出来且无要点" : "已生成摘要，无长期记忆要点"
 	if (worth.length) {
 		// 段内自相矛盾先按数组顺序定序作废 (模型没听话时的兜底, 见 invalidateIntraBatchReversals)
 		const intra = invalidateIntraBatchReversals(fresh)
@@ -2329,11 +2520,8 @@ export const summarizeIfNeeded = async (
 			expired: wres.expired, lowvalue: wres.lowvalue, revived: wres.revived}
 		diagBlockId = block.id
 		if (!fresh.length) {
-			// 全被**作废护栏**挡下 (注意: 被写入门槛挡下的不算 —— 那些本就是"不值得记"的,
-			// 不该再塞回摘要里添噪): 摘要尾部附上原要点, 信息不丢 (与文本通道同一兜底)
-			storedText = `${summaryText}\n${worth.map(i => i.content).join("；")}`
-			block.summary = storedText
-			diagNote = "候选全被作废护栏挡下 → 要点附回摘要"
+			// 状态护栏拒绝的候选不能再附回摘要。
+			diagNote = "候选全被状态护栏挡下"
 		} else {
 			console.log(`[mem] 记忆块已写入 ${block.id}: ${worth.length} 条候选 → 新增 ${wres.added} / 升级 ${wres.updated} / 作废 ${wres.invalidated + intra}`)
 		}
@@ -2341,9 +2529,6 @@ export const summarizeIfNeeded = async (
 		const mres = applyMerge(store, fresh)
 		write = {added: mres.added, updated: mres.updated, invalidated: mres.invalidated, intra: 0,
 			expired: mres.expired, lowvalue: mres.lowvalue, revived: mres.revived}
-	} else if (keyFacts.length) {
-		// 规则没接住任何要点 (或被作废护栏全挡下): 原文附在摘要尾部, 信息不丢
-		storedText = `${summaryText}\n${keyFacts.join("；")}`
 	}
 	// 摘要 id 用**消息时间戳**区间指纹: 双实例对同一区间并发总结时产出相同 id,
 	// 落盘合并按 id 去重只留一份。注意不能用下标 —— 自动裁剪会重排下标, 导致
@@ -2354,11 +2539,16 @@ export const summarizeIfNeeded = async (
 	// 这里按区间重叠判定, 命中就**用新的替换旧的**, 而不是并存两份。
 	replaceOverlappingSummary(store, newId)
 	store.summaries.push(makeSummary(storedText, batch, newId, messageTimeRange(newer)))
+	// 等待期间的删除也约束新摘要；被拒绝的候选不能通过叙事层重新进入上下文。
+	for (const candidate of blockItems) {
+		if (contentBlocked(store, candidate.content)) suppressRelatedSummaries(store, makeMemoryItem(candidate))
+	}
 	// ⑧ 条数上限: 超出丢最旧的 (被裁的登记墓碑, 防落盘合并时复活)
 	trimSummariesToMax()
 	// 取 max: await 摘要期间另一实例的游标可能已随磁盘合并进来, 别倒退覆盖。
 	// 累计口径 = 已裁剪条数 + 数组内下标 + 本批条数 (裁剪过的历史不在数组里, 必须加回来)
-	store.summarizedMsgCount = Math.max(store.summarizedMsgCount, (store.trimmedMsgCount ?? 0) + start + batch)
+	recordAttempt(extractionOk)
+	if (extractionOk) store.summarizedMsgCount = Math.max(store.summarizedMsgCount, (store.trimmedMsgCount ?? 0) + start + batch)
 	/* 诊断日志 (P1): 一条记录 = 一次整理的完整证据 (提示词/原始输出/解析/门槛挡了什么/写库结果/库状态) */
 	recordOrganize({
 		...diagBase,
@@ -2373,9 +2563,9 @@ export const summarizeIfNeeded = async (
 		note: diagNote,
 	})
 	// A3: 成功也登记一次 (带降级说明) —— 界面上"上次整理成功"与"最近一次怎么了"都靠它
-	noteOrganize(true, diagNote)
+	noteOrganize(extractionOk, extractionOk ? diagNote : "部分完成：摘要已保存，记忆块无效；原文保留待重试")
 	persist()
-	return true
+	return extractionOk
 }
 /**
  * 当前聊天数组里「下一个要摘要的消息」下标 (P5)。
@@ -2447,8 +2637,9 @@ export const contextHistory = <T extends {role: string; content: string; error?:
  * 与情感连贯靠它接得上, 成本只有十几个字。
  */
 export const recentTopicsBlock = (limit = 2): string => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const topics = (store.blocks ?? [])
+		.filter(b => summaryUsable(store, {id: b.id, content: `${b.topic}\n${b.summary}`}))
 		.slice(-limit)
 		.map(b => String(b.topic ?? "").trim())
 		.filter(Boolean)
@@ -2461,7 +2652,7 @@ export const recentTopicsBlock = (limit = 2): string => {
  * 清空全部记忆与摘要
  */
 export const clearMemory = (): void => {
-	const old = cache
+	const old = syncMemoryFromDisk()
 	if (old) {
 		markDeleted(old.memories)
 		markDeleted(old.summaries)
@@ -2469,9 +2660,12 @@ export const clearMemory = (): void => {
 		markDeleted(old.blocks ?? [])
 	}
 	// 清空时跳过落盘合并: 否则磁盘旧内容会被并回来, 等于没清
-	skipDiskMerge = true
+	skipDiskMerge = false
+	deletedIds.clear(); restoredIds.clear(); purgedIds.clear(); examplesCleared = false
 	cache = {
 		...EMPTY_MEMORY_STORE,
+		resetAt: Math.max(Date.now(), (old.resetAt ?? 0) + 1),
+		resetId: `reset-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 		memories: [],
 		summaries: [],
 		summarizedMsgCount: 0,
@@ -2506,16 +2700,21 @@ const hasPermanentTag = (m: MemoryItem): boolean =>
  * 墓碑照旧登记（防止磁盘上的旧副本在落盘合并时把它带回生效列表）。
  */
 export const deleteMemory = (id: string): boolean => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const idx = store.memories.findIndex(m => m.id === id)
 	if (idx < 0) return false
 	const [item] = store.memories.splice(idx, 1)
 	markDeleted([item])
+	setContentAction(store, item, "deleted")
 	const bin = store.deletedBin ?? (store.deletedBin = [])
 	bin.unshift({...item, deletedAt: Date.now()})
 	// 上限: 超出丢最旧的 (那些才是真正"永久删除"掉的)
 	if (bin.length > MAX_DELETED_BIN) {
 		bin.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0))
+		for (const m of bin.slice(MAX_DELETED_BIN)) {
+			setContentAction(store, m, "purged")
+			suppressRelatedSummaries(store, m)
+		}
 		store.deletedBin = bin.slice(0, MAX_DELETED_BIN)
 	}
 	pruneBlockRefs(store)   // 顺带清掉块里的悬空引用 (不等下次载入)
@@ -2532,7 +2731,7 @@ export const deleteMemory = (id: string): boolean => {
  * 刷新 updatedAt 保证双实例落盘合并取最新。
  */
 export const pinMemory = (id: string, pin: boolean): boolean => {
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const m = store.memories.find(x => x.id === id)
 	if (!m) return false
 	store.memories = store.memories.map(x => {
@@ -2566,7 +2765,7 @@ const BACKUP_FILE = "memory.before-clear.json"
 /** 清空/清理前调用: 把当前库快照存到固定备份文件 (覆盖最近一次), 供"撤销"恢复 */
 export const backupMemoryNow = (): boolean => {
 	try {
-		const store = load()
+		const store = syncMemoryFromDisk()
 		if (!store.memories.length && !store.summaries.length) return false
 		return writeFile(BACKUP_FILE, JSON.stringify(store))
 	} catch {
@@ -2589,8 +2788,12 @@ export const restoreMemoryBackup = (): boolean => {
 		const backup = tryParse(readFile(BACKUP_FILE))
 		if (!backup) return false
 		// 整体替换: 跳过落盘合并 (别把要恢复的旧内容又并掉), 清墓碑 (恢复即显式认可这些 id)
-		skipDiskMerge = true
+		const previous = syncMemoryFromDisk()
+		skipDiskMerge = false
 		deletedIds.clear()
+		restoredIds.clear(); purgedIds.clear(); examplesCleared = false
+		backup.resetAt = Math.max(Date.now(), (previous.resetAt ?? 0) + 1, (backup.resetAt ?? 0) + 1)
+		backup.resetId = `restore-${Date.now()}-${Math.random().toString(36).slice(2)}`
 		cache = backup
 		// 备份可能是重构前存的 (没有 blocks 字段): 就地补结构, 让内存里的库与载入路径一致。
 		// 传空 rawMain ⇒ 不写 v1 快照 (那份快照只对应 memory.json 的迁移, 不该被备份文件顶替)。
@@ -2622,7 +2825,7 @@ export const listGoals = (): MemoryItem[] => {
 export const addGoal = (text: string): boolean => {
 	const content = text.trim().slice(0, 120)
 	if (!content) return false
-	const store = load()
+	const store = syncMemoryFromDisk()
 	const item: MemoryItem = {
 		id: `g_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e9).toString(36)}`,
 		content,
@@ -2802,6 +3005,7 @@ export const pruneDoneGoals = async (
 	recent: {role: string; content: string}[] = [],
 ): Promise<string[]> => {
 	if (!llmCall) return []
+	const generation = generationOf(syncMemoryFromDisk())
 	const goals = listGoals()
 	if (!goals.length) return []
 	let raw = ""
@@ -2813,6 +3017,7 @@ export const pruneDoneGoals = async (
 	} catch {
 		return []   // 超时/失败: 不删
 	}
+	if (generationOf(syncMemoryFromDisk()) !== generation) return []
 	const valid = new Set(goals.map(g => g.id))
 	const hits = parseLlmGoalDone(raw, valid)
 	if (!hits.length) return []
@@ -2868,13 +3073,26 @@ export const __setSummaryCursorForTest = (n: number): void => {
  */
 export const __resetOrganizeStateForTest = (): void => { lastOrganize = null }
 
+/** 测试里的独立文件系统不代表真实的跨窗口重载，显式隔离会话状态。 */
+export const __resetMemorySessionForTest = (): void => {
+	if (persistTimer) clearTimeout(persistTimer)
+	if (retryTimer) clearTimeout(retryTimer)
+	persistTimer = null; retryTimer = null; cache = null; lastWrittenRaw = null
+	deletedIds.clear(); restoredIds.clear(); purgedIds.clear(); dispatchedRecalls.clear()
+	unreadableFiles.clear()
+	examplesCleared = false; skipDiskMerge = false; backupDirty = false; lastPersistError = ""; retryCount = 0
+}
+
 /**
  * 重新从磁盘加载记忆库: 悬浮窗等另一实例可能已写入新记忆, 而本实例的 cache
  * 是启动时加载的旧快照. 打开记忆页面/设置前调用, 让另一窗口记的内容可见.
  */
 export const reloadMemory = (): void => {
+	const pending = persistTimer || lastPersistError ? cache : null
+	const raw = readFile(FILE)
 	cache = null
 	load()
+	if (pending) adoptFromDisk(pending)
 }
 
 export type {MemoryItem, MemorySummary, MemoryBlock} from "./core"

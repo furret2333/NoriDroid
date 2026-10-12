@@ -244,10 +244,14 @@ export interface ImagePickedResult {
 interface NoriChat {
 	fetchModels: (baseUrl: string, apiKey: string) => void
 	chat: (baseUrl: string, apiKey: string, model: string, messagesJson: string, thinkingMode: string) => void
+	chatRequest?: (requestId: string, baseUrl: string, apiKey: string, model: string, messagesJson: string, thinkingMode: string) => void
+	chatRequestStop?: (requestId: string) => void
 	chatStream: (baseUrl: string, apiKey: string, model: string, messagesJson: string, thinkingMode: string) => void
 	chatStop: () => void
 	readFile: (name: string) => string
+	readFileState?: (name: string) => string
 	writeFile: (name: string, content: string) => string
+	writeFileIfUnchanged?: (name: string, expected: string, content: string) => string
 	appendMemory: (text: string) => string
 	readMemory: () => string
 	isStorageReady: () => boolean
@@ -325,6 +329,22 @@ export const readFile = (name: string): string => {
 	try { return bridge().readFile(name) } catch { return "" }
 }
 
+export type FileReadState = {status: "ok" | "missing"; content: string} | {status: "error"; message: string}
+/** 新桥显式报告读取错误；旧桥兼容，但异常也不能伪装成空文件。 */
+export const readFileState = (name: string): FileReadState => {
+	try {
+		const nori = bridge()
+		if (!nori.readFileState) {
+			const content = nori.readFile(name)
+			if (typeof content !== "string") return {status: "error", message: "文件桥返回无效内容"}
+			return {status: content ? "ok" : "missing", content}
+		}
+		const state = JSON.parse(nori.readFileState(name))
+		if (["ok", "missing"].includes(state?.status) && typeof state.content === "string") return state
+		return {status: "error", message: state?.message || "文件读取失败"}
+	} catch { return {status: "error", message: "文件读取失败"} }
+}
+
 /** 通用文件写入; 返回是否成功 (原生返回 "ok" 或 "err:xxx"; 其他值一律视为失败,
  *  避免桥异常路径下 undefined 被误判成写盘成功)。
  *  失败时把**原生给的原因**打进 console —— 只报"失败"等于把原因丢了, 真机上无从定位。 */
@@ -337,6 +357,19 @@ export const writeFile = (name: string, content: string): boolean => {
 		console.error(`[writeFile] ${name} 写盘异常:`, e)
 		return false
 	}
+}
+
+/** 原生锁内校验旧快照再写入；旧桥/测试桥保留兼容降级。 */
+export const compareAndWriteFile = (name: string, expected: string, content: string): "ok" | "conflict" | "error" => {
+	try {
+		const nori = bridge()
+		if (nori.writeFileIfUnchanged) {
+			const result = nori.writeFileIfUnchanged(name, expected, content)
+			return result === "ok" ? "ok" : result === "conflict" ? "conflict" : "error"
+		}
+		if (readFile(name) !== expected) return "conflict"
+		return writeFile(name, content) ? "ok" : "error"
+	} catch { return "error" }
 }
 
 /* ---------------- 自定义文案人设 (2026-10-01 用户要求) ----------------
@@ -621,6 +654,30 @@ const toApiMessage = (message: ChatMsg): {role: ChatMsg["role"]; content: string
 export interface ChatRequestOptions {
 	/** 只由用户对话入口启用；记忆、日记等辅助请求保持原有契约。 */
 	timeAware?: boolean
+	signal?: AbortSignal
+	/** 在队列真正执行时刷新记忆；不修改 UI 历史。 */
+	prepareMessages?: () => ChatMsg[]
+	onDispatched?: (messages: ChatMsg[]) => void
+	/** 字符预算是保守上限，并非精确 token 数。最新用户消息超限时明确报错。 */
+	inputCharBudget?: number
+}
+
+export const budgetChatMessages = (messages: ChatMsg[], budget: number): ChatMsg[] => {
+	const out = [...messages]
+	const chars = (): number => out.reduce((n, m) => n + m.content.length + 80, 0)
+	while (chars() > budget) {
+		const lastUser = out.map((m, i) => m.role === "user" ? i : -1).filter(i => i >= 0).pop() ?? -1
+		let idx = out.findIndex((m, i) => m.role !== "system" && i < lastUser)
+		if (idx < 0) idx = out.findIndex((m, i) => m.role === "system" && i > 0)
+		if (idx < 0) throw new Error("本次消息超过上下文预算，请分段发送")
+		out.splice(idx, 1)
+	}
+	return out
+}
+const prepareChatMessages = (messages: ChatMsg[], options?: ChatRequestOptions): ChatMsg[] => {
+	const fresh = options?.prepareMessages?.() ?? messages
+	// 预留逐消息时间标签、动态时间块和协议开销；图片 data URL 不计作文本 token。
+	return options?.inputCharBudget ? budgetChatMessages(fresh, Math.max(1, options.inputCharBudget - (options.timeAware ? 2000 : 0))) : fresh
 }
 
 /** 在队列真正发起请求时组装，不改动 UI 消息或落盘正文。 */
@@ -925,23 +982,47 @@ export const sendChat = (
 	// 串行队列: 非流式调用 (记忆提取/总结/日记/语义召回) 共用 __noriChatRes 单例回调,
 	// 并发会互相覆盖导致丢响应 → 排队逐个执行
 	return enqueueChat(() => {
-		const payload = JSON.stringify(buildApiMessages(messages, options))
+		if (options?.signal?.aborted) return Promise.resolve({ok: false, message: "已停止"})
+		let ready: ChatMsg[]
+		try { ready = prepareChatMessages(messages, options) }
+		catch (e) { return Promise.resolve({ok: false, message: String(e)}) }
+		const payload = JSON.stringify(buildApiMessages(ready, options))
 		return new Promise<ChatResult>((resolve) => {
+			const nori = bridge()
+			const requestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`
+			const cancellable = typeof nori.chatRequest === "function"
 			let settled = false
 			let timeout: ReturnType<typeof setTimeout> | null = null
 			const done = (result: ChatResult): void => {
 				if (settled) return
 				settled = true
 				if (timeout) { clearTimeout(timeout); timeout = null }
+				options?.signal?.removeEventListener("abort", onAbort)
 				delete window.__noriChatRes
 				resolve(result)
 			}
-			window.__noriChatRes = (json) => {
-				try { done(JSON.parse(json)) } catch { done({ok: false, message: "响应解析失败"}) }
+			const onAbort = (): void => {
+				if (cancellable) {
+					try { nori.chatRequestStop?.(requestId) } catch { /* 取消失败仍忽略迟到响应 */ }
+					done({ok: false, message: "已停止"})
+				}
 			}
-			timeout = setTimeout(() => done({ok: false, message: "请求超时, 请检查网络后重试"}), CHAT_TOTAL_TIMEOUT_MS)
+			window.__noriChatRes = (json) => {
+				try {
+					const result = JSON.parse(json)
+					if (cancellable && result.requestId !== requestId) return
+					done(options?.signal?.aborted ? {ok: false, message: "已停止"} : result)
+				} catch { done({ok: false, message: "响应解析失败"}) }
+			}
+			options?.signal?.addEventListener("abort", onAbort, {once: true})
+			timeout = setTimeout(() => {
+				if (cancellable) { try { nori.chatRequestStop?.(requestId) } catch { /* 忽略 */ } }
+				done({ok: false, message: "请求超时, 请检查网络后重试"})
+			}, CHAT_TOTAL_TIMEOUT_MS)
 			try {
-				bridge().chat(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking))
+				if (cancellable) nori.chatRequest!(requestId, baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking))
+				else nori.chat(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking))
+				options?.onDispatched?.(ready)
 			} catch {
 				done({ok: false, message: "请求失败"})
 			}
@@ -1034,8 +1115,12 @@ export const sendChatStream = (
 				resolveTask()
 			}
 			const nori = window.NoriChat
+			if (signal?.aborted) { callbacks.onError("已停止"); finish(); return }
 			if (nori && typeof nori.chatStream === "function") {
-				const payload = JSON.stringify(buildApiMessages(messages, options))
+				let ready: ChatMsg[]
+				try { ready = prepareChatMessages(messages, options) }
+				catch (e) { callbacks.onError(String(e)); finish(); return }
+				const payload = JSON.stringify(buildApiMessages(ready, options))
 				const onAbort = () => {
 					// 本地取消: 顺手通知原生断流 (否则原生会把整个 SSE 拉完, 白耗流量);
 					// 即使原生桥丢弃过期回包, 这里也能正常结束
@@ -1091,6 +1176,7 @@ export const sendChatStream = (
 				armIdleWatchdog()
 				try {
 					nori.chatStream(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking))
+					options?.onDispatched?.(ready)
 				} catch (e) {
 					cleanup()
 					callbacks.onError(`发起流式请求失败: ${String(e)}`)
@@ -1099,7 +1185,7 @@ export const sendChatStream = (
 				return
 			}
 			// 回退: 非流式
-			void sendChat(baseUrl, apiKey, model, messages, thinking, options).then((r) => {
+			void sendChat(baseUrl, apiKey, model, messages, thinking, {...options, signal}).then((r) => {
 				if (r.ok) {
 					const content = r.content ?? ""
 					callbacks.onDelta(content)

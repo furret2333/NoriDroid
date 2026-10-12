@@ -20,10 +20,10 @@
     <!-- 鑱婂ぉ/璁板繂/璁剧疆缁?MediaStore 鍐欏叆鍏叡 Downloads(API29+ 鏃犻渶澶ф潈闄?; 浠呰€佺郴缁熼渶瑕佸啓鏉冮檺 -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+        android:maxSdkVersion="29" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+        android:maxSdkVersion="29" />
 
     <!-- 鐣寗閽? 瀹屾垚绯荤粺閫氱煡 (API33+ 杩愯鏃惰姹? + 杩涚▼琚潃鏃剁殑鍑嗙偣鍏滃簳闂归挓 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -46,6 +46,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
+        android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
         android:hasFragileUserData="true"
         android:icon="@mipmap/ic_launcher"

@@ -97,7 +97,7 @@ try {
 	const md = await evalJs(`window.__exported || ""`)
 	check("B2: 导出 Markdown 里有「已作废的记忆」段落", /## 已作废的记忆（1 条/.test(md), md.slice(0, 400))
 	check("B2: 导出里带作废时间戳", /我叫小明.*作废于/.test(md), md.slice(0, 600))
-	check("B2: 导出里带来源标注", /\[偏好·你声明\]/.test(md) && /\[项目·我推断\]/.test(md), md.slice(0, 600))
+	check("B2: 导出里带来源标注", /\[偏好·旧记录\/手动\]/.test(md) && /\[项目·AI 整理\]/.test(md), md.slice(0, 600))
 
 	/* 进记忆库 (入口要点三下, 见 e2e-mem-gate) */
 	for (let i = 0; i < 3; i += 1) {
@@ -135,8 +135,8 @@ try {
 		JSON.stringify(collapsed))
 	check("B1: 折叠标题带条数", /已作废（1）/.test(collapsed.label), collapsed.label)
 	check("B1: 仍然生效的记忆照常展示", collapsed.activeHas === true, JSON.stringify(collapsed))
-	check("B2: 有来源标注 (你声明 / 我推断)",
-		collapsed.provs.includes("你声明") && collapsed.provs.includes("我推断"), JSON.stringify(collapsed.provs))
+	check("B2: 有来源标注 (原话提取 / AI 整理 / 旧记录/手动)",
+		collapsed.provs.includes("旧记录/手动") && collapsed.provs.includes("AI 整理"), JSON.stringify(collapsed.provs))
 	/* B: 分组断言 —— 事实/偏好/项目 各一节, 组内条数对得上, 行内**不再有类型标签** */
 	check("B: 按类型分成小节 (事实/偏好/项目, 各自成节)",
 		collapsed.groups.join("|") === "事实（1）|偏好（1）|项目（1）",

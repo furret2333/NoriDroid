@@ -30,12 +30,14 @@ const rawPlugin = {
 }
 
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/memory/index.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/memory-bundle.mjs"),
 	plugins: [rawPlugin],
 })
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/memory/core.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/core-bundle.mjs"),

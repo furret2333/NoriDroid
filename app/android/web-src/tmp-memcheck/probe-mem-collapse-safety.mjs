@@ -16,9 +16,11 @@ globalThis.window = {NoriChat: {readFile: (n) => files.get(n) ?? "", writeFile: 
 const mem = await import(pathToFileURL(path.join(root, "tmp-memcheck/memory-bundle.mjs")).href)
 const core = await import(pathToFileURL(path.join(root, "tmp-memcheck/core-bundle.mjs")).href)
 
+// 本探针只测判重，不表示前后改口；固定同一证据时间，避免跨毫秒构造误触发纠正规则。
+const FIXTURE_TS = Date.now()
 const mk = (id, content, over = {}) => ({
 	id, content, type: "fact", importance: 0.7, confidence: 0.9,
-	createdAt: Date.now(), updatedAt: Date.now(), lastAccessedAt: 0, accessCount: 0,
+	createdAt: FIXTURE_TS, updatedAt: FIXTURE_TS, lastAccessedAt: 0, accessCount: 0,
 	tags: [], decayDays: 365, ...over,
 })
 const seed = (memories, extra = {}) => {

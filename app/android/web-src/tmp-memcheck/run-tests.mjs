@@ -32,17 +32,20 @@ const rawPlugin = {
 }
 
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/memory/index.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/memory-bundle.mjs"),
 	plugins: [rawPlugin],
 })
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/memory/core.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/core-bundle.mjs"),
 })
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/nori-diary.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/diary-bundle.mjs"),
@@ -50,29 +53,34 @@ await build({
 	external: [],
 })
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/chat/index.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/chat-bundle-for-tests.mjs"),
 	plugins: [rawPlugin],
 })
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/live2d/modelStore.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/modelstore-bundle.mjs"),
 })
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/pomo-stats.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/pomostats-bundle.mjs"),
 })
 // 渲染帧率上限: 与库解耦的纯逻辑, 供 test-framecap.mjs 用模拟时钟验证
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/live2d/frameCap.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/framecap-bundle.mjs"),
 })
 // 一键克隆的答题门 (2026-10-01): 判卷规则是纯函数, 必须能单测"容忍标点空格但不许差不多就对"
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/tts/clone-gate.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/clone-gate-bundle.mjs"),
@@ -80,6 +88,7 @@ await build({
 // 背景音乐 (2026-10-02 用户报「已下载过、重启又显示下载按钮」): "已下载"必须以**磁盘状态**为准,
 // 用假 NoriChat 桥 (bgmStatus/bgmDownload) 就能在 Node 里把这条判据钉死
 await build({
+	absWorkingDir: root,
 	entryPoints: [path.join(root, "src/services/bgm.ts")],
 	bundle: true, platform: "neutral", format: "esm", logLevel: "silent",
 	outfile: path.join(root, "tmp-memcheck/bgm-bundle.mjs"),
@@ -115,6 +124,17 @@ const core = await import(pathToFileURL(path.join(root, "tmp-memcheck/core-bundl
 const diary = await import(pathToFileURL(path.join(root, "tmp-memcheck/diary-bundle.mjs")).href)
 const chatSvc = await import(pathToFileURL(path.join(root, "tmp-memcheck/chat-bundle-for-tests.mjs")).href)
 
+// 旧套件模拟已发送的上下文；只读候选及发送队列由 lifecycle 套件独立验证。
+let dispatchSeq = 0
+const dispatch = selection => {
+	const ready = mem.materializeRecall(selection)
+	mem.commitRecall(selection, `legacy-test-${dispatchSeq++}`, ready.ids)
+	return ready.text
+}
+const dispatchedRecall = query => dispatch(mem.selectRecall(query))
+const dispatchedSmart = async (query, llm, limit) => dispatch(await mem.selectRecallSmart(query, llm, limit))
+const dispatchedOpening = (query, limit) => dispatch(mem.selectOpeningRecall(query, limit))
+
 /* ---------------- 断言小工具 ---------------- */
 const DAY = 24 * 3600 * 1000
 const results = []
@@ -129,12 +149,13 @@ const mkMem = (id, content, over = {}) => ({
 const seedDisk = (memories, extra = {}) => {
 	files.set("memory.json", JSON.stringify({memories, summaries: [], summarizedMsgCount: 0, tombstones: [], ...extra}))
 }
-const resetDisk = () => { files.clear(); mem.reloadMemory() }
+const clearTestDisk = () => { files.clear(); mem.__resetMemorySessionForTest() }
+const resetDisk = () => { clearTestDisk(); mem.reloadMemory() }
 const diskMemories = () => { try { return JSON.parse(files.get("memory.json") || "{}").memories ?? [] } catch { return [] } }
 
 /* ============ T1 H1: decayDays=null 重启后保持 null; 缺字段的才回填 ============ */
 {
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("t1", "喜欢下雨天", {decayDays: null}),
 		mkMem("t2", "我叫小明", {type: "fact", decayDays: undefined}),
@@ -255,7 +276,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	let calls = 0
 	const spy = async () => { calls += 1; return JSON.stringify({memory: []}) }
 	// ① 空库: 没有任何旧记忆 → 不可能有候选, 绝不调 (省掉第一次调用的成本)
-	files.clear()
+	clearTestDisk()
 	mem.reloadMemory()
 	await mem.applyLlmMemoryDecision([mkMem("f0", "我喜欢吃辣条", {decayDays: 90})], spy)
 	check("M9: 空库时不调决策 LLM", calls === 0, `calls=${calls}`)
@@ -283,7 +304,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 /* ============ T8 M11: 无变化跳写 ============ */
 {
-	files.clear()
+	clearTestDisk()
 	mem.reloadMemory()
 	await mem.summarizeIfNeeded([], async () => "") // 触发 persist (空待办分支)
 	await mem.flushMemoryPersist()
@@ -296,7 +317,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 /* ============ T9 Q4: 坏元素不炸召回 ============ */
 {
-	files.clear()
+	clearTestDisk()
 	files.set("memory.json", JSON.stringify({
 		memories: [null, 42, mkMem("t9", "喜欢下雨天", {})],
 		summaries: [], summarizedMsgCount: 0, tombstones: [],
@@ -305,7 +326,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	check("Q4: 坏元素被过滤, 好数据保留", mem.memoryStats().memoryCount === 1, `count=${mem.memoryStats().memoryCount}`)
 	let block = ""
 	let threw = false
-	try { block = mem.recallForQuery("我喜欢下雨天") } catch { threw = true }
+	try { block = dispatchedRecall("我喜欢下雨天") } catch { threw = true }
 	check("Q4: 召回不抛错且能命中", !threw && block.includes("喜欢下雨天"))
 }
 
@@ -323,7 +344,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 /* ============ T11 MEM-M3: 摘要 id 区间指纹, 双实例重复摘要可去重 ============ */
 {
-	files.clear()
+	clearTestDisk()
 	mem.reloadMemory()
 	// 注意: 不带 ts → 走 summaryIdFor 的**下标回退**分支 (兼容旧数据)。
 	// 真实产线的消息都带 ts, 那条路径由 T23 覆盖。
@@ -331,7 +352,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		role: i % 2 ? "assistant" : "user",
 		content: `对话内容第${i}句`,
 	}))
-	await mem.summarizeIfNeeded(messages, async () => "这是一份总结")
+	await mem.summarizeIfNeeded(messages, async () => "这是一份总结\n===MEM===\n{\"items\":[]}")
 	await mem.flushMemoryPersist()
 	const first = JSON.parse(files.get("memory.json"))
 	check("M3: 无 ts 时退回下标区间指纹 (sum-0-25)", first.summaries[0]?.id === "sum-0-25",
@@ -344,7 +365,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		tombstones: [],
 	}))
 	mem.reloadMemory()
-	const again = await mem.summarizeIfNeeded(messages, async () => "第二份总结")
+	const again = await mem.summarizeIfNeeded(messages, async () => "第二份总结\n===MEM===\n{\"items\":[]}")
 	const final = JSON.parse(files.get("memory.json"))
 	check("M3: 同 id 摘要合并只留一份", final.summaries.length === 1, `n=${final.summaries.length}`)
 	check("M3: 游标已到区间末尾, 不再重复总结", again === false && final.summaries[0].id === "sum-0-25")
@@ -481,7 +502,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		mkMem("n1", "我在准备考研", {type: "fact", importance: 0.9, confidence: 0.95, decayDays: 365}),
 	])
 	mem.reloadMemory()
-	const block = mem.recallForQuery("今天天气不错啊")
+	const block = dispatchedRecall("今天天气不错啊")
 	check("A2: 注入上下文里没有无关记忆", block === "" || !block.includes("考研"), `block=${JSON.stringify(block)}`)
 }
 
@@ -546,7 +567,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	mem.reloadMemory()
 
 	const before = new Map(mem.listAll().memories.map(m => [m.id, m.accessCount]))
-	const block = mem.recallForQuery("喜欢测试物")
+	const block = dispatchedRecall("喜欢测试物")
 	const blockLines = block.split("\n").filter(l => l.startsWith("- ")).length
 	check("A4: 前置 - 注入块只有 6 行", blockLines === 6, `lines=${blockLines}`)
 
@@ -580,7 +601,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 	// ① 对照组: 写盘正常 → 返回 ok, 且真的落盘
 	failWriteFor = null
-	files.clear()
+	clearTestDisk()
 	files.set("chat.json", JSON.stringify({v: 1, cutoff: 0, msgs: [
 		{role: "user", content: "今天聊了游戏", ts: now - 1000},
 	]}))
@@ -592,7 +613,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 	// ② 主文件写失败 → 必须如实返回 failed, 且不得在磁盘上留下"已写"的假象
 	diary.__resetDiaryCacheForTest?.()
-	files.clear()
+	clearTestDisk()
 	files.set("chat.json", JSON.stringify({v: 1, cutoff: 0, msgs: [
 		{role: "user", content: "今天聊了游戏", ts: now - 1000},
 	]}))
@@ -646,7 +667,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 	// ④ 回归: 写失败后"今天没对话"的判定不能受影响 (empty 与 failed 必须可区分)
 	failWriteFor = "nori-diary.json"
-	files.clear()
+	clearTestDisk()
 	files.set("chat.json", JSON.stringify({v: 1, cutoff: 0, msgs: []}))
 	const r4 = await diary.writeTodayDiary(llmOk)
 	check("A6: 今天无对话时返回 empty (不误报 failed)", r4 === "empty", `got=${r4}`)
@@ -675,7 +696,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 	// ① LLM 抛异常 → 关键词兜底: 无关的高重要记忆不得出现
 	seedTwo()
-	const blockThrow = await mem.recallForQuerySmart("我特别喜欢吃辣", async () => { throw new Error("llm down") })
+	const blockThrow = await dispatchedSmart("我特别喜欢吃辣", async () => { throw new Error("llm down") })
 	check("B4: LLM 失败降级时, 无关记忆不被注入",
 		!blockThrow.includes("考研"), `block=${JSON.stringify(blockThrow)}`)
 	check("B4: LLM 失败降级时, 相关记忆仍然被注入",
@@ -683,7 +704,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 	// ② LLM 成功但返回空数组 → 强命中补充分支
 	seedTwo()
-	const blockEmpty = await mem.recallForQuerySmart("我特别喜欢吃辣", async () => "[]")
+	const blockEmpty = await dispatchedSmart("我特别喜欢吃辣", async () => "[]")
 	check("B4: LLM 空结果时, 无关记忆不被补充注入",
 		!blockEmpty.includes("考研"), `block=${JSON.stringify(blockEmpty)}`)
 
@@ -699,10 +720,10 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		mkSeed("noise2", "我在准备考研", {type: "fact", importance: 0.9, confidence: 0.95, decayDays: 365}),
 	])
 	mem.reloadMemory()
-	const blockSup = await mem.recallForQuerySmart("我特别喜欢吃辣", async () => "[]")
+	const blockSup = await dispatchedSmart("我特别喜欢吃辣", async () => "[]")
 	check("B4: LLM 空结果时, 零重叠的高重要记忆不进注入块",
 		!blockSup.includes("考研"), `block=${JSON.stringify(blockSup)}`)
-	check("B4 对照: 同分支里相关记忆仍被补充", blockSup.includes("喜欢吃辣"), `block=${JSON.stringify(blockSup)}`)
+	check("B4 对照: AI 有效空结果保持为空，不再强塞词面命中", blockSup === "", `block=${JSON.stringify(blockSup)}`)
 }
 
 /* ============ T19 模型下载: 并发不得覆盖全局回调, 且必须清理 ============
@@ -1085,8 +1106,8 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 			withMeta.indexOf("更早的脉络") < withMeta.indexOf("CCC"), JSON.stringify(withMeta.slice(0, 80)))
 		check("T22: 无摘要无归档时返回空串", core.buildSummaryBlock([], {}) === "")
 		const huge = [mk("h1", "X".repeat(2000), 100)]
-		check("T22: 单条超预算时仍注入它 (否则功能失效)",
-			core.buildSummaryBlock(huge, {budget: 100}).includes("X"))
+		check("T22: 单条超预算不突破总预算",
+			core.buildSummaryBlock(huge, {budget: 100}) === "")
 	}
 
 	/* --- 时间标记只使用原始对话时间，兼容旧摘要 --- */
@@ -1178,7 +1199,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
  * 本块用真实消息时间戳 + 真实裁剪动作复现整条链路。
  */
 {
-	files.clear()
+	clearTestDisk()
 	mem.reloadMemory()
 	const RAW_WINDOW = 20
 	const HISTORY_KEEP = 20
@@ -1187,7 +1208,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	for (let round = 0; round < 120; round += 1) {
 		messages.push({role: "user", content: `u${round}`, ts: clock++})
 		messages.push({role: "assistant", content: `a${round}`, ts: clock++})
-		const summarized = await mem.summarizeIfNeeded(messages, async () => "【摘要】压缩片段。")
+		const summarized = await mem.summarizeIfNeeded(messages, async () => "【摘要】压缩片段。\n===MEM===\n{\"items\":[]}")
 		await mem.flushMemoryPersist()
 		// 仅在摘要成功后裁剪 —— 与 App.vue `if (summarized && cfg.trimHistory && ...)` 一致;
 		// P5 起裁剪量由 safeTrimDrop 给出 (只裁"已进过摘要的前缀"), 并登记被裁条数
@@ -1270,7 +1291,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	// ④ 集成: 载入时自动收敛历史遗留的重复摘要。
 	// 注意 id 必须是真实区间指纹格式 (sum-<数字>-<数字>): rangeOfSummary 只认这个,
 	// 旧版随机 uid 无法参与重叠判定 (这是有意的保守行为, 见实现注释)。
-	files.clear()
+	clearTestDisk()
 	files.set("memory.json", JSON.stringify({
 		memories: [],
 		summaries: [
@@ -1305,7 +1326,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	//    —— 新摘要必须**替换**旧摘要, 而不是并存两条。
 	//    注: 不能靠"把游标设成 1 来模拟错位"——单模块里落盘合并 (adoptFromDisk 取 max
 	//    游标) 会把游标抬回去, 复现不了两个**独立 cache** 的真实情形。
-	files.clear()
+	clearTestDisk()
 	const conv = Array.from({length: 50}, (_, i) => ({
 		role: i % 2 ? "assistant" : "user",
 		content: `数数 ${i}`,
@@ -1323,7 +1344,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	mem.reloadMemory()
 	mem.__setSummaryCursorForTest(0)
 	// 这里**不** flush: 避免 adoptFromDisk 把游标改写掉
-	const did = await mem.summarizeIfNeeded(conv, async () => "BB 本次新写的摘要")
+	const did = await mem.summarizeIfNeeded(conv, async () => "BB 本次新写的摘要\n===MEM===\n{\"items\":[]}")
 	check("T24: 写入侧总结确实发生", did === true)
 	const nowIds = mem.listAll().summaries
 	check("T24: 写入侧同段摘要被替换而非并存 (只留 1 条)",
@@ -1365,7 +1386,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	const T26BASE = Date.now()
 	const mk26 = (id, content, over = {}) =>
 		mkMem(id, content, {createdAt: T26BASE, updatedAt: T26BASE, ...over})
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mk26("dup1", "我喜欢下雨天", {importance: 0.6}),
 		mk26("dup2", "我喜欢下雨天。", {importance: 0.9, tags: ["explicit"], decayDays: null}),
@@ -1402,7 +1423,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	/* A2. 反例守卫: 短记忆**绝不能**被"包含它的长记忆"吞掉 ——
 	 * 这正是"把 isSameContent 当全库收敛判据"会踩的坑 (实测 `isSameContent("猫","我家养了一只猫")=true`)。
 	 * 该判据在写入合并里是对的 (用户又提了同一件事), 但用于每次载入的自动收敛会静默删数据。 */
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("s1", "咖啡", {type: "preference"}),
 		mkMem("s2", "每天喝咖啡", {type: "preference"}),
@@ -1415,7 +1436,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify(shortKept.map(m => m.content)))
 
 	/* B. 决策漏判时的"原文包含"兜底: 不新增、也不弹"记住了" */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("t26b", "我在准备考研", {type: "project", importance: 0.8})])
 	mem.reloadMemory()
 	const dupRes = await mem.applyLlmMemoryDecision(
@@ -1431,7 +1452,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	check("T26-B: 重复发言不弹'记住了'", rDup.tips.length === 0, `tips=${JSON.stringify(rDup.tips)}`)
 
 	/* C. 近重复 (换说法) 走 AI 判重: UPDATE 吸收, 不并存两条 */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("t26c", "我在准备考研考试", {type: "project", importance: 0.8})])
 	mem.reloadMemory()
 	const cRes = await mem.applyLlmMemoryDecision([fact26("我准备考研")], async () =>
@@ -1441,7 +1462,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify(mem.listAll().memories.map(m => m.content)))
 
 	/* D. 反向守卫: 相似度高但**内容更短**的 UPDATE 不改写旧条 (避免信息退化) */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("t26d", "我的名字叫小明，是个前端工程师", {type: "fact", decayDays: 365})])
 	mem.reloadMemory()
 	await mem.applyLlmMemoryDecision([fact26("我叫小明")], async () =>
@@ -1453,7 +1474,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 	/* E. 决策 NONE (库里已有同一件事) 也必须吸收, 否则又并存两条;
 	 *    **只吸收被点名的那个事实**, 同批里真正的新事实照常入库 */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("t26e", "我在准备考研考试", {type: "project", importance: 0.8})])
 	mem.reloadMemory()
 	const eRes = await mem.applyLlmMemoryDecision(
@@ -1480,7 +1501,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
  * 反向约束: 剥句尾语气词**不能**把方向相反的句子归一成同一串 ("不喜欢下雨天" vs "喜欢下雨天"
  * 的"不"在句首, 不受影响), 也不能让短记忆被长记忆吞掉 —— 下面 A/B 两组守着。 */
 {
-	files.clear()
+	clearTestDisk()
 	seedDisk([])
 	mem.reloadMemory()
 	// ① 规则通道: 只说这一句, 只该有一条
@@ -1495,7 +1516,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify(after.map(m => m.content)))
 
 	// ③ 存量收敛: 旧数据里已经并存的两条要被收掉 (含"少了主语"的形态)
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("n1", "我的名字是小明", {type: "fact", decayDays: 365}),
 		mkMem("n2", "是小明哦", {type: "fact", decayDays: 365}),
@@ -1506,7 +1527,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify(collapsed.map(m => m.content)))
 
 	// ④ 带主语前缀的形态同样收 (「小明哦」+「我的名字是小明」)
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("n3", "小明哦", {type: "fact", decayDays: 365}),
 		mkMem("n4", "我的名字是小明", {type: "fact", decayDays: 365}),
@@ -1519,7 +1540,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	// ⑤ 反向守卫 A: 方向相反的句子不能被语气词归一化**合并成一条**
 	//    (2026-09-27 起: 它们会走「改口消解」→ 后说的留生效列表, 先说的进「已作废」可还原。
 	//     守卫的要点是「不能把两条揉成一条混合内容」, 不是「必须两条都留着」。)
-	files.clear()
+	clearTestDisk()
 	{
 		const t0 = Date.now()
 		seedDisk([
@@ -1535,7 +1556,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		`生效=${JSON.stringify(revKept)} 已作废=${JSON.stringify(revInv)}`)
 
 	// ⑥ 反向守卫 B: 带语气词的短记忆也不被长记忆吞掉
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("g3", "咖啡", {type: "preference"}),
 		mkMem("g4", "每天喝咖啡", {type: "preference"}),
@@ -1627,14 +1648,14 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
  * 而两份报告的 `toolCalls` 都是 0 ⇒ 语音里她**零记忆**（不知道你叫什么）。
  * 这里守两件事：① 没有当前提问时也能给出"身份/核心"记忆块；② 开场注入**不动 accessCount**。 */
 {
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("o1", "主人最喜欢的食物是拉面", {type: "fact", importance: 0.95, tags: ["explicit"], decayDays: null}),
 		mkMem("o2", "主人的名字叫小明", {type: "fact", importance: 0.9, tags: ["identity"], decayDays: null}),
 		mkMem("o3", "随口提过一句天气", {type: "preference", importance: 0.3, tags: [], decayDays: 90}),
 	])
 	mem.reloadMemory()
-	const block = mem.openingMemoryBlock("")
+	const block = dispatchedOpening("")
 	check("T25: 空查询也能给出开场记忆块（关键词召回在空查询下必然为空）", block.includes("【长期记忆】"), block.slice(0, 80))
 	check("T25: 身份/核心记忆被选进来", block.includes("拉面") && block.includes("小明"), block)
 	check("T25: 低权重的闲聊不会被塞进来", !block.includes("天气"), block)
@@ -1642,9 +1663,9 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.parse(files.get("memory.json")).memories.every(m => m.accessCount === 0),
 		JSON.stringify(JSON.parse(files.get("memory.json")).memories.map(m => [m.id, m.accessCount])))
 	/* 有当前话题时：按话题召回（词面重叠），与身份记忆合并 */
-	const withQ = mem.openingMemoryBlock("拉面好吃吗")
+	const withQ = dispatchedOpening("拉面好吃吗")
 	check("T25: 有查询词时按话题召回", withQ.includes("拉面"), withQ)
-	const emptyStore = (() => { files.clear(); seedDisk([]); mem.reloadMemory(); return mem.openingMemoryBlock("") })()
+	const emptyStore = (() => { clearTestDisk(); seedDisk([]); mem.reloadMemory(); return dispatchedOpening("") })()
 	check("T25: 没有任何记忆时返回空串（不注入空标题）", emptyStore === "", JSON.stringify(emptyStore))
 }
 
@@ -1669,14 +1690,14 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	})
 
 	/* A. 名字改口: 「我叫小明」→「我叫小刚」 (importance 0.9, 正是旧保护闸挡住的场景) */
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("nm1", "我叫小明", {type: "fact", importance: 0.9, tags: ["identity"], decayDays: null}),
 		mkMem("keep29", "我喜欢下雨天", {importance: 0.6}),
 	])
 	mem.reloadMemory()
-	check("T29-A: 前置 — 纠正前旧说法确实会被注入", mem.openingMemoryBlock("").includes("小明"),
-		mem.openingMemoryBlock(""))
+	check("T29-A: 前置 — 纠正前旧说法确实会被注入", dispatchedOpening("").includes("小明"),
+		dispatchedOpening(""))
 	const aRes = await mem.applyLlmMemoryDecision(
 		[t29fact("我叫小刚")],
 		async () => JSON.stringify({memory: [{id: "nm1", text: "我叫小明", event: "DELETE"}]}),
@@ -1696,12 +1717,12 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify(diskMemories().find(m => m.id === "nm1")))
 	check("T29-A: 无关记忆不受影响 (只作废被点名的 id)",
 		aAll.some(m => m.content === "我喜欢下雨天"), JSON.stringify(aAll.map(m => m.content)))
-	check("T29-A: 作废后不再注入 (开场块)", !mem.openingMemoryBlock("").includes("小明"),
-		mem.openingMemoryBlock(""))
-	check("T29-A: 作废后不再注入 (关键词召回)", !mem.recallForQuery("我叫什么").includes("小明"),
-		mem.recallForQuery("我叫什么"))
+	check("T29-A: 作废后不再注入 (开场块)", !dispatchedOpening("").includes("小明"),
+		dispatchedOpening(""))
+	check("T29-A: 作废后不再注入 (关键词召回)", !dispatchedRecall("我叫什么").includes("小明"),
+		dispatchedRecall("我叫什么"))
 	const aiPromptSeen = []
-	const aiBlock = await mem.recallForQuerySmart("我叫什么", async (p) => {
+	const aiBlock = await dispatchedSmart("我叫什么", async (p) => {
 		aiPromptSeen.push(p)
 		return JSON.stringify([{id: "nm1", reason: "用户在问名字"}])
 	})
@@ -1724,10 +1745,10 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	check("T29-B: 还原返回 true", mem.restoreMemory("nm1") === true)
 	check("T29-B: 还原后回到有效列表", mem.listAll().memories.some(m => m.id === "nm1"),
 		JSON.stringify(mem.listAll().memories.map(m => m.content)))
-	check("T29-B: 还原后历史里没有了", mem.listInvalidMemories().length === 0,
+	check("T29-B: 还原旧名后另一当前姓名被作废", mem.listInvalidMemories().length === 1 && !mem.listInvalidMemories().some(m => m.id === "nm1"),
 		JSON.stringify(mem.listInvalidMemories().map(m => m.id)))
-	check("T29-B: 还原后又能注入了", mem.openingMemoryBlock("").includes("小明"),
-		mem.openingMemoryBlock(""))
+	check("T29-B: 还原后又能注入了", dispatchedOpening("").includes("小明"),
+		dispatchedOpening(""))
 	await mem.flushMemoryPersist()
 	mem.reloadMemory()
 	check("T29-B: 落盘重载后仍是有效的 (还原没被静默回滚)",
@@ -1740,7 +1761,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		mem.invalidateMemory("keep29") === true && !mem.listAll().memories.some(m => m.id === "keep29"))
 
 	/* C. 回流不复活: 摘要要点里还留着旧说法「我叫小明」, 不能把它变回活记忆 */
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("nm2", "我叫小明", {type: "fact", importance: 0.9, tags: ["identity"], decayDays: null}),
 	])
@@ -1752,29 +1773,29 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	// 60 条 > RAW_WINDOW(20) + SUMMARIZE_THRESHOLD(25), 否则摘要根本不会触发
 	const msgCount = 60
 	const history = Array.from({length: msgCount}, (_, i) => ({role: i % 2 ? "assistant" : "user", content: `第${i}句闲聊`, ts: Date.now() + i}))
-	const reflow = await mem.summarizeIfNeeded(history, async () => "这段时间聊了些家常。\n**记忆要点**：我叫小明\n")
+	const reflow = await mem.summarizeIfNeeded(history, async () => "这段时间聊了些家常。\n**记忆要点**：我叫小明\n", false)
 	check("T29-C: 摘要生成成功 (前置)", reflow === true)
 	await mem.flushMemoryPersist()
 	const cActive = mem.listAll().memories
 	check("T29-C: 旧说法**没有**从摘要回流成活记忆",
 		!cActive.some(m => m.content.includes("小明")),
 		JSON.stringify(mem.listAll(true).memories.map(m => [m.id, m.content, !!m.invalidAt])))
-	check("T29-C: 信息没丢 —— 要点仍留在摘要正文里",
-		mem.listAll().summaries.some(s => s.content.includes("小明")),
+	check("T29-C: 被状态护栏拒绝的旧事实不附回摘要",
+		!mem.listAll().summaries.some(s => s.content.includes("小明")),
 		JSON.stringify(mem.listAll().summaries.map(s => s.content)))
 	/* 反例守卫: 与作废条无关的要点照常回流 (别把回流整个堵死) */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("nm3", "我叫小明", {type: "fact", importance: 0.9, tags: ["identity"], decayDays: null})])
 	mem.reloadMemory()
 	mem.invalidateMemory("nm3")
-	await mem.summarizeIfNeeded(history, async () => "这段时间聊了些家常。\n**记忆要点**：记住：我周末要去看电影\n")
+	await mem.summarizeIfNeeded(history, async () => "这段时间聊了些家常。\n**记忆要点**：记住：我周末要去看电影\n", false)
 	await mem.flushMemoryPersist()
 	check("T29-C: 反例 — 与作废条无关的要点照常回流",
 		mem.listAll().memories.some(m => m.content.includes("看电影")),
 		JSON.stringify(mem.listAll().memories.map(m => m.content)))
 
 	/* D. 不误伤: 决策点名作废一条时, 同批其它事实照常入库, 其它旧记忆不动 */
-	files.clear()
+	clearTestDisk()
 	seedDisk([
 		mkMem("d29a", "我讨厌下雨天", {importance: 0.7}),
 		mkMem("d29b", "我在准备考研", {type: "project", importance: 0.8, decayDays: 60}),
@@ -1796,22 +1817,22 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 
 	/* E. 作废条不"吃"新事实: 新事实与作废条字面完全相同时应当**新增**一条活的,
 	 *    而不是被并进那条不注入的死条目 (mergeMemories 的池子已剔除 invalidAt) */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("e29", "我每天早上跑步", {importance: 0.7})])
 	mem.reloadMemory()
 	mem.invalidateMemory("e29")
 	const eRes = await mem.applyLlmMemoryDecision([t29fact("我每天早上跑步", "preference")],
 		async () => JSON.stringify({memory: []}))   // 决策漏判 → 走 merge 兜底
 	const eActive = mem.listAll().memories
-	check("T29-E: 与作废条重复的新事实仍然入库 (不被静默吞掉)",
-		eRes.added === 1 && eActive.some(m => m.content.includes("跑步")),
+	check("T29-E: 缺少新来源证据的旧事实不重新入库",
+		eRes.added === 0 && !eActive.some(m => m.content.includes("跑步")),
 		`${JSON.stringify(eRes)} active=${JSON.stringify(eActive.map(m => m.content))}`)
-	check("T29-E: 入库的是新条目, 作废条保持作废状态",
-		eActive.find(m => m.content.includes("跑步"))?.id !== "e29" && mem.listInvalidMemories().some(m => m.id === "e29"),
+	check("T29-E: 作废条保持作废状态且无新副本",
+		eActive.length === 0 && mem.listInvalidMemories().some(m => m.id === "e29"),
 		JSON.stringify(eActive.map(m => m.id)))
 	check("T29-E: 存量收敛也不会把活记忆并进作废条",
 		(() => {
-			files.clear()
+			clearTestDisk()
 			seedDisk([
 				mkMem("e29b", "我的名字是小明", {type: "fact", importance: 0.9, invalidAt: Date.now(), updatedAt: Date.now(), tags: ["identity"], decayDays: null}),
 				mkMem("e29c", "我叫小明", {type: "fact", importance: 0.9, tags: ["identity"], decayDays: null}),
@@ -1871,14 +1892,14 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		dPrompt.includes("信息矛盾") && dPrompt.includes("拿不准就选 NONE"), dPrompt.slice(0, 400))
 
 	/* G. 目标: 作废的目标不再被"隔几天关心一次"打扰 */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("g29", "考雅思 7 分", {
 		type: "project", importance: 0.85, tags: ["goal"], decayDays: null,
 		createdAt: Date.now() - 30 * DAY, updatedAt: Date.now() - 30 * DAY,
 	})])
 	mem.reloadMemory()
 	check("T29-G: 前置 — 到期目标会被关心", mem.goalCarePrompt().includes("考雅思"))
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("g29", "考雅思 7 分", {
 		type: "project", importance: 0.85, tags: ["goal"], decayDays: null,
 		createdAt: Date.now() - 30 * DAY, updatedAt: Date.now() - 30 * DAY,
@@ -1933,7 +1954,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 			i < posCases.length ? !mem.__isReversalForTest(a, b) : mem.__isReversalForTest(a, b)).map(([a, b]) => `${a}→${b}`))}`)
 
 	/* B. 行为: 模型只答 ADD 也必须作废 (这就是实机那个 bug 的正面回归) */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("cat1", "我想养猫", {type: "project", importance: 0.6, decayDays: 60})])
 	mem.reloadMemory()
 	const bRes = await mem.applyLlmMemoryDecision(
@@ -1954,7 +1975,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify(mem.listAll().memories.map(m => m.content)))
 
 	/* C. 载入时存量收敛: 库里早就并存的改口对 (就是实机现状) 会自动清干净 */
-	files.clear()
+	clearTestDisk()
 	{
 		const t0 = Date.now() - 60000
 		seedDisk([
@@ -1973,7 +1994,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify(mem.listAll().memories.map(m => m.id)))
 
 	/* D. 安全阀: 同一毫秒的并列判不出先后 → 载入时**不动** (宁可少收, 不可误收) */
-	files.clear()
+	clearTestDisk()
 	{
 		const t0 = Date.now()
 		seedDisk([
@@ -1987,7 +2008,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		`生效=${JSON.stringify(mem.listAll().memories.map(m => m.id))}`)
 
 	/* E. 反例的行为面: 只是"包含关系"的两条绝不能被自动作废 */
-	files.clear()
+	clearTestDisk()
 	{
 		const t0 = Date.now() - 60000
 		seedDisk([
@@ -2004,7 +2025,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	 * ⚠ 注意用**规则能提取的句子**来测 (喜欢/不喜欢 这一族): 规则通道只认关键词,
 	 * 「我不想学钢琴了」这种它压根提取不出来 ⇒ 没有新事实 ⇒ 也就无从消解
 	 * (这是"关掉 AI 提取后记忆本来就记得很少"的固有边界, 不是 bug)。 */
-	files.clear()
+	clearTestDisk()
 	{
 		const t0 = Date.now() - 60000
 		seedDisk([mkMem("rule1", "我喜欢钢琴", {type: "preference", createdAt: t0, updatedAt: t0, decayDays: 90})])
@@ -2021,7 +2042,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 /* ============ T31 记忆分块 (P1: 数据结构 + 迁移, 行为不变) ============ */
 {
 	/* A. v1 库载入 → 建「早期记忆」块: 条目一个不改, 全部挂进块里 */
-	files.clear()
+	clearTestDisk()
 	const t0 = Date.now() - 3600000
 	seedDisk([
 		mkMem("b1", "我叫小明", {type: "fact", importance: 0.9, createdAt: t0, updatedAt: t0, decayDays: null}),
@@ -2076,7 +2097,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		String(files.get("memory.v1-backup.json")).slice(0, 80))
 
 	/* D. 空库: 标版本但不造空块 */
-	files.clear()
+	clearTestDisk()
 	files.set("memory.json", JSON.stringify({memories: [], summaries: [], summarizedMsgCount: 0, tombstones: []}))
 	mem.reloadMemory()
 	await mem.flushMemoryPersist()
@@ -2086,7 +2107,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		`schemaVersion=${disk3.schemaVersion} blocks=${JSON.stringify(disk3.blocks)}`)
 
 	/* E. 坏块数据防御: 坏元素被过滤, 不抛错 (块视图仍能渲染) */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("e1", "我喜欢猫")], {
 		schemaVersion: 2,
 		blocks: [null, {id: ""}, {id: "blk-ok", itemIds: ["e1", 123, null]}, "junk"],
@@ -2100,7 +2121,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify(views.map(v => ({id: v.block.id, n: v.items.length}))))
 
 	/* F. 删除条目 → 块里的悬空引用被清掉, 块本身保留 (时间线不塌) */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("f1", "我喜欢猫"), mkMem("f2", "我喜欢狗")], {
 		schemaVersion: 2,
 		blocks: [{id: "blk-x", fromTs: 1, toTs: 2, msgCount: 2, topic: "猫狗", summary: "聊了猫和狗", createdAt: 1, itemIds: ["f1", "f2"]}],
@@ -2115,7 +2136,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		disk4.blocks[0].summary === "聊了猫和狗",
 		JSON.stringify(disk4.blocks))
 	/* F2. 低频清理同样清悬空引用 */
-	files.clear()
+	clearTestDisk()
 	{
 		const old = Date.now() - 400 * DAY
 		seedDisk([
@@ -2130,12 +2151,12 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	const prunedN = mem.pruneStaleMemories(30, 0.6)
 	await mem.flushMemoryPersist()
 	const disk4b = JSON.parse(files.get("memory.json"))
-	check("T31-F2: 低频清理后块里只剩仍在库的 id",
-		prunedN === 1 && JSON.stringify(disk4b.blocks[0].itemIds) === JSON.stringify(["f4"]),
+	check("T31-F2: 低频清理只收起，保留块引用供留下后恢复",
+		prunedN === 1 && JSON.stringify(disk4b.blocks[0].itemIds) === JSON.stringify(["f3", "f4"]) && disk4b.memories.find(m => m.id === "f3")?.fadedReason === "lowvalue",
 		`pruned=${prunedN} itemIds=${JSON.stringify(disk4b.blocks[0].itemIds)}`)
 
 	/* G. 未归类桶: 没挂进任何块的条目必须能被列出来 (否则"在库里但界面看不到") */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("g1", "我喜欢猫"), mkMem("g2", "我喜欢狗")], {
 		schemaVersion: 2,
 		blocks: [{id: "blk-y", fromTs: 1, toTs: 2, msgCount: 2, topic: "猫", summary: "", createdAt: 1, itemIds: ["g1"]}],
@@ -2173,11 +2194,11 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		})())
 
 	/* I. 行为不变的抽样回归: 召回 / 作废 / 还原 / 导出视图 照旧 */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("i1", "我喜欢钢琴", {createdAt: t0, updatedAt: t0})])
 	mem.reloadMemory()
 	await mem.flushMemoryPersist()
-	check("T31-I1: 迁移后召回照旧可用", mem.recallForQuery("钢琴").includes("钢琴"), mem.recallForQuery("钢琴"))
+	check("T31-I1: 迁移后召回照旧可用", dispatchedRecall("钢琴").includes("钢琴"), dispatchedRecall("钢琴"))
 	check("T31-I2: 迁移后作废/还原照旧可用",
 		mem.invalidateMemory("i1") && mem.listInvalidMemories().length === 1 &&
 		mem.restoreMemory("i1") && mem.listInvalidMemories().length === 0)
@@ -2185,7 +2206,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		(() => { const a = mem.listAll(); return a.memories.length === 1 && a.summaries.length === 0 })())
 
 	/* J. 清空: 块一起清空, 且不会被另一实例的旧 cache 带回 (墓碑) */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("j1", "我喜欢猫")])
 	mem.reloadMemory()
 	mem.clearMemory()
@@ -2199,7 +2220,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		JSON.stringify((disk5.tombstones ?? []).map(t => t.id)))
 
 	/* K. 撤销清空: 恢复"重构前存的备份"(v1, 没有 blocks 字段) 也要补上块结构 */
-	files.clear()
+	clearTestDisk()
 	seedDisk([mkMem("k1", "我喜欢猫")])
 	mem.reloadMemory()
 	await mem.flushMemoryPersist()
@@ -2474,7 +2495,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 {
 	/** 与 App.vue 同规则跑 6 轮 25 条: 每轮总结一次 + 安全裁剪一次 */
 	const runRounds = async (rounds, perRound) => {
-		files.clear()
+		clearTestDisk()
 		mem.reloadMemory()
 		let arr = []
 		let ts = Date.now() - (rounds * perRound + 10) * 1000
@@ -2527,12 +2548,12 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		`sum=${R.disk.summarizedMsgCount} trimmed=${R.disk.trimmedMsgCount}`)
 
 	/* B. safeTrimDrop 只肯裁"已摘要的前缀": 摘要没成功过就一条都不许裁 */
-	files.clear()
+	clearTestDisk()
 	mem.reloadMemory()
 	check("T31-⑤B1: 从没摘要过 → 安全裁剪量为 0 (不许删没进记忆的消息)",
 		mem.safeTrimDrop(60) === 0, String(mem.safeTrimDrop(60)))
 	await mem.summarizeIfNeeded(Array.from({length: 45}, (_, i) => ({role: "user", content: `第${i}句`, ts: 1_900_000_000_000 + i})),
-		async () => "摘要。\n===MEM===\n{}")
+		async () => "摘要。\n===MEM===\n{\"items\":[]}")
 	check("T31-⑤B2: 摘要过 25 条 → 最多裁那 25 条 (不碰近端窗口)",
 		mem.safeTrimDrop(45) === 25 && mem.safeTrimDrop(30) === 10 && mem.safeTrimDrop(20) === 0,
 		`45→${mem.safeTrimDrop(45)} 30→${mem.safeTrimDrop(30)} 20→${mem.safeTrimDrop(20)}`)
@@ -2547,7 +2568,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		`sum=${mergedC.summarizedMsgCount} trimmed=${mergedC.trimmedMsgCount}`)
 
 	/* D. 上下文原文窗口: 近端 20 + 一整个待总结批次 (45), 空窗归零 */
-	files.clear()
+	clearTestDisk()
 	mem.reloadMemory()
 	const longMsgs = Array.from({length: 60}, (_, i) => ({role: "user", content: `第${i}句`, ts: 1_910_000_000_000 + i}))
 	const ctx = mem.contextHistory(longMsgs)
@@ -2967,8 +2988,8 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	const ex34 = mem.getMemoryExamples()
 	check("T34-B2: 正例 ≤8 条、反例 ≤4 条", (ex34?.pos.length ?? 0) > 0 && ex34.pos.length <= 8 && (ex34?.neg.length ?? 0) <= 4,
 		JSON.stringify({pos: ex34?.pos.length, neg: ex34?.neg.length}))
-	check("T34-B3: 反例来自**回收站里被删掉的**内容",
-		(ex34?.neg ?? []).some(t => /我喜欢第[01]种小东西/.test(t)), JSON.stringify(ex34?.neg))
+	check("T34-B3: 普通删除不自动产生反例",
+		(ex34?.neg ?? []).length === 0, JSON.stringify(ex34?.neg))
 	check("T34-B4: event 低重要度不进正例", !(ex34?.pos ?? []).some(t => t.includes("准备去睡觉")), JSON.stringify(ex34?.pos))
 	check("T34-B5: 目标不进正例 (它有自己的「陪着你的事」小节)", !(ex34?.pos ?? []).some(t => t.includes("雅思")),
 		JSON.stringify(ex34?.pos))
@@ -2992,7 +3013,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	/* D. 提示词: 示例段的位置与"只是示例"的声明 */
 	const p34 = core.buildSummaryPrompt([{role: "user", content: "你好"}], true, [], ex34)
 	check("T34-D1: 提示词含正例段 (该记：…)", p34.includes("主人认可的记法") && p34.includes("该记："))
-	check("T34-D2: 提示词含反例段 (不该记：…)", p34.includes("主人删掉过的") && p34.includes("不该记："))
+	check("T34-D2: 没有明确反例时不注入不该记段", !p34.includes("不该记："))
 	check("T34-D3: 明确声明「只是风格示例，不是这段对话的内容」", p34.includes("风格示例") && p34.includes("不是这段对话的内容"))
 	check("T34-D4: 示例段排在【已经记住的内容】与对话历史之前 (模型先学风格再看材料)",
 		p34.indexOf("主人认可的记法") < p34.indexOf("---对话历史---"))
@@ -3006,7 +3027,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	seed34(14)
 	mem.rebuildMemoryExamples()
 	let prompt34 = ""
-	await mem.summarizeIfNeeded(mkMsgs34(45), async (prompt) => { prompt34 = prompt; return "摘要。\n===MEM===\n{}" })
+	await mem.summarizeIfNeeded(mkMsgs34(45), async (prompt) => { prompt34 = prompt; return "摘要。\n===MEM===\n{\"items\":[]}" })
 	check("T34-E1: 整理调用里带上了示例段", prompt34.includes("主人认可的记法") && prompt34.includes("该记："))
 
 	/* F. 清除示例 */
@@ -3025,7 +3046,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 				mkMem("m2", "我喜欢第1种点心"),
 			], {schemaVersion: 2,
 				deletedBin: [mkMem("bin1", "我有点困，准备去睡觉", {deletedAt: Date.now()})],
-				exampleSet: ex,
+				exampleSet: {...ex, policyVersion: 2},
 			})
 			mem.reloadMemory()
 		}
@@ -3056,7 +3077,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		seedDisk([
 			mkMem("auto1", "我随口说过的一句话", {type: "event", importance: 0.4, decayDays: 30,
 				createdAt: Date.now() - 200 * DAY34, updatedAt: Date.now() - 200 * DAY34, lastAccessedAt: 0, accessCount: 0}),
-		], {schemaVersion: 2, exampleSet: {builtAt: 1, basedOn: 1, pos: ["我随口说过的一句话"], neg: []}})
+		], {schemaVersion: 2, exampleSet: {policyVersion: 2, builtAt: 1, basedOn: 1, pos: ["我随口说过的一句话"], neg: []}})
 		mem.reloadMemory()
 		mem.addMemoriesFromText("我喜欢钢琴")
 		check("T34-M4: 自动收起不动示例集 (只清你取舍的那两个动作)",
@@ -3067,14 +3088,14 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		/* 「清除示例」必须**连反例一起清** —— 用提示词实证, 不只看字段 */
 		seedEx({builtAt: 1, basedOn: 2, pos: ["我喜欢第0种点心"], neg: ["我有点困，准备去睡觉"]})
 		let promptBefore = ""
-		await mem.summarizeIfNeeded(mkMsgs34(45), async (p) => { promptBefore = p; return "摘要。\n===MEM===\n{}" })
+		await mem.summarizeIfNeeded(mkMsgs34(45), async (p) => { promptBefore = p; return "摘要。\n===MEM===\n{\"items\":[]}" })
 		check("T34-M5: 清除前提示词里 该记/不该记 都在",
 			promptBefore.includes("该记：") && promptBefore.includes("不该记："),
 			JSON.stringify({n: promptBefore.length}))
 		mem.clearMemoryExamples()
 		await mem.flushMemoryPersist()
 		let promptAfter = ""
-		await mem.summarizeIfNeeded(msgs34b(70), async (p) => { promptAfter = p; return "摘要。\n===MEM===\n{}" })
+		await mem.summarizeIfNeeded(msgs34b(70), async (p) => { promptAfter = p; return "摘要。\n===MEM===\n{\"items\":[]}" })
 		check("T34-M6: 「清除示例」连反例一起清 (提示词里 该记/不该记 都不再出现)",
 			promptAfter.length > 100 && !promptAfter.includes("该记：") && !promptAfter.includes("不该记："),
 			JSON.stringify({captured: promptAfter.length, hasPos: promptAfter.includes("该记："), hasNeg: promptAfter.includes("不该记：")}))
@@ -3085,9 +3106,9 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 	/* G. 双实例合并: 取 builtAt 较新的那份 */
 	const mA = core.mergeStores(
 		{memories: [], summaries: [], summarizedMsgCount: 0, tombstones: [], meta: [], deletedBin: [],
-			exampleSet: {builtAt: 100, basedOn: 12, pos: ["甲"], neg: []}},
+			exampleSet: {policyVersion: 2, builtAt: 100, basedOn: 12, pos: ["甲"], neg: []}},
 		{memories: [], summaries: [], summarizedMsgCount: 0, tombstones: [], meta: [], deletedBin: [],
-			exampleSet: {builtAt: 200, basedOn: 30, pos: ["乙"], neg: ["丙"]}},
+			exampleSet: {policyVersion: 2, builtAt: 200, basedOn: 30, pos: ["乙"], neg: ["丙"]}},
 	)
 	check("T34-G1: 示例集取 builtAt 较新的 (谁最后优化谁说了算)",
 		mA.exampleSet?.pos?.[0] === "乙" && mA.exampleSet?.builtAt === 200, JSON.stringify(mA.exampleSet))
@@ -3508,7 +3529,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		mems39.push(mkMem("core1", "记住:下雨天要带伞", {type: "core", importance: 0.2, tags: ["identity"], decayDays: null}))
 		seedDisk(mems39)
 		mem.reloadMemory()
-		const blk = mem.recallForQuery("下雨天我喜欢做什么")
+		const blk = dispatchedRecall("下雨天我喜欢做什么")
 		check("T39-A2g: 注入块里保住了身份记忆 (分数垫底也进来了)", blk.includes("记住:下雨天要带伞"), JSON.stringify(blk))
 		const typeCount = {}
 		for (const line of blk.split("\n").filter(l => l.startsWith("- "))) {
@@ -3526,13 +3547,13 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		mem.reloadMemory()
 		mem.setDiagEnabled(false)
 		mem.clearInjects()
-		mem.recallForQuery("下雨天")
+		dispatchedRecall("下雨天")
 		check("T39-A3a: 开关关着时**零记录** (与整理诊断同一约定)",
 			mem.injectCount() === 0 && mem.lastInjectRecord() === null, `n=${mem.injectCount()}`)
 
 		mem.setDiagEnabled(true)
 		mem.clearInjects()
-		const blkA3 = mem.recallForQuery("下雨天")
+		const blkA3 = dispatchedRecall("下雨天")
 		const rec3 = mem.lastInjectRecord()
 		const renderedLines = blkA3.split("\n").filter(l => l.startsWith("- ")).length
 		check("T39-A3b: 记下了「这一轮真正进了上下文的几条」——条数与渲染数**一致**",
@@ -3545,7 +3566,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 			JSON.stringify(rec3))
 
 		// 没命中也要留痕 (这恰恰是"静默失效"最需要被看见的一面)
-		const blkNone = mem.recallForQuery("跟记忆完全无关的一句话呀")
+		const blkNone = dispatchedRecall("跟记忆完全无关的一句话呀")
 		const recNone = mem.lastInjectRecord()
 		check("T39-A3d: 一条都没注入时也留痕 (note 说明是没命中还是库里没有)",
 			blkNone === "" && !!recNone && recNone.hits.length === 0 && recNone.note.length > 0, JSON.stringify(recNone))
@@ -3555,7 +3576,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		mem.reloadMemory()
 		seedDisk([mkMem("k9", "我家养了一只猫", {kw: ["宠物"]})])
 		mem.reloadMemory()
-		mem.recallForQuery("养宠物贵吗")
+		dispatchedRecall("养宠物贵吗")
 		const recKw = mem.lastInjectRecord()
 		check("T39-A3e: kw 兜底命中时 source=keyword-kw 且该条标了 kw",
 			!!recKw && recKw.source === "keyword-kw" && recKw.hits.length === 1 && recKw.hits[0].kw === true, JSON.stringify(recKw))
@@ -3614,7 +3635,7 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 			mem.diagEnabled() === false && h.injects === 0 && h.lastInject === null && h.active === 2)
 
 		// 整理成功后: 上次成功整理时间来自**持久化**的摘要, 且登记了成败
-		const didH = await mem.summarizeIfNeeded(msgs39, async () => "主人聊了备考。", true, false)
+		const didH = await mem.summarizeIfNeeded(msgs39, async () => "主人聊了备考。\n===MEM===\n{\"items\":[]}", true, false)
 		const h2 = mem.memoryHealth()
 		check("T39-A3m: 整理成功后 lastSummaryAt 来自摘要 (重启后仍在的持久来源)",
 			didH === true && typeof h2.lastSummaryAt === "number" && h2.lastSummaryAt > 0 && h2.summaries === 1,
