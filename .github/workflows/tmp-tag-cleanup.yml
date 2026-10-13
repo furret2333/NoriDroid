@@ -37,6 +37,9 @@ jobs:
           git config --global credential.helper store
           git config --global advice.detachedHead false
 
+          # git push needs a repository context even for a bare "delete remote ref"
+          git init -q .
+
           echo "== tags before =="
           git ls-remote --tags "$REPO_URL" | awk '{print $2}'
 
