@@ -66,8 +66,8 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir dist --clobber
           ls -l dist
           APK="$(ls dist/*.apk | head -n1)"
-          echo "apk=${APK}" >> "$GITHUB_ENV"
-          echo "apk_sha=$(sha256sum "$APK" | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "APK=${APK}" >> "$GITHUB_ENV"
+          echo "APK_SHA=$(sha256sum "$APK" | awk '{print $1}')" >> "$GITHUB_ENV"
           echo "local apk: ${APK}"
 
       - name: Sync to Gitee
@@ -78,6 +78,10 @@ jobs:
           set -euo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
             echo "::error:: GITEE_TOKEN secret is missing. Add it in the public repo: Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          if [ -z "${APK:-}" ] || [ ! -f "${APK:-}" ]; then
+            echo "::error:: APK env var is empty or the file is missing - the download step did not produce one."
             exit 1
           fi
 
@@ -134,9 +138,9 @@ jobs:
           done
           test -s verify.apk
           GOT="$(sha256sum verify.apk | awk '{print $1}')"
-          echo "github sha256: ${apk_sha}"
+          echo "github sha256: ${APK_SHA}"
           echo "gitee  sha256: ${GOT}"
-          if [ "$GOT" != "$apk_sha" ]; then
+          if [ "$GOT" != "$APK_SHA" ]; then
             echo "::error:: SHA-256 mismatch, the synced file looks wrong"
             exit 1
           fi
