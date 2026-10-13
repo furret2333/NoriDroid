@@ -1,0 +1,143 @@
+# 把 GitHub Release 里的 APK 自动同步到 Gitee 发行版（国内下载加速通道）
+#
+# 为什么需要：官网的下载主按钮指向 Gitee；若 Gitee 上没有对应版本的附件，
+#   国内访客点下载会 404。这条工作流保证「GitHub 一发版，Gitee 立刻就有」。
+#
+# 触发：公开仓库发布 Release 时自动跑；也可手动 workflow_dispatch 补同步。
+# 权限：只读（contents: read）——不提交任何代码，只读 Release 资产 + 调 Gitee API。
+#
+# 前置配置（一次性）：
+#   在 Gitee「设置 → 私人令牌」生成令牌（勾 projects 权限），
+#   然后加到公开仓库 furret2333/NoriDroid 的
+#   Settings → Secrets and variables → Actions → New repository secret，名字必须是 GITEE_TOKEN。
+#
+# 说明：本文件同时存在于归档仓库，靠下面的 if 只在公开仓库运行（省私有仓库 Actions 分钟）。
+
+name: Sync Release to Gitee
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to sync (e.g. 2.3.0); empty = latest release"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-gitee-${{ github.event.release.tag_name || github.event.inputs.tag || 'latest' }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'furret2333/NoriDroid'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      GITEE_OWNER: HuiQwQ
+      GITEE_REPO: nori-droid
+
+    steps:
+      - name: Resolve tag
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag || '' }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "tag resolved: ${TAG}"
+
+      - name: Download APK from GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir dist --clobber
+          ls -l dist
+          APK="$(ls dist/*.apk | head -n1)"
+          echo "apk=${APK}" >> "$GITHUB_ENV"
+          echo "apk_sha=$(sha256sum "$APK" | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "local apk: ${APK}"
+
+      - name: Sync to Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error:: GITEE_TOKEN secret is missing. Add it in the public repo: Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+          API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"
+          NAME="$(basename "$APK")"
+
+          # 1) find release by tag
+          REL_ID="$(curl -sS "$API/releases/tags/${TAG}" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("id") or "")' 2>/dev/null || true)"
+
+          # 2) create it when missing
+          if [ -z "$REL_ID" ]; then
+            echo "release ${TAG} not found on Gitee, creating..."
+            REL_ID="$(curl -sS -X POST "$API/releases" \
+              -d "access_token=${GITEE_TOKEN}" \
+              --data-urlencode "tag_name=${TAG}" \
+              --data-urlencode "name=NoriDroid ${TAG}" \
+              --data-urlencode "body=Synced automatically from the GitHub release: NoriDroid ${TAG}" \
+              --data-urlencode "target_commitish=master" \
+              --data-urlencode "prerelease=false" \
+              | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("id") or "")' 2>/dev/null || true)"
+          fi
+
+          if [ -z "$REL_ID" ]; then
+            echo "::error:: could not find or create the Gitee release ${TAG}"
+            exit 1
+          fi
+          echo "gitee release id = ${REL_ID}"
+
+          # 3) skip when the asset is already attached (idempotent)
+          HAVE="$(curl -sS "$API/releases/${REL_ID}/attach_files" | python3 -c 'import sys,json;print("\n".join(a.get("name","") for a in json.load(sys.stdin)))' 2>/dev/null || true)"
+          if printf '%s\n' "$HAVE" | grep -Fxq "$NAME"; then
+            echo "${NAME} already attached on Gitee, nothing to do"
+            exit 0
+          fi
+
+          # 4) upload the asset
+          echo "uploading ${NAME} ..."
+          curl -sS -X POST "$API/releases/${REL_ID}/attach_files" \
+            -F "access_token=${GITEE_TOKEN}" \
+            -F "file=@${APK}" \
+            | python3 -c 'import sys,json;d=json.load(sys.stdin);print("uploaded:", d.get("browser_download_url") if isinstance(d,dict) else d)'
+
+      - name: Verify by re-downloading and comparing SHA-256
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          URL="https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}/releases/download/${TAG}/$(basename "$APK")"
+          echo "verify url: ${URL}"
+          for i in 1 2 3 4 5 6; do
+            if curl -fsSL --max-time 120 -o verify.apk "$URL"; then break; fi
+            echo "attempt ${i} not ready yet, waiting 10s..."
+            sleep 10
+          done
+          test -s verify.apk
+          GOT="$(sha256sum verify.apk | awk '{print $1}')"
+          echo "github sha256: ${apk_sha}"
+          echo "gitee  sha256: ${GOT}"
+          if [ "$GOT" != "$apk_sha" ]; then
+            echo "::error:: SHA-256 mismatch, the synced file looks wrong"
+            exit 1
+          fi
+          echo "OK: the file on Gitee is byte-identical to the GitHub release asset"
