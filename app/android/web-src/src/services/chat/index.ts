@@ -466,6 +466,53 @@ export const saveCustomPersona = (text: string): void => {
 /** 本轮该用的人设: **自定义优先**, 没有自定义才用内置 —— 三处注入点统一走这里 */
 export const personaPrompt = (): string => loadCustomPersona()
 
+/* ---------------- 官方人设文案下载 (2026-10-14 用户要求) ----------------
+ * 人设**不在包里**（内置 `nori-prompt.md` 已于 2026-10-01 删除），新用户本来只能去群里要一份。
+ * 这里给一个 App 内的下载入口：过了「人设授权验证」那道答题门之后，从静态托管拉 .md 回来。
+ * 源与模型/音效是同一套（PinMe / IPFS 静态子域，见 gateway/api.ts、sfx.ts），换源只改这一行。 */
+export const PERSONA_DOWNLOAD_URL = "https://c8b197e2.pinme.dev"
+
+/** 人设文案大小上限: 与「导入文件」同口径（200KB） */
+export const PERSONA_MAX_BYTES = 200 * 1024
+
+/** 下载超时: 静态小文件正常一两秒；挂住也不能让按钮永远转 */
+const PERSONA_DOWNLOAD_TIMEOUT_MS = 30_000
+
+export interface PersonaDownloadResult {
+	ok: boolean
+	/** 下载到的正文（ok = true 时一定有） */
+	text?: string
+	bytes?: number
+	message?: string
+}
+
+/** 下载官方人设文案: 只**取文本并校验**, 不落盘（存不存由调用方决定）。
+ *  三道校验防的是"把错误页当人设存进去": HTTP 正常 / 非空且不超 200KB / 不像 HTML 且确实是 Nori 的人设。 */
+export const downloadOfficialPersona = async (): Promise<PersonaDownloadResult> => {
+	const ctl = new AbortController()
+	const timer = setTimeout(() => ctl.abort(), PERSONA_DOWNLOAD_TIMEOUT_MS)
+	try {
+		const res = await fetch(PERSONA_DOWNLOAD_URL, {signal: ctl.signal, cache: "no-store"})
+		if (!res.ok) return {ok: false, message: `下载失败: HTTP ${res.status}`}
+		const text = (await res.text()).trim()
+		if (!text) return {ok: false, message: "下载到的文件是空的, 没有可当人设的内容"}
+		const bytes = new TextEncoder().encode(text).length
+		if (bytes > PERSONA_MAX_BYTES) return {ok: false, message: `文件太大（${Math.round(bytes / 1024)}KB, 上限 200KB）`}
+		if (text.startsWith("<") || /<html[\s>]/i.test(text.slice(0, 2000))) {
+			return {ok: false, message: "下载到的是网页而不是人设文案（源站可能返回了错误页）"}
+		}
+		if (!text.includes("Nori")) return {ok: false, message: "下载到的内容不像 Nori 的人设文案, 已放弃（没有写入）"}
+		return {ok: true, text, bytes}
+	} catch (e) {
+		const msg = (e as Error)?.name === "AbortError"
+			? "下载超时（网络不通？国内可能需要魔法）"
+			: ((e as Error)?.message ?? String(e))
+		return {ok: false, message: `下载失败: ${msg}`}
+	} finally {
+		clearTimeout(timer)
+	}
+}
+
 /** 保存全部设置, 返回原生 writeFile 的**原始返回** ("ok" / "err:xxx")。
  *  单独开这个入口是为了把真实原因带到界面: 只压成布尔会让 err:insert / err:stream /
  *  SecurityException 全变成一句"存储不可写", 真机上完全没法定位 (2026-09-22 踩过)。

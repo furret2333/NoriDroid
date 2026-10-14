@@ -1,4 +1,4 @@
-// ../src/services/tts/cosy-models.ts
+// src/services/tts/cosy-models.ts
 var COSY_MODELS = ["cosyvoice-v3.5-plus", "cosyvoice-v3.5-flash", "cosyvoice-v3-plus", "cosyvoice-v3-flash", "cosyvoice-v2", "qwen-audio-3.1-tts-flash", "qwen-audio-3.0-tts-plus", "qwen-audio-3.0-tts-flash"];
 var cosyModelFromVoiceId = (id) => {
   const v = (id ?? "").trim();
@@ -29,7 +29,7 @@ var normalizeCloneVoices = (v) => {
   return [...byId.values()];
 };
 
-// ../src/services/live2d/renderScale.ts
+// src/services/live2d/renderScale.ts
 var RENDER_SCALE_MIN = 0.5;
 var RENDER_SCALE_MAX = 3;
 var normalizeRenderScale = (value, fallback = 1) => {
@@ -40,7 +40,7 @@ var normalizeRenderScale = (value, fallback = 1) => {
   return Math.min(RENDER_SCALE_MAX, Math.max(RENDER_SCALE_MIN, n));
 };
 
-// ../src/services/time.ts
+// src/services/time.ts
 var formatLocalTime = (date) => {
   const p = (n) => String(n).padStart(2, "0");
   const offset = -date.getTimezoneOffset();
@@ -49,7 +49,7 @@ var formatLocalTime = (date) => {
 };
 var isValidTimestamp = (ts) => typeof ts === "number" && Number.isFinite(ts) && ts > 0 && Number.isFinite(new Date(ts).getTime());
 
-// ../src/services/chat/index.ts
+// src/services/chat/index.ts
 var localTimeBlock = (now = /* @__PURE__ */ new Date(), gapMs = 0) => {
   const week = ["\u661F\u671F\u65E5", "\u661F\u671F\u4E00", "\u661F\u671F\u4E8C", "\u661F\u671F\u4E09", "\u661F\u671F\u56DB", "\u661F\u671F\u4E94", "\u661F\u671F\u516D"][now.getDay()];
   const hour = now.getHours();
@@ -142,6 +142,21 @@ var readFile = (name) => {
     return "";
   }
 };
+var readFileState = (name) => {
+  try {
+    const nori = bridge();
+    if (!nori.readFileState) {
+      const content = nori.readFile(name);
+      if (typeof content !== "string") return { status: "error", message: "\u6587\u4EF6\u6865\u8FD4\u56DE\u65E0\u6548\u5185\u5BB9" };
+      return { status: content ? "ok" : "missing", content };
+    }
+    const state = JSON.parse(nori.readFileState(name));
+    if (["ok", "missing"].includes(state?.status) && typeof state.content === "string") return state;
+    return { status: "error", message: state?.message || "\u6587\u4EF6\u8BFB\u53D6\u5931\u8D25" };
+  } catch {
+    return { status: "error", message: "\u6587\u4EF6\u8BFB\u53D6\u5931\u8D25" };
+  }
+};
 var writeFile = (name, content) => {
   try {
     const raw = bridge().writeFile(name, content);
@@ -150,6 +165,19 @@ var writeFile = (name, content) => {
   } catch (e) {
     console.error(`[writeFile] ${name} \u5199\u76D8\u5F02\u5E38:`, e);
     return false;
+  }
+};
+var compareAndWriteFile = (name, expected, content) => {
+  try {
+    const nori = bridge();
+    if (nori.writeFileIfUnchanged) {
+      const result = nori.writeFileIfUnchanged(name, expected, content);
+      return result === "ok" ? "ok" : result === "conflict" ? "conflict" : "error";
+    }
+    if (readFile(name) !== expected) return "conflict";
+    return writeFile(name, content) ? "ok" : "error";
+  } catch {
+    return "error";
   }
 };
 var PERSONA_FILE = "persona.md";
@@ -232,6 +260,31 @@ var saveCustomPersona = (text) => {
   writeFile(PERSONA_FILE, text);
 };
 var personaPrompt = () => loadCustomPersona();
+var PERSONA_DOWNLOAD_URL = "https://c8b197e2.pinme.dev";
+var PERSONA_MAX_BYTES = 200 * 1024;
+var PERSONA_DOWNLOAD_TIMEOUT_MS = 3e4;
+var downloadOfficialPersona = async () => {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), PERSONA_DOWNLOAD_TIMEOUT_MS);
+  try {
+    const res = await fetch(PERSONA_DOWNLOAD_URL, { signal: ctl.signal, cache: "no-store" });
+    if (!res.ok) return { ok: false, message: `\u4E0B\u8F7D\u5931\u8D25: HTTP ${res.status}` };
+    const text = (await res.text()).trim();
+    if (!text) return { ok: false, message: "\u4E0B\u8F7D\u5230\u7684\u6587\u4EF6\u662F\u7A7A\u7684, \u6CA1\u6709\u53EF\u5F53\u4EBA\u8BBE\u7684\u5185\u5BB9" };
+    const bytes = new TextEncoder().encode(text).length;
+    if (bytes > PERSONA_MAX_BYTES) return { ok: false, message: `\u6587\u4EF6\u592A\u5927\uFF08${Math.round(bytes / 1024)}KB, \u4E0A\u9650 200KB\uFF09` };
+    if (text.startsWith("<") || /<html[\s>]/i.test(text.slice(0, 2e3))) {
+      return { ok: false, message: "\u4E0B\u8F7D\u5230\u7684\u662F\u7F51\u9875\u800C\u4E0D\u662F\u4EBA\u8BBE\u6587\u6848\uFF08\u6E90\u7AD9\u53EF\u80FD\u8FD4\u56DE\u4E86\u9519\u8BEF\u9875\uFF09" };
+    }
+    if (!text.includes("Nori")) return { ok: false, message: "\u4E0B\u8F7D\u5230\u7684\u5185\u5BB9\u4E0D\u50CF Nori \u7684\u4EBA\u8BBE\u6587\u6848, \u5DF2\u653E\u5F03\uFF08\u6CA1\u6709\u5199\u5165\uFF09" };
+    return { ok: true, text, bytes };
+  } catch (e) {
+    const msg = e?.name === "AbortError" ? "\u4E0B\u8F7D\u8D85\u65F6\uFF08\u7F51\u7EDC\u4E0D\u901A\uFF1F\u56FD\u5185\u53EF\u80FD\u9700\u8981\u9B54\u6CD5\uFF09" : e?.message ?? String(e);
+    return { ok: false, message: `\u4E0B\u8F7D\u5931\u8D25: ${msg}` };
+  } finally {
+    clearTimeout(timer);
+  }
+};
 var saveSettingsRaw = (s) => {
   try {
     return String(bridge().writeFile("settings.json", JSON.stringify(s)));
@@ -344,6 +397,22 @@ var toApiMessage = (message) => ({
   role: message.role,
   content: message.parts?.length ? message.parts : message.content
 });
+var budgetChatMessages = (messages, budget) => {
+  const out = [...messages];
+  const chars = () => out.reduce((n, m) => n + m.content.length + 80, 0);
+  while (chars() > budget) {
+    const lastUser = out.map((m, i) => m.role === "user" ? i : -1).filter((i) => i >= 0).pop() ?? -1;
+    let idx = out.findIndex((m, i) => m.role !== "system" && i < lastUser);
+    if (idx < 0) idx = out.findIndex((m, i) => m.role === "system" && i > 0);
+    if (idx < 0) throw new Error("\u672C\u6B21\u6D88\u606F\u8D85\u8FC7\u4E0A\u4E0B\u6587\u9884\u7B97\uFF0C\u8BF7\u5206\u6BB5\u53D1\u9001");
+    out.splice(idx, 1);
+  }
+  return out;
+};
+var prepareChatMessages = (messages, options) => {
+  const fresh = options?.prepareMessages?.() ?? messages;
+  return options?.inputCharBudget ? budgetChatMessages(fresh, Math.max(1, options.inputCharBudget - (options.timeAware ? 2e3 : 0))) : fresh;
+};
 var buildApiMessages = (messages, options) => {
   if (!options?.timeAware) return messages.map(toApiMessage);
   const result = messages.map((message) => {
@@ -590,8 +659,18 @@ var sendChat = (baseUrl, apiKey, model, messages, thinking = false, options) => 
   if (!apiKey.trim()) return Promise.resolve({ ok: false, message: "\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u586B\u5199 API Key" });
   if (!model.trim()) return Promise.resolve({ ok: false, message: "\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u9009\u62E9\u6A21\u578B" });
   return enqueueChat(() => {
-    const payload = JSON.stringify(buildApiMessages(messages, options));
+    if (options?.signal?.aborted) return Promise.resolve({ ok: false, message: "\u5DF2\u505C\u6B62" });
+    let ready;
+    try {
+      ready = prepareChatMessages(messages, options);
+    } catch (e) {
+      return Promise.resolve({ ok: false, message: String(e) });
+    }
+    const payload = JSON.stringify(buildApiMessages(ready, options));
     return new Promise((resolve) => {
+      const nori = bridge();
+      const requestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const cancellable = typeof nori.chatRequest === "function";
       let settled = false;
       let timeout = null;
       const done = (result) => {
@@ -601,19 +680,42 @@ var sendChat = (baseUrl, apiKey, model, messages, thinking = false, options) => 
           clearTimeout(timeout);
           timeout = null;
         }
+        options?.signal?.removeEventListener("abort", onAbort);
         delete window.__noriChatRes;
         resolve(result);
       };
+      const onAbort = () => {
+        if (cancellable) {
+          try {
+            nori.chatRequestStop?.(requestId);
+          } catch {
+          }
+          done({ ok: false, message: "\u5DF2\u505C\u6B62" });
+        }
+      };
       window.__noriChatRes = (json) => {
         try {
-          done(JSON.parse(json));
+          const result = JSON.parse(json);
+          if (cancellable && result.requestId !== requestId) return;
+          done(options?.signal?.aborted ? { ok: false, message: "\u5DF2\u505C\u6B62" } : result);
         } catch {
           done({ ok: false, message: "\u54CD\u5E94\u89E3\u6790\u5931\u8D25" });
         }
       };
-      timeout = setTimeout(() => done({ ok: false, message: "\u8BF7\u6C42\u8D85\u65F6, \u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5" }), CHAT_TOTAL_TIMEOUT_MS);
+      options?.signal?.addEventListener("abort", onAbort, { once: true });
+      timeout = setTimeout(() => {
+        if (cancellable) {
+          try {
+            nori.chatRequestStop?.(requestId);
+          } catch {
+          }
+        }
+        done({ ok: false, message: "\u8BF7\u6C42\u8D85\u65F6, \u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5" });
+      }, CHAT_TOTAL_TIMEOUT_MS);
       try {
-        bridge().chat(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking));
+        if (cancellable) nori.chatRequest(requestId, baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking));
+        else nori.chat(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking));
+        options?.onDispatched?.(ready);
       } catch {
         done({ ok: false, message: "\u8BF7\u6C42\u5931\u8D25" });
       }
@@ -650,8 +752,21 @@ var sendChatStream = (baseUrl, apiKey, model, messages, callbacks, thinking = fa
       resolveTask();
     };
     const nori = window.NoriChat;
+    if (signal?.aborted) {
+      callbacks.onError("\u5DF2\u505C\u6B62");
+      finish();
+      return;
+    }
     if (nori && typeof nori.chatStream === "function") {
-      const payload = JSON.stringify(buildApiMessages(messages, options));
+      let ready;
+      try {
+        ready = prepareChatMessages(messages, options);
+      } catch (e) {
+        callbacks.onError(String(e));
+        finish();
+        return;
+      }
+      const payload = JSON.stringify(buildApiMessages(ready, options));
       const onAbort = () => {
         try {
           nori.chatStop?.();
@@ -710,6 +825,7 @@ var sendChatStream = (baseUrl, apiKey, model, messages, callbacks, thinking = fa
       armIdleWatchdog();
       try {
         nori.chatStream(baseUrl, apiKey, model, payload, resolveThinking(baseUrl, thinking));
+        options?.onDispatched?.(ready);
       } catch (e) {
         cleanup();
         callbacks.onError(`\u53D1\u8D77\u6D41\u5F0F\u8BF7\u6C42\u5931\u8D25: ${String(e)}`);
@@ -717,7 +833,7 @@ var sendChatStream = (baseUrl, apiKey, model, messages, callbacks, thinking = fa
       }
       return;
     }
-    void sendChat(baseUrl, apiKey, model, messages, thinking, options).then((r) => {
+    void sendChat(baseUrl, apiKey, model, messages, thinking, { ...options, signal }).then((r) => {
       if (r.ok) {
         const content = r.content ?? "";
         callbacks.onDelta(content);
@@ -738,14 +854,19 @@ var cancelChatStream = () => {
 };
 export {
   DEFAULT_SETTINGS,
+  PERSONA_DOWNLOAD_URL,
   PERSONA_FILE,
+  PERSONA_MAX_BYTES,
   __resetChatCutoffForTest,
   appendMemory,
+  budgetChatMessages,
   cancelChatStream,
   captureImage,
   checkCosyBalance,
   checkDeepSeekBalance,
   checkFishBalance,
+  compareAndWriteFile,
+  downloadOfficialPersona,
   fetchModels,
   fetchVoices,
   flushChatPersist,
@@ -763,6 +884,7 @@ export {
   pickPersonaFile,
   probePublicFiles,
   readFile,
+  readFileState,
   readMemory,
   requestAllFilesAccess,
   requestStoragePermission,

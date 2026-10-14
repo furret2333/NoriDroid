@@ -876,6 +876,17 @@
 								<div v-if="personaMsg" class="hint" :class="{ok: personaMsgOk, bad: !personaMsgOk}">{{ personaMsg }}</div>
 								<div class="hint">选一个 UTF-8 文本文件（.md/.txt，≤200KB）当人设; 只存在本机, 不上传、不进包</div>
 							</div>
+							<!-- 官方人设下载（2026-10-14 用户要求）: 人设不随包分发, 新用户本来只能去群里要 ——
+							     这里给一个 App 内的下载入口, 与「下载模型」同一道「人设授权验证」, 答对才去下。
+							     ⚠ 它必须排在「人设文案」正下方（probe-persona-import 断言的就是这个顺序）。 -->
+							<div class="settings-row">
+								<label>官方人设（下载）</label>
+								<div class="row-inline">
+									<button class="mini ripple" :disabled="personaDlBusy" @click="openPersonaGate">{{ personaDlBusy ? "下载中…" : "下载官方人设" }}</button>
+								</div>
+								<div v-if="personaDlMsg" class="hint" :class="{ok: personaDlOk, bad: !personaDlOk}">{{ personaDlMsg }}</div>
+								<div class="hint">从 inori 的静态托管下载官方人设文案（约 20KB），下完直接作为本机人设生效。下载前需要答对「人设授权验证」的问题。</div>
+							</div>
 							<div class="settings-row">
 								<label>API Base URL</label>
 								<input v-model="cfg.baseUrl" type="text" spellcheck="false" autocomplete="off" />
@@ -1288,19 +1299,21 @@
 			</div>
 		</transition>
 
-		<!-- 模型授权验证（答题门，2026-10-01 为一键克隆引入；2026-10-02 起**同一道门**也守「下载模型」）
+		<!-- 模型授权验证（答题门，2026-10-01 为一键克隆引入；2026-10-02 起**同一道门**也守「下载模型」，
+		     2026-10-14 起再守「下载官方人设」）
 		     —— 照用户给的参考图做的结构：标题/说明/问题/输入框/取消·验证/底部提示。
 		     只有一份弹窗与一份状态（gateOn/gateKind/...），动作靠 openGate(kind, onPass) 分岔：
 		     clone = 建音色（原样，.clone-gate 这套类名/文案一字未改，probe-clone-gate 盯着）；
-		     model = 放行后走原来的"切模型→下载"流程（进度还在 topbar 的 loadingMsg 上）。 -->
+		     model = 放行后走原来的"切模型→下载"流程（进度还在 topbar 的 loadingMsg 上）；
+		     persona = 放行后从静态托管拉官方人设文案（.persona-gate，标题/说明按动作分岔）。 -->
 		<transition name="sheet">
-			<div v-if="gateOn" class="gate-mask" :class="gateKind === 'clone' ? 'clone-gate-mask' : 'model-gate-mask'" @click.self="closeGate">
-				<div class="gate" :class="gateKind === 'clone' ? 'clone-gate' : 'model-gate'">
+			<div v-if="gateOn" class="gate-mask" :class="gateKind === 'clone' ? 'clone-gate-mask' : gateKind === 'persona' ? 'persona-gate-mask' : 'model-gate-mask'" @click.self="closeGate">
+				<div class="gate" :class="gateKind === 'clone' ? 'clone-gate' : gateKind === 'persona' ? 'persona-gate' : 'model-gate'">
 					<div class="gate-head">
-						<span class="gate-title">模型授权验证</span>
+						<span class="gate-title">{{ gateKind === "persona" ? "人设授权验证" : "模型授权验证" }}</span>
 						<button class="x" @click="closeGate">✕</button>
 					</div>
-					<p class="gate-desc">该{{ gateKind === "clone" ? "内置音色" : "模型" }}由 <b>inori</b> 提供，因模型特殊性不可直接分发；答对下面的问题即可{{ gateKind === "clone" ? "获得使用资格" : "开始下载" }}。</p>
+					<p class="gate-desc">该{{ gateKind === "clone" ? "内置音色" : gateKind === "persona" ? "人设文案" : "模型" }}由 <b>inori</b> 提供，因{{ gateKind === "persona" ? "特殊性" : "模型特殊性" }}不可直接分发；答对下面的问题即可{{ gateKind === "clone" ? "获得使用资格" : "开始下载" }}。</p>
 					<div class="gate-q">{{ CLONE_GATE_QUESTION }}</div>
 					<input v-model="gateInput" class="gate-input" type="text" autocomplete="off" spellcheck="false" placeholder="请输入答案" @keyup.enter="doGate" />
 					<div v-if="gateMsg" class="hint" :class="gateOk ? 'ok' : 'bad'">{{ gateMsg }}</div>
@@ -1308,7 +1321,7 @@
 						<button class="mini ripple" @click="closeGate">取消</button>
 						<button class="mini ripple gate-go" :disabled="gateBusy || !gateInput.trim()" @click="doGate">{{ gateBusy ? gateBusyLabel : gateGoLabel }}</button>
 					</div>
-					<div class="gate-hint">{{ gateKind === "clone" ? CLONE_GATE_HINT : MODEL_GATE_HINT }}</div>
+					<div class="gate-hint">{{ gateKind === "clone" ? CLONE_GATE_HINT : gateKind === "persona" ? PERSONA_GATE_HINT : MODEL_GATE_HINT }}</div>
 				</div>
 			</div>
 		</transition>
@@ -1354,6 +1367,7 @@ import {
 	pickPersonaFile,
 	loadCustomPersona,
 	saveCustomPersona,
+	downloadOfficialPersona,
 	personaPrompt,
 	getStorageDir,
 	probePublicFiles,
@@ -1447,7 +1461,7 @@ import {
 import {FISH_MODELS, FISH_FORMATS, FISH_LATENCIES} from "./services/tts/fishaudio"
 import {COSY_MODELS, COSY_NO_VOICE_ERROR, cosyVoiceModelError, pickVoiceFile, createCloneVoice, queryCloneVoice, createPresetCloneVoice} from "./services/tts/cosyvoice"
 // 「模型授权验证」答题门（2026-10-01 一键克隆 / 2026-10-02 也守「下载模型」）: 题目/答案/判卷都在那个纯模块里, 便于单测
-import {CLONE_GATE_QUESTION, CLONE_GATE_HINT, MODEL_GATE_HINT, checkCloneAnswer} from "./services/tts/clone-gate"
+import {CLONE_GATE_QUESTION, CLONE_GATE_HINT, MODEL_GATE_HINT, PERSONA_GATE_HINT, checkCloneAnswer} from "./services/tts/clone-gate"
 import {parseMarkerDelta, type ParsedMarkers} from "./services/chat/markers"
 import {listDiary, ensureDiary, writeTodayDiary, deleteDiaryEntry, bufferDiarySource, type DiaryEntry} from "./services/nori-diary"
 // 专注统计: 纯逻辑 (可单测) —— 汇总计算、热力图网格、以及"要不要跟 Nori 提"的判定都在那里
@@ -1569,7 +1583,6 @@ const INTRO_STEPS: IntroStep[] = [
 		body: [
 			"此版本由**小桧**（inori 一群 · 471419518）重构。",
 			"原版本为**洱海**及**亓才孑**的最初版本 DeepEr（现已换包名，可共存）。",
-			"懒得放仓库了…感觉应该不会有啥更新。",
 		],
 	},
 	{
@@ -3485,20 +3498,31 @@ const personaCustom = ref(false)
 const personaChars = ref(0)
 const personaMsg = ref("")
 const personaMsgOk = ref(false)
+/* 官方人设下载（2026-10-14 用户要求）: 与「下载模型」同一道答题门，答对才真的去下拉 .md。
+ *  `personaOfficial` 只用来把状态行写成「当前：官方人设」—— 与文件名一样只在内存里，
+ *  重启后回落显示成「自定义 · N 字」（内容本身是落盘的，不影响功能）。 */
+const personaOfficial = ref(false)
+const personaDlMsg = ref("")
+const personaDlOk = ref(false)
+const personaDlBusy = ref(false)
 
-/** 状态行文案（2026-10-01 起**没有内置人设**）: 「未设置人设…」/「当前：自定义（文件名）· N 字」 */
+/** 状态行文案（2026-10-01 起**没有内置人设**）: 「未设置人设…」/「当前：自定义（文件名）· N 字」/
+ *  「当前：官方人设 · N 字」（最后一条是 2026-10-14 加的下载入口带来的） */
 const personaStateText = computed(() =>
 	personaCustom.value
-		? `当前：自定义${personaName.value ? `（${personaName.value}）` : ""} · ${personaChars.value} 字`
-		: `未设置人设 —— 点「导入文件」选一份人设文案（不导入的话 Nori 没有人格设定）`
+		? `当前：${personaOfficial.value ? "官方人设" : "自定义"}${personaName.value ? `（${personaName.value}）` : ""} · ${personaChars.value} 字`
+		: `未设置人设 —— 点「导入文件」选一份人设文案，或点「下载官方人设」（不导入的话 Nori 没有人格设定）`
 )
 
-/** 重读自定义人设, 刷新那行状态 (启动时与导入/恢复后各调一次) */
+/** 重读自定义人设, 刷新那行状态 (启动时与导入/下载/恢复后各调一次) */
 const refreshPersonaState = () => {
 	const t = loadCustomPersona()
 	personaCustom.value = !!t
 	personaChars.value = t ? t.length : 0
-	if (!t) personaName.value = ""
+	if (!t) {
+		personaName.value = ""
+		personaOfficial.value = false
+	}
 }
 
 /** 导入文案人设: 系统文件选择器 → 存 `persona.md` → 之后每轮对话都用它 */
@@ -3519,6 +3543,7 @@ const doImportPersona = async () => {
 	}
 	saveCustomPersona(text)
 	personaName.value = r.name ?? ""
+	personaOfficial.value = false
 	refreshPersonaState()
 	personaMsgOk.value = true
 	personaMsg.value = `已导入 ${r.name ?? "人设文件"}（${personaChars.value} 字）`
@@ -3528,10 +3553,50 @@ const doImportPersona = async () => {
 /** 清除自定义人设: 把 `persona.md` 内容清空（文件留着, 不删；没有内置人设可回落） */
 const doResetPersona = () => {
 	saveCustomPersona("")
+	personaOfficial.value = false
+	personaDlMsg.value = ""
 	refreshPersonaState()
 	personaMsgOk.value = true
 	personaMsg.value = ""
 	triggerBubble("已清除自定义人设")
+}
+
+/* ---------------- 官方人设下载（2026-10-14 用户要求）----------------
+ * 入口在设置 → 连接与人设 →「官方人设」行（就排在「人设文案（提示词）」正下方）。
+ * 和「下载模型」完全同一套：点按钮 → 开「人设授权验证」那道题 → **答对才**去下载（答错/取消都不下）。
+ * 下载源在 services/chat（PERSONA_DOWNLOAD_URL, PinMe/IPFS 静态托管，与模型/音效同一套）。
+ * 下完直接 saveCustomPersona（= `persona.md`）→ 下一轮对话就按这份人设走。 */
+const openPersonaGate = (): void => {
+	if (personaDlBusy.value) return
+	personaDlMsg.value = ""
+	openGate("persona", () => { void doDownloadOfficialPersona() })
+}
+
+/** 答题门放行之后真正去下载；文本校验在 services/chat 里做（空/超大/HTML/不是 Nori 的都不写盘） */
+const doDownloadOfficialPersona = async (): Promise<void> => {
+	personaDlBusy.value = true
+	personaDlOk.value = false
+	personaDlMsg.value = "下载中…"
+	try {
+		const r = await downloadOfficialPersona()
+		if (!r.ok || !r.text) {
+			personaDlOk.value = false
+			personaDlMsg.value = r.message ?? "下载失败"
+			return
+		}
+		saveCustomPersona(r.text)
+		personaOfficial.value = true
+		personaName.value = ""
+		refreshPersonaState()
+		personaDlOk.value = true
+		personaDlMsg.value = `已下载并启用官方人设（${Math.round((r.bytes ?? 0) / 1024)}KB · ${personaChars.value} 字）`
+		triggerBubble("人设装好啦，从现在开始就是Nori了")
+	} catch (e) {
+		personaDlOk.value = false
+		personaDlMsg.value = `下载失败: ${(e as Error)?.message ?? String(e)}`
+	} finally {
+		personaDlBusy.value = false
+	}
 }
 
 const modelReady = computed(() => !!cfg.apiKey.trim() && !!cfg.model)
@@ -5457,25 +5522,26 @@ const cloneStatusText = ref("")
 const cloneStatusOk = ref(false)
 let cloneVoiceId = ""
 
-/* ---------------- 模型授权验证（答题门，2026-10-01；2026-10-02 抽成两处共用） ----------------
-   同一道门守两个"要联网拿 inori 东西"的动作：
+/* ---------------- 模型授权验证（答题门，2026-10-01；2026-10-02 抽成两处共用；2026-10-14 三处） ----------------
+   同一道门守三个"要联网拿 inori 东西"的动作：
      · clone —— 一键克隆内置音色（原样：建音色 → 轮询审核 → 选中并持久化；参考音频同样走**联网下载**，
                  原生侧负责下载+规范成 16bit，见 ChatBridge.createPresetCloneVoice）
      · model —— 下载还没装的 Live2D 模型（见下面 pick()：**答对才真的开始下载**）
+     · persona —— 下载官方人设文案（见 openPersonaGate()：**答对才去拉 .md**）
    题面/答案/判卷在 services/tts/clone-gate.ts（唯一事实源）；这里只放"这道门此刻为谁开"。
    弹窗只有一份，克隆那边的类名(.clone-gate)与文案一字未改 —— probe-clone-gate 是护栏。 */
-type GateKind = "clone" | "model"
+type GateKind = "clone" | "model" | "persona"
 const gateOn = ref(false)
 const gateKind = ref<GateKind>("clone")
 const gateInput = ref("")
 const gateMsg = ref("")
 const gateOk = ref(false)
 const gateBusy = ref(false)
-/** 答对之后的"放行动作"（目前只有下载模型用得上：关掉弹窗再走原来的"切模型→下载"流程）。
+/** 答对之后的"放行动作"（下载模型 / 下载官方人设用得上：关掉弹窗再去干那件事）。
  *  克隆的动作就在门里跑（要把"审核中…"一直显示在弹窗里），所以它是 null。 */
 let gatePass: (() => void) | null = null
 
-/** 主按钮文案：克隆那两句原样保留；下载模型按动作改成"验证并下载" */
+/** 主按钮文案：克隆那两句原样保留；下载模型与下载人设都按动作改成"验证并下载" */
 const gateGoLabel = computed(() => (gateKind.value === "clone" ? "验证并克隆" : "验证并下载"))
 const gateBusyLabel = computed(() => (gateKind.value === "clone" ? "创建中…" : "下载中…"))
 
@@ -5558,7 +5624,8 @@ const doGate = async (): Promise<void> => {
 		return
 	}
 	if (gateKind.value === "clone") { await doCloneGate(); return }
-	// 下载模型：答对即放行 —— 关掉弹窗，进度/状态回到原来的模型加载流程（topbar 的"下载 X…"）
+	// 下载模型 / 下载官方人设：答对即放行 —— 关掉弹窗，剩下的事由 gatePass 去干
+	// （模型是回到原来的"切模型→下载"流程，进度在 topbar；人设是去拉 .md 再落盘）
 	const pass = gatePass
 	gateOn.value = false
 	gatePass = null

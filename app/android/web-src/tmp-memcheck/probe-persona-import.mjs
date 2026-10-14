@@ -1,7 +1,8 @@
 /* 探针: 设置里导入「自定义文案人设」(2026-10-01 用户要求)
  *
  * 验的是**用户真正会走的那条路**（不是"源码里有没有那个函数"）：
- *   ① 设置面板顶部第一块就是人设行（用 DOM 顺序断言，不是"存在就行"）
+ *   ① 设置面板顶部第一块就是人设行（用 DOM 顺序断言，不是"存在就行"）；2026-10-14 起它下面
+ *      紧跟「官方人设（下载）」那一块（下载入口就是加在「人设文案」正下方的），API Base URL 排第三
  *   ② 点「导入文件」走原生桥，状态行从「未设置人设」变「自定义（文件名）· N 字」
  *   ③ **最关键**：导入后发一条消息，截获真发出去的 payload —— 第一条 system 必须是**自定义文本**，
  *      且**不含**内置人设字样（证明不是"两份都塞进去"）
@@ -138,6 +139,7 @@ try {
 		return {ok: true, rows: rows.length,
 			first: f ? f.textContent.replace(/\\s+/g, " ").trim().slice(0, 90) : "",
 			second: rows[1] ? rows[1].textContent.replace(/\\s+/g, " ").trim().slice(0, 30) : "",
+			third: rows[2] ? rows[2].textContent.replace(/\\s+/g, " ").trim().slice(0, 30) : "",
 			state: f && f.querySelector(".hint") ? f.querySelector(".hint").textContent.trim() : "",
 			hasImport: !!btn(/导入文件/), resetDisabled: reset ? !!reset.disabled : null,
 			file: (() => { try { return window.NoriChat.readFile("persona.md") } catch (e) { return "err:" + String(e) } })()}
@@ -149,8 +151,9 @@ try {
 	check("① 设置面板打得开且有人设行", before.ok === true, JSON.stringify(before))
 	check("② **第一块 .settings-row 就是人设行**（DOM 顺序，不是「存在就行」）",
 		!!before.first && before.first.includes("人设文案（提示词）"), JSON.stringify(before.first))
-	check("③ 第二块才是 API Base URL（确认它真的排在最前）",
-		!!before.second && /API Base URL/i.test(before.second), JSON.stringify(before.second))
+	check("③ 第二块是「官方人设（下载）」、第三块才是 API Base URL（人设相关都排在配置之前）",
+		!!before.second && /官方人设/.test(before.second) && !!before.third && /API Base URL/i.test(before.third),
+		JSON.stringify({second: before.second, third: before.third}))
 	check("④ 第一块里有「导入文件」按钮", before.hasImport === true, JSON.stringify(before))
 	check("⑤ 没导入过时状态行写「未设置人设」且「清除自定义」置灰",
 		/未设置人设/.test(before.state) && before.resetDisabled === true, JSON.stringify({state: before.state, disabled: before.resetDisabled}))
