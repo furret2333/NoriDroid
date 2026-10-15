@@ -9,6 +9,8 @@
 | **live2d-easy-control** 1.0.3 | MIT | Live2D 控制封装。⚠️ 本项目通过 `app/android/web-src/scripts/patch-live2d.mjs` 对它**打过补丁（修改版）**，MIT 允许修改，但**必须保留原版权与许可声明**，且本项目的修改部分同样按 GPL-3.0 提供。 |
 | **AndroidX / androidx.webkit** | Apache-2.0 | Android 支持库。 |
 | **Kotlin stdlib** | Apache-2.0 | Kotlin 标准库。 |
+| **霞鹜文楷 LXGW WenKai** | SIL OFL 1.1 | 界面可选字体（设置 →「更多工具」→「界面字体」）。随包分发的是**子集**（GB2312 全量 6763 字 + 界面用字），由 `app/android/web-src/scripts/subset-ui-fonts.py` 生成；许可全文随仓库：`app/android/web-src/src/assets/fonts/OFL-LXGWWenKai.txt`。OFL 1.1 允许自由传播、嵌入软件并随软件再分发，但**不得单独售卖字体文件**；作者的附加许可明确允许"为网页分发而子集化 / 转换格式"。上游：<https://github.com/lxgw/LxgwWenKai> |
+| **站酷快乐体 ZCOOL KuaiLe** | SIL OFL 1.1 | 界面可选字体（同上，子集）。许可全文：`app/android/web-src/src/assets/fonts/OFL-ZCOOLKuaiLe.txt`。上游：<https://github.com/google/fonts/tree/main/ofl/zcoolkuaile> |
 | **Live2D Cubism Core**（`live2dcubismcore.min.js`） | **Live2D Proprietary Software License Agreement**（专有，非开源） | ⚠️ **不随本仓库分发**（已从版本控制移除，见 `SETUP.md` 第 1 节：构建前自行去官网下载 SDK 并放置）。该文件按其头部声明属于协议里的 **"Redistributable Code"**：允许随应用（APK）分发，但 **不得修改**、 **不得置于会允许第三方修改的开源许可之下**（§5.3.2 / §6.8），且不得删除其版权与许可声明。协议全文：<https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html> |
 | **Live2D 模型素材** | 各自作者所有 | **不随本仓库与本应用分发**；由使用者自行提供/导入。 |
 

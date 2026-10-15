@@ -145,7 +145,7 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
-                if (!WebAssets.isAllowedUrl(url.toString()) &&
+                if (!WebAssets.isAllowedSubresource(url) &&
                     url.scheme != "data" && url.scheme != "blob"
                 ) return WebAssets.blockedResponse()
                 

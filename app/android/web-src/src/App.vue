@@ -1174,6 +1174,21 @@
 							<button class="btn ripple" @click="openPanel('motion')">动作列表</button>
 							<button class="btn ripple" @click="openPanel('expression')">表情列表</button>
 							<button class="btn ripple" @click="toggleUiStyle">外观风格：{{ uiSoft ? "柔和雾面" : "潮汐玻璃" }} ›</button>
+							<!-- 界面字体（2026-10-15 用户要求）: 放在「更多工具」二级菜单里。
+							     选项按钮自己用对应字体渲染，当场就能看出差别。 -->
+							<div class="settings-row">
+								<label>界面字体</label>
+								<div class="pomo-range">
+									<button
+										v-for="o in UI_FONT_OPTIONS" :key="o.value"
+										class="pomo-rbtn" :class="{on: uiFontNow === o.value}"
+										:style="{fontFamily: uiFontPreviewFamily(o.value)}"
+										@click="setUiFont(o.value)"
+									>{{ o.label }}</button>
+								</div>
+								<div class="hint">{{ uiFontHint }}</div>
+								<div class="hint">缺字（GB2312 之外的生僻字）会自动回落系统字体；两个字体都随包，无需联网下载</div>
+							</div>
 									</div>
 								</details>
 
@@ -1232,6 +1247,7 @@
 										<li><b>live2d-easy-control 1.0.3</b> —— MIT；本项目用 <code>scripts/patch-live2d.mjs</code> 对它<b>打过补丁（修改版）</b>，原版权与许可声明保留，本项目修改的部分同样按 GPL-3.0 提供</li>
 										<li><b>AndroidX / androidx.webkit</b> —— Apache-2.0（Android 支持库）</li>
 										<li><b>Kotlin stdlib</b> —— Apache-2.0（Kotlin 标准库）</li>
+										<li><b>霞鹜文楷 LXGW WenKai</b> · <b>站酷快乐体 ZCOOL KuaiLe</b> —— <b>SIL OFL 1.1</b>（设置 →「更多工具」里可选的界面字体）。随包分发的是<b>子集</b>（GB2312 全量 + 界面用字，见 <code>scripts/subset-ui-fonts.py</code>）；许可全文在仓库 <code>src/assets/fonts/OFL-*.txt</code>。OFL 允许自由传播与嵌入软件，但<b>不得单独售卖字体文件</b>。</li>
 										<li><b>Live2D Cubism Core</b>（live2dcubismcore.min.js）—— <b>专有许可</b>，不是开源组件。Core <b>按原样分发、不修改</b>，也<b>不置于会允许第三方修改的开源许可之下</b>；版权与许可声明一律保留。</li>
 									</ul>
 									<p class="about-p">Live2D 专有软件许可协议全文：</p>
@@ -1463,6 +1479,8 @@ import {COSY_MODELS, COSY_NO_VOICE_ERROR, cosyVoiceModelError, pickVoiceFile, cr
 // 「模型授权验证」答题门（2026-10-01 一键克隆 / 2026-10-02 也守「下载模型」）: 题目/答案/判卷都在那个纯模块里, 便于单测
 import {CLONE_GATE_QUESTION, CLONE_GATE_HINT, MODEL_GATE_HINT, PERSONA_GATE_HINT, checkCloneAnswer} from "./services/tts/clone-gate"
 import {parseMarkerDelta, type ParsedMarkers} from "./services/chat/markers"
+// 界面可选字体（2026-10-15）: system / 霞鹜文楷 / 站酷快乐体；纯逻辑在 services/ui-font.ts
+import {UI_FONT_OPTIONS, applyUiFont, normalizeUiFont, uiFontPreviewFamily, type UiFontChoice} from "./services/ui-font"
 import {listDiary, ensureDiary, writeTodayDiary, deleteDiaryEntry, bufferDiarySource, type DiaryEntry} from "./services/nori-diary"
 // 专注统计: 纯逻辑 (可单测) —— 汇总计算、热力图网格、以及"要不要跟 Nori 提"的判定都在那里
 import {
@@ -3359,6 +3377,8 @@ const cfg = reactive({
 	bgmVolume: 0.35,
 	sfxVolume: 0.5,
 	dataseaBg: true,
+	/** 界面字体（2026-10-15）：system 系统默认 / wenkai 霞鹜文楷 / kuaile 站酷快乐体（后两者随包 OFL 子集） */
+	uiFont: "system" as UiFontChoice,
 	/** 让 Nori 知道当前时间（2026-10-01）：每次对话在人格之后追加一个时间块；关掉即回到以前 */
 	timeAware: true,
 	ambientEnabled: true,
@@ -3446,6 +3466,20 @@ const toggleUiStyle = (): void => {
 	try { localStorage.setItem("ui_style", uiSoft.value ? "soft" : "tide") } catch { /* 忽略 */ }
 	playSfx()
 	triggerBubble(uiSoft.value ? "外观：柔和雾面" : "外观：潮汐玻璃", 2200)
+}
+
+/* ---------------- 界面字体（2026-10-15 用户要求） ----------------
+ * 三个选项：系统默认 / 霞鹜文楷 / 站酷快乐体。后两个是随包的 OFL 子集（见 ui-fonts.less）。
+ * 这里只管"当前选哪个 + 写进设置"；落 DOM 与字体栈由 services/ui-font.ts + ui-fonts.less 负责。 */
+const uiFontNow = computed<UiFontChoice>(() => normalizeUiFont(cfg.uiFont))
+const uiFontHint = computed<string>(() => UI_FONT_OPTIONS.find(o => o.value === uiFontNow.value)?.hint ?? "")
+const setUiFont = (v: UiFontChoice): void => {
+	if (uiFontNow.value === v) return
+	cfg.uiFont = applyUiFont(v)
+	persistSettings()
+	playSfx()
+	const label = UI_FONT_OPTIONS.find(o => o.value === v)?.label ?? v
+	triggerBubble(`界面字体：${label}`, 2200)
 }
 /** 存储自检结果 (原始 JSON, 便于直接截图/复制给开发者) */
 const storageProbeMsg = ref("")
@@ -6146,6 +6180,8 @@ const persistSettings = (): string => {
 		bgmVolume: Number.isFinite(Number(cfg.bgmVolume)) ? Math.min(1, Math.max(0, Number(cfg.bgmVolume))) : 0.35,
 		sfxVolume: Number.isFinite(Number(cfg.sfxVolume)) ? Math.min(1, Math.max(0, Number(cfg.sfxVolume))) : 0.5,
 		dataseaBg: !!cfg.dataseaBg,
+		// 界面字体（2026-10-15）: 必须进这份"逐字段"的落盘清单，否则重启就回系统字体
+		uiFont: normalizeUiFont(cfg.uiFont),
 		timeAware: cfg.timeAware !== false,
 		ambientEnabled: !!cfg.ambientEnabled,
 		quietMode: cfg.quietMode,
@@ -6346,6 +6382,9 @@ onMounted(async () => {
 	cfg.timeAware = s.timeAware !== false      // 旧设置文件没这个字段 ⇒ 默认开
 	cfg.ambientEnabled = s.ambientEnabled !== false
 	cfg.dataseaBg = s.dataseaBg !== false
+	/* 界面字体（2026-10-15）: 老设置文件没这个字段 → 系统默认；
+	 * 立刻落到 <html data-ui-font>，避免首帧先用系统字体再跳一下。 */
+	cfg.uiFont = applyUiFont(s.uiFont)
 	cfg.quietMode = ["off", "auto", "manual"].includes(String(s.quietMode)) ? String(s.quietMode) : "off"
 	cfg.quietOn = !!s.quietOn
 	cfg.cosyCloneVoices = normalizeCloneVoices(s.cosyCloneVoices)

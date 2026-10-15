@@ -190,6 +190,12 @@ const need = [
 	["官方人设下载按钮", "下载官方人设"],
 	["官方人设下载地址", "c8b197e2.pinme.dev"],
 	["人设授权验证弹窗标题", "人设授权验证"],
+	// === 界面可选字体 (2026-10-15): 系统默认 / 霞鹜文楷 / 站酷快乐体 ===
+	["界面字体设置字段 uiFont", "uiFont"],
+	["界面字体设置行", "界面字体"],
+	["霞鹜文楷选项", "霞鹜文楷"],
+	["站酷快乐体选项", "站酷快乐体"],
+	["界面字体落到 DOM 的属性", "data-ui-font"],
 ]
 /** CSS 关键字 (选择器只可能出现在样式里, 查 JS 一定查不到 —— 我第一版就踩了这个) */
 const needCss = [
@@ -200,6 +206,8 @@ const needCss = [
 	["回收站样式 .mem-deleted", ".mem-deleted"],
 	["记忆优化样式 .mem-tune", ".mem-tune"],
 	["记忆诊断样式 .mem-diag", ".mem-diag"],
+	["霞鹜文楷 @font-face", "Nori WenKai"],
+	["站酷快乐体 @font-face", "Nori KuaiLe"],
 ]
 let bad = 0
 for (const [label, key] of need) {
@@ -267,6 +275,23 @@ for (const [label, key] of needCss) {
 		console.log(`${hit ? "FAIL" : "PASS"}  ${w} 已不再打进包（改为联网下载）`)
 		if (hit) bad += 1
 	}
+}
+// 正向: 「下载官方人设」的下载源必须同时在**原生子资源白名单**里（2026-10-15 修的 Failed to fetch）——
+// WebView 的 shouldInterceptRequest 会把白名单外的请求回成空响应，JS 侧只会看到
+// TypeError: Failed to fetch（模型/音效走原生桥所以一直没暴露）。这条盯着三个地方，缺一个就红。
+{
+	const dir = path.resolve(import.meta.dirname, "..", "..", "app", "src", "main", "java", "com", "noridroid")
+	const wa = existsSync(path.join(dir, "WebAssets.kt")) ? readFileSync(path.join(dir, "WebAssets.kt"), "utf-8") : ""
+	const ma = existsSync(path.join(dir, "MainActivity.kt")) ? readFileSync(path.join(dir, "MainActivity.kt"), "utf-8") : ""
+	const hasHost = wa.includes("c8b197e2.pinme.dev")
+	const hasApi = wa.includes("fun isAllowedSubresource(")
+	const usesIt = ma.includes("WebAssets.isAllowedSubresource(url)")
+	console.log(`${hasHost ? "PASS" : "FAIL"}  原生子资源白名单含人设下载源（c8b197e2.pinme.dev）`)
+	console.log(`${hasApi ? "PASS" : "FAIL"}  原生提供 isAllowedSubresource()（导航仍只允许 appassets）`)
+	console.log(`${usesIt ? "PASS" : "FAIL"}  主界面拦截器用子资源判定（否则前端 fetch 会被拦成 Failed to fetch）`)
+	if (!hasHost) bad += 1
+	if (!hasApi) bad += 1
+	if (!usesIt) bad += 1
 }
 // 正向: 参考音频的下载地址与桥方法在**原生源码**里（2026-10-01 改为联网下载）——
 // 它不在 web 产物、也不在 dex 可读字符串里，所以直接查源码文件最实在：URL 被误删会立刻红。

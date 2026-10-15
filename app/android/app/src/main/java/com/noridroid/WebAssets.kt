@@ -21,6 +21,30 @@ object WebAssets {
         uri.scheme.equals("https", ignoreCase = true) &&
             uri.host.equals(APP_HOST, ignoreCase = true)
 
+    /**
+     * 额外放行的**子资源/接口主机**（2026-10-15 修「下载官方人设」的 Failed to fetch）。
+     *
+     * 背景：`shouldInterceptRequest` 会把不在白名单里的请求一律回成空响应，
+     * 于是前端 `fetch()` 只会抛 `TypeError: Failed to fetch`。
+     * 模型 / 音效 / 背景音乐都走**原生桥**（Kotlin 直接发请求），所以一直没暴露；
+     * 人设文案是唯一在 WebView 里直接 fetch 的静态资源，就踩到了。
+     *
+     * 口径：这里只放行**子资源**；页面导航（shouldOverrideUrlLoading / onPageStarted）
+     * 仍然只允许 appassets，不会因为这份清单把外部网页放进来。
+     * ⚠ 与 `services/chat/index.ts` 的 `PERSONA_DOWNLOAD_HOST` 必须一致
+     *   （`verify-apk-bundle` 有断言盯着）。
+     */
+    private val ALLOWED_SUBRESOURCE_HOSTS = setOf("c8b197e2.pinme.dev")
+
+    /** 子资源请求是否放行：appassets 本身 + 上面那份显式清单（一律要求 https） */
+    fun isAllowedSubresource(url: String): Boolean = isAllowedSubresource(Uri.parse(url))
+
+    fun isAllowedSubresource(uri: Uri): Boolean =
+        isAllowedUrl(uri) || (
+            uri.scheme.equals("https", ignoreCase = true) &&
+                ALLOWED_SUBRESOURCE_HOSTS.contains(uri.host?.lowercase() ?: "")
+            )
+
     fun blockedResponse(): WebResourceResponse =
         WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
 

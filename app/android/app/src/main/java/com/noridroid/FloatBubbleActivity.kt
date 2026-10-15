@@ -234,7 +234,7 @@ class FloatBubbleActivity : Activity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url?.toString() ?: return null
-                if (!WebAssets.isAllowedUrl(url) && !url.startsWith("data:") && !url.startsWith("blob:")) {
+                if (!WebAssets.isAllowedSubresource(url) && !url.startsWith("data:") && !url.startsWith("blob:")) {
                     return WebAssets.blockedResponse()
                 }
                 return WebAssets.serve(assets, url)

@@ -49,6 +49,9 @@ var formatLocalTime = (date) => {
 };
 var isValidTimestamp = (ts) => typeof ts === "number" && Number.isFinite(ts) && ts > 0 && Number.isFinite(new Date(ts).getTime());
 
+// src/services/ui-font.ts
+var normalizeUiFont = (v) => v === "wenkai" || v === "kuaile" ? v : "system";
+
 // src/services/chat/index.ts
 var localTimeBlock = (now = /* @__PURE__ */ new Date(), gapMs = 0) => {
   const week = ["\u661F\u671F\u65E5", "\u661F\u671F\u4E00", "\u661F\u671F\u4E8C", "\u661F\u671F\u4E09", "\u661F\u671F\u56DB", "\u661F\u671F\u4E94", "\u661F\u671F\u516D"][now.getDay()];
@@ -92,6 +95,7 @@ var DEFAULT_SETTINGS = {
   bgmVolume: 0.35,
   sfxVolume: 0.5,
   dataseaBg: true,
+  uiFont: "system",
   timeAware: true,
   ambientEnabled: true,
   quietMode: "off",
@@ -130,6 +134,7 @@ var loadSettings = () => {
     merged.renderScale = normalizeRenderScale(parsed?.renderScale, DEFAULT_SETTINGS.renderScale);
     merged.floatRenderScale = normalizeRenderScale(parsed?.floatRenderScale, DEFAULT_SETTINGS.floatRenderScale);
     merged.cosyCloneVoices = normalizeCloneVoices(parsed?.cosyCloneVoices);
+    merged.uiFont = normalizeUiFont(parsed?.uiFont);
     return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -261,6 +266,7 @@ var saveCustomPersona = (text) => {
 };
 var personaPrompt = () => loadCustomPersona();
 var PERSONA_DOWNLOAD_URL = "https://c8b197e2.pinme.dev";
+var PERSONA_DOWNLOAD_HOST = "c8b197e2.pinme.dev";
 var PERSONA_MAX_BYTES = 200 * 1024;
 var PERSONA_DOWNLOAD_TIMEOUT_MS = 3e4;
 var downloadOfficialPersona = async () => {
@@ -279,7 +285,8 @@ var downloadOfficialPersona = async () => {
     if (!text.includes("Nori")) return { ok: false, message: "\u4E0B\u8F7D\u5230\u7684\u5185\u5BB9\u4E0D\u50CF Nori \u7684\u4EBA\u8BBE\u6587\u6848, \u5DF2\u653E\u5F03\uFF08\u6CA1\u6709\u5199\u5165\uFF09" };
     return { ok: true, text, bytes };
   } catch (e) {
-    const msg = e?.name === "AbortError" ? "\u4E0B\u8F7D\u8D85\u65F6\uFF08\u7F51\u7EDC\u4E0D\u901A\uFF1F\u56FD\u5185\u53EF\u80FD\u9700\u8981\u9B54\u6CD5\uFF09" : e?.message ?? String(e);
+    const err = e;
+    const msg = err?.name === "AbortError" ? `\u4E0B\u8F7D\u8D85\u65F6\uFF08${PERSONA_DOWNLOAD_HOST} \u8FDE\u4E0D\u4E0A\uFF1F\u56FD\u5185\u53EF\u80FD\u9700\u8981\u9B54\u6CD5\uFF09` : err instanceof TypeError ? `\u8FDE\u4E0D\u4E0A\u4E0B\u8F7D\u6E90 ${PERSONA_DOWNLOAD_HOST}\uFF08\u7F51\u7EDC\u88AB\u62E6\u6216\u9700\u8981\u9B54\u6CD5\uFF1B\u53EF\u5148\u7528\u6D4F\u89C8\u5668\u6253\u5F00\u8FD9\u4E2A\u5730\u5740\u8BD5\u8BD5\uFF09` : err?.message ?? String(e);
     return { ok: false, message: `\u4E0B\u8F7D\u5931\u8D25: ${msg}` };
   } finally {
     clearTimeout(timer);
@@ -854,6 +861,7 @@ var cancelChatStream = () => {
 };
 export {
   DEFAULT_SETTINGS,
+  PERSONA_DOWNLOAD_HOST,
   PERSONA_DOWNLOAD_URL,
   PERSONA_FILE,
   PERSONA_MAX_BYTES,

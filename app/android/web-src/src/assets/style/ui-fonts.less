@@ -1,0 +1,43 @@
+/**
+ * 界面可选字体的 @font-face 与字体栈（2026-10-15 用户要求）。
+ *
+ * - 两个字体都是 **OFL 1.1** 子集，随包分发；许可全文在 `src/assets/fonts/OFL-*.txt`，
+ *   单测/预检会反向断言它们没有被打进 APK（只有 woff2 会进 assets）。
+ * - 子集范围：GB2312 全量 6763 字 + App 源码用字 + 基本拉丁/常用标点；
+ *   覆盖不到的生僻字由字体栈后面的系统字体兜底（不会方块）。
+ * - 只在 `<html data-ui-font="…">` 明确选中时才用自定义字体；`system`（默认）走原来那套系统栈，
+ *   与改动前的渲染**完全一致**。
+ * - 悬浮窗 / 气泡聊天页也 import 这份文件（它们不走 global.less），所以 body 的字体在这里定。
+ */
+
+@font-face {
+	font-family: "Nori WenKai";
+	src: url("../fonts/wenkai-ui.woff2") format("woff2");
+	font-weight: 400;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Nori KuaiLe";
+	src: url("../fonts/kuaile-ui.woff2") format("woff2");
+	font-weight: 400;
+	font-display: swap;
+}
+
+:root {
+	/* 默认 = 改动前的那套系统字体栈（一字未改） */
+	--ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html[data-ui-font="wenkai"] {
+	--ui-font: "Nori WenKai", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html[data-ui-font="kuaile"] {
+	--ui-font: "Nori KuaiLe", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html,
+body {
+	font-family: var(--ui-font);
+}

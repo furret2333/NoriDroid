@@ -7,6 +7,8 @@
 import {normalizeCloneVoices, type CosyCloneVoice} from "../tts/cosy-models"
 import {normalizeRenderScale} from "../live2d/renderScale"
 import {formatLocalTime, isValidTimestamp} from "../time"
+// 界面字体 (system / wenkai / kuaile): 纯逻辑放零依赖模块, 这里只借它的归一化
+import {normalizeUiFont, type UiFontChoice} from "../ui-font"
 export {normalizeCloneVoices, type CosyCloneVoice}
 
 
@@ -53,6 +55,12 @@ export interface Settings {
 	sfxVolume: number
 	/** 动态背景 (数据海: 星尘/星云漂移/网格, 纯程序渲染零素材) */
 	dataseaBg: boolean
+	/**
+	 * 界面字体 (2026-10-15 用户要求): system = 系统字体栈 / wenkai = 霞鹜文楷 / kuaile = 站酷快乐体。
+	 * 后两者是随包的 OFL 1.1 子集（`scripts/subset-ui-fonts.py` 生成），
+	 * 缺字（GB2312 之外的生僻字）自动回落系统字体。见 services/ui-font.ts。
+	 */
+	uiFont?: UiFontChoice
 	/** 让 Nori 知道当前设备时间（默认开）；关闭后不注入当前时间和历史发送时间。 */
 	timeAware: boolean
 	/** Nori 主动搭话 (安静间隔 + 冷却 + 会话预算, 本地语料零 token) */
@@ -189,6 +197,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	bgmVolume: 0.35,
 	sfxVolume: 0.5,
 	dataseaBg: true,
+	uiFont: "system",
 	timeAware: true,
 	ambientEnabled: true,
 	quietMode: "off",
@@ -318,6 +327,8 @@ export const loadSettings = (): Settings => {
 		merged.floatRenderScale = normalizeRenderScale((parsed as {floatRenderScale?: unknown})?.floatRenderScale, DEFAULT_SETTINGS.floatRenderScale)
 		// 旧版是 string[], 读时统一归一化 (不能只靠类型断言)
 		merged.cosyCloneVoices = normalizeCloneVoices((parsed as {cosyCloneVoices?: unknown})?.cosyCloneVoices)
+		// 界面字体: 老设置文件没有这个字段 → 系统默认; 手改坏的值也归一到 system
+		merged.uiFont = normalizeUiFont((parsed as {uiFont?: unknown})?.uiFont)
 		return merged
 	} catch {
 		return {...DEFAULT_SETTINGS}
@@ -472,6 +483,14 @@ export const personaPrompt = (): string => loadCustomPersona()
  * 源与模型/音效是同一套（PinMe / IPFS 静态子域，见 gateway/api.ts、sfx.ts），换源只改这一行。 */
 export const PERSONA_DOWNLOAD_URL = "https://c8b197e2.pinme.dev"
 
+/** 下载源主机名。两个用途：
+ *  ① 报错文案里带上它，让用户能自己去浏览器试（判断是"网络不通"还是"App 的问题"）；
+ *  ② 与原生侧的**子资源白名单**对齐 —— `WebAssets.ALLOWED_SUBRESOURCE_HOSTS` 必须含它，
+ *     否则 WebView 的 shouldInterceptRequest 会把请求回成空响应，前端只会看到
+ *     `TypeError: Failed to fetch`（2026-10-15 实机踩过；verify-apk-bundle 有断言）。
+ *  ⚠ 换下载源时这三处（本常量、原生白名单、PROBE/pinme 地址）一起改。 */
+export const PERSONA_DOWNLOAD_HOST = "c8b197e2.pinme.dev"
+
 /** 人设文案大小上限: 与「导入文件」同口径（200KB） */
 export const PERSONA_MAX_BYTES = 200 * 1024
 
@@ -504,9 +523,15 @@ export const downloadOfficialPersona = async (): Promise<PersonaDownloadResult> 
 		if (!text.includes("Nori")) return {ok: false, message: "下载到的内容不像 Nori 的人设文案, 已放弃（没有写入）"}
 		return {ok: true, text, bytes}
 	} catch (e) {
-		const msg = (e as Error)?.name === "AbortError"
-			? "下载超时（网络不通？国内可能需要魔法）"
-			: ((e as Error)?.message ?? String(e))
+		const err = e as Error
+		/* WebView 里"网络层失败"和"接口返回错误"在 JS 里长得完全不一样：
+		 * 域名解析不了 / 被墙 / 被壳拦掉都是 `TypeError: Failed to fetch`（一句英文，用户看不懂），
+		 * 超时是 AbortError。分开说，并带上源主机 —— 用户可以直接在浏览器打开它验证。 */
+		const msg = err?.name === "AbortError"
+			? `下载超时（${PERSONA_DOWNLOAD_HOST} 连不上？国内可能需要魔法）`
+			: err instanceof TypeError
+				? `连不上下载源 ${PERSONA_DOWNLOAD_HOST}（网络被拦或需要魔法；可先用浏览器打开这个地址试试）`
+				: (err?.message ?? String(e))
 		return {ok: false, message: `下载失败: ${msg}`}
 	} finally {
 		clearTimeout(timer)

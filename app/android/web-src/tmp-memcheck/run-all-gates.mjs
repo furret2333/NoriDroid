@@ -64,6 +64,7 @@ const SUITES = [
 	{name: "probe-bubble-place", kind: "probe-h"},   // float bubble initial placement (below model)           // 一键克隆的答题门 + 引导里的 Steam 愿望单
 	{name: "probe-persona-import", kind: "probe-h"},       // 设置顶部导入自定义人设 (替代内置提示词) + payload 真的换了
 	{name: "probe-persona-download-gate", kind: "probe-h"}, // 下载官方人设前的同一道答题门: 答对才拉 .md / 错误页拒收 / 下完直接生效
+	{name: "probe-ui-font", kind: "probe-h"},              // 设置「更多工具 → 界面字体」: 三选项 / 真生效(逐像素) / 落盘 / 启动读取
 	{name: "probe-chat-image-poke", kind: "probe-h"},      // 聊天图片/戳戳的真实页面与发送 payload
 	{name: "probe-sfx-download", kind: "probe-h"},         // 音效改为联网下载: 设置里「下载音效」+ 未下载时静默不报错
 	{name: "probe-about-page", kind: "probe-h"},           // 设置里的「关于 / 隐私 / 开源许可」页: 入口 + 四块内容(版本/隐私/许可/反馈) + 链接走 openExternal
