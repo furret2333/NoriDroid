@@ -29,21 +29,27 @@ object WebAssets {
      * 模型 / 音效 / 背景音乐都走**原生桥**（Kotlin 直接发请求），所以一直没暴露；
      * 人设文案是唯一在 WebView 里直接 fetch 的静态资源，就踩到了。
      *
+     * ⚠ 2026-10-16 改成**基础域名**（含子域）：这个静态托管的子域换过三次
+     *   （fc39e5fc / 59f06f75 / cb04914b），写死单个子域时换源就会再踩一次同样的坑。
+     *
      * 口径：这里只放行**子资源**；页面导航（shouldOverrideUrlLoading / onPageStarted）
      * 仍然只允许 appassets，不会因为这份清单把外部网页放进来。
-     * ⚠ 与 `services/chat/index.ts` 的 `PERSONA_DOWNLOAD_HOST` 必须一致
+     * ⚠ 与 `services/chat/index.ts` 的 `PERSONA_DOWNLOAD_URL` 必须落在这些域里
      *   （`verify-apk-bundle` 有断言盯着）。
      */
-    private val ALLOWED_SUBRESOURCE_HOSTS = setOf("c8b197e2.pinme.dev")
+    private val ALLOWED_SUBRESOURCE_DOMAINS = setOf("pinme.dev")
 
-    /** 子资源请求是否放行：appassets 本身 + 上面那份显式清单（一律要求 https） */
+    /** 主机是否属于上面那份域名（精确匹配或子域） */
+    private fun domainAllowed(host: String?): Boolean {
+        val h = host?.lowercase() ?: return false
+        return ALLOWED_SUBRESOURCE_DOMAINS.any { h == it || h.endsWith(".$it") }
+    }
+
+    /** 子资源请求是否放行：appassets 本身 + 上面那份显式域名（一律要求 https） */
     fun isAllowedSubresource(url: String): Boolean = isAllowedSubresource(Uri.parse(url))
 
     fun isAllowedSubresource(uri: Uri): Boolean =
-        isAllowedUrl(uri) || (
-            uri.scheme.equals("https", ignoreCase = true) &&
-                ALLOWED_SUBRESOURCE_HOSTS.contains(uri.host?.lowercase() ?: "")
-            )
+        isAllowedUrl(uri) || (uri.scheme.equals("https", ignoreCase = true) && domainAllowed(uri.host))
 
     fun blockedResponse(): WebResourceResponse =
         WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))

@@ -483,13 +483,20 @@ export const personaPrompt = (): string => loadCustomPersona()
  * 源与模型/音效是同一套（PinMe / IPFS 静态子域，见 gateway/api.ts、sfx.ts），换源只改这一行。 */
 export const PERSONA_DOWNLOAD_URL = "https://c8b197e2.pinme.dev"
 
-/** 下载源主机名。两个用途：
+/** 下载源主机名（**从 URL 推出来**，不手写第二份 —— 手写两份就会漂移，见 2026-10-16 自查）。
+ *  两个用途：
  *  ① 报错文案里带上它，让用户能自己去浏览器试（判断是"网络不通"还是"App 的问题"）；
- *  ② 与原生侧的**子资源白名单**对齐 —— `WebAssets.ALLOWED_SUBRESOURCE_HOSTS` 必须含它，
- *     否则 WebView 的 shouldInterceptRequest 会把请求回成空响应，前端只会看到
+ *  ② 与原生侧的**子资源白名单**对齐 —— `WebAssets.ALLOWED_SUBRESOURCE_DOMAINS`（pinme.dev 及其子域）
+ *     必须覆盖这个主机，否则 WebView 的 shouldInterceptRequest 会把请求回成空响应，前端只会看到
  *     `TypeError: Failed to fetch`（2026-10-15 实机踩过；verify-apk-bundle 有断言）。
- *  ⚠ 换下载源时这三处（本常量、原生白名单、PROBE/pinme 地址）一起改。 */
-export const PERSONA_DOWNLOAD_HOST = "c8b197e2.pinme.dev"
+ *  ⚠ 换下载源时改上面那一行就够了（主机名自动跟随）。 */
+export const PERSONA_DOWNLOAD_HOST = ((): string => {
+	try {
+		return new URL(PERSONA_DOWNLOAD_URL).host
+	} catch {
+		return PERSONA_DOWNLOAD_URL
+	}
+})()
 
 /** 人设文案大小上限: 与「导入文件」同口径（200KB） */
 export const PERSONA_MAX_BYTES = 200 * 1024

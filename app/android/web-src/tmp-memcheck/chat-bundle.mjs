@@ -266,7 +266,13 @@ var saveCustomPersona = (text) => {
 };
 var personaPrompt = () => loadCustomPersona();
 var PERSONA_DOWNLOAD_URL = "https://c8b197e2.pinme.dev";
-var PERSONA_DOWNLOAD_HOST = "c8b197e2.pinme.dev";
+var PERSONA_DOWNLOAD_HOST = (() => {
+  try {
+    return new URL(PERSONA_DOWNLOAD_URL).host;
+  } catch {
+    return PERSONA_DOWNLOAD_URL;
+  }
+})();
 var PERSONA_MAX_BYTES = 200 * 1024;
 var PERSONA_DOWNLOAD_TIMEOUT_MS = 3e4;
 var downloadOfficialPersona = async () => {

@@ -283,14 +283,19 @@ for (const [label, key] of needCss) {
 	const dir = path.resolve(import.meta.dirname, "..", "..", "app", "src", "main", "java", "com", "noridroid")
 	const wa = existsSync(path.join(dir, "WebAssets.kt")) ? readFileSync(path.join(dir, "WebAssets.kt"), "utf-8") : ""
 	const ma = existsSync(path.join(dir, "MainActivity.kt")) ? readFileSync(path.join(dir, "MainActivity.kt"), "utf-8") : ""
-	const hasHost = wa.includes("c8b197e2.pinme.dev")
+	// 2026-10-16 起白名单放的是**基础域名**（含子域）：pinme 的静态托管子域换过三次，
+	// 写死单个子域时换源会再踩一次同样的坑。前端那一侧仍断言精确主机（见 need 列表）。
+	const hasDomain = wa.includes('ALLOWED_SUBRESOURCE_DOMAINS = setOf("pinme.dev")')
 	const hasApi = wa.includes("fun isAllowedSubresource(")
+	const hasSuffix = wa.includes("endsWith(\".$it\")")
 	const usesIt = ma.includes("WebAssets.isAllowedSubresource(url)")
-	console.log(`${hasHost ? "PASS" : "FAIL"}  原生子资源白名单含人设下载源（c8b197e2.pinme.dev）`)
+	console.log(`${hasDomain ? "PASS" : "FAIL"}  原生子资源白名单是基础域名（pinme.dev，含子域）`)
 	console.log(`${hasApi ? "PASS" : "FAIL"}  原生提供 isAllowedSubresource()（导航仍只允许 appassets）`)
+	console.log(`${hasSuffix ? "PASS" : "FAIL"}  子域匹配逻辑在（endsWith 判定）`)
 	console.log(`${usesIt ? "PASS" : "FAIL"}  主界面拦截器用子资源判定（否则前端 fetch 会被拦成 Failed to fetch）`)
-	if (!hasHost) bad += 1
+	if (!hasDomain) bad += 1
 	if (!hasApi) bad += 1
+	if (!hasSuffix) bad += 1
 	if (!usesIt) bad += 1
 }
 // 正向: 参考音频的下载地址与桥方法在**原生源码**里（2026-10-01 改为联网下载）——

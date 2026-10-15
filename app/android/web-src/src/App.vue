@@ -1254,6 +1254,16 @@
 									<button class="about-a ripple about-a-block" @click="openAboutUrl(LIVE2D_EULA_URL)">{{ LIVE2D_EULA_URL }}</button>
 									<p class="about-p">不随包分发：人设文本、音效、参考音频、Live2D 模型素材都<b>不在安装包里</b> —— 由使用者自己导入或联网下载，版权归各自作者所有。</p>
 									<p class="about-p">完整清单与 Live2D 协议的分发义务说明见仓库根目录的 <code>THIRD-PARTY.md</code>。</p>
+									<!-- 字体许可全文（2026-10-16）: OFL 1.1 要求再分发时附带许可，
+									     这里把原文打进包、可就地展开（默认收起，不打扰阅读）。 -->
+									<details class="about-license">
+										<summary>霞鹜文楷 LXGW WenKai · SIL OFL 1.1 许可全文</summary>
+										<pre class="about-license-text">{{ oflWenKaiText }}</pre>
+									</details>
+									<details class="about-license">
+										<summary>站酷快乐体 ZCOOL KuaiLe · SIL OFL 1.1 许可全文</summary>
+										<pre class="about-license-text">{{ oflKuaiLeText }}</pre>
+									</details>
 								</div>
 								<!-- ④ 反馈渠道 -->
 								<div class="about-sec">
@@ -1481,6 +1491,10 @@ import {CLONE_GATE_QUESTION, CLONE_GATE_HINT, MODEL_GATE_HINT, PERSONA_GATE_HINT
 import {parseMarkerDelta, type ParsedMarkers} from "./services/chat/markers"
 // 界面可选字体（2026-10-15）: system / 霞鹜文楷 / 站酷快乐体；纯逻辑在 services/ui-font.ts
 import {UI_FONT_OPTIONS, applyUiFont, normalizeUiFont, uiFontPreviewFamily, type UiFontChoice} from "./services/ui-font"
+/* 两个字体的 OFL 许可**全文**（2026-10-16）: OFL 1.1 要求再分发字体时附带许可，
+ * 所以这里以原文打进包、在「关于 / 开源许可」页里可展开查看（不是只给个仓库路径）。 */
+import oflWenKaiText from "./assets/fonts/OFL-LXGWWenKai.txt?raw"
+import oflKuaiLeText from "./assets/fonts/OFL-ZCOOLKuaiLe.txt?raw"
 import {listDiary, ensureDiary, writeTodayDiary, deleteDiaryEntry, bufferDiarySource, type DiaryEntry} from "./services/nori-diary"
 // 专注统计: 纯逻辑 (可单测) —— 汇总计算、热力图网格、以及"要不要跟 Nori 提"的判定都在那里
 import {
@@ -8536,6 +8550,25 @@ onBeforeUnmount(async () => {
 }
 .about-p { margin: 0; font-size: 13px; line-height: 1.75; color: var(--fg-2); }
 .about-p b { color: var(--fg); }
+/* 字体许可全文（2026-10-16）: 默认收起，展开后给一块可滚动的等宽文本区 */
+.about-license {
+	margin-top: 4px;
+	summary {
+		font-size: 12.5px; color: var(--accent); cursor: pointer;
+		list-style: none; padding: 3px 0;
+		&::-webkit-details-marker { display: none; }
+		&::before { content: "▸ "; }
+	}
+	&[open] summary::before { content: "▾ "; }
+}
+.about-license-text {
+	margin: 6px 0 2px; padding: 10px 12px;
+	max-height: 240px; overflow: auto;
+	font-size: 11.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+	color: var(--fg-2); background: var(--px-panel-2);
+	border: 1px solid var(--px-line); border-radius: 6px;
+	user-select: text; -webkit-user-select: text;
+}
 .about-ul {
 	margin: 0; padding-left: 18px;
 	display: flex; flex-direction: column; gap: 5px;

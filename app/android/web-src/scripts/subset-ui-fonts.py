@@ -84,8 +84,11 @@ def subset(src: pathlib.Path, text: str, out: pathlib.Path, family_note: str) ->
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--wenkai", required=True)
-    ap.add_argument("--kuaile", required=True)
+    ap.add_argument("--wenkai", required=True, help="霞鹜文楷 Regular/Medium 全量（woff2 或 ttf）")
+    ap.add_argument("--wenkai-bold", default=None,
+                    help="霞鹜文楷 Bold 全量。不给的话界面上 600/700 的字重只能靠浏览器**合成加粗**"
+                         "（小字号会发糊）—— 构建正式包时应该给。")
+    ap.add_argument("--kuaile", required=True, help="站酷快乐体全量（只用 Regular 一个字重）")
     ap.add_argument("--out", required=True)
     ap.add_argument("--src", default=None, help="App 源码目录（默认 web-src/src）")
     args = ap.parse_args()
@@ -96,7 +99,11 @@ def main() -> int:
     text, stats = build_text(src_dir)
     for k, v in stats.items():
         print(f"  {k}: {v}")
-    subset(pathlib.Path(args.wenkai), text, out_dir / "wenkai-ui.woff2", "霞鹜文楷")
+    subset(pathlib.Path(args.wenkai), text, out_dir / "wenkai-ui.woff2", "霞鹜文楷 Regular/Medium")
+    if args.wenkai_bold:
+        subset(pathlib.Path(args.wenkai_bold), text, out_dir / "wenkai-ui-bold.woff2", "霞鹜文楷 Bold")
+    else:
+        print("  ⚠ 没给 --wenkai-bold：界面 600/700 的字重将使用合成加粗")
     subset(pathlib.Path(args.kuaile), text, out_dir / "kuaile-ui.woff2", "站酷快乐体")
     return 0
 

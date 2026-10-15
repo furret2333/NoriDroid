@@ -13,14 +13,25 @@
 @font-face {
 	font-family: "Nori WenKai";
 	src: url("../fonts/wenkai-ui.woff2") format("woff2");
-	font-weight: 400;
+	/* 源文件是 Medium(500)：按 400~500 声明，正文不会走"合成加粗" */
+	font-weight: 400 500;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Nori WenKai";
+	src: url("../fonts/wenkai-ui-bold.woff2") format("woff2");
+	/* 界面里 600/700 的地方很多（标题、状态行）：必须有**真 Bold**，
+	   否则浏览器会算法加粗，小字号下笔画发糊 —— 2026-10-16 修 */
+	font-weight: 600 900;
 	font-display: swap;
 }
 
 @font-face {
 	font-family: "Nori KuaiLe";
 	src: url("../fonts/kuaile-ui.woff2") format("woff2");
-	font-weight: 400;
+	/* 快乐体只有单一字重：声明成整个区间，让浏览器别对 600/700 做合成加粗 */
+	font-weight: 400 900;
 	font-display: swap;
 }
 

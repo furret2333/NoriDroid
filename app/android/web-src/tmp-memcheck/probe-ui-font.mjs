@@ -132,6 +132,17 @@ try {
 	check("②-4 **字体真的生效**（与不存在字体的渲染像素不同）", (await reallyUsed("Nori WenKai")) === true, "字形没换")
 	check("②-5 选中态落在「霞鹜文楷」上", JSON.stringify(s1.on) === JSON.stringify(["霞鹜文楷"]), JSON.stringify(s1.on))
 	check("②-6 已落盘 settings.json（重启后还在）", s1.saved === "wenkai", JSON.stringify(s1.saved))
+	/* ②-7 真 Bold：界面里 600/700 的地方很多，只声明 400 的话浏览器会"合成加粗"（小字号发糊）。
+	   这里要求 "Nori WenKai" 至少有 2 张 face、且高字重那张被真的加载了。 */
+	const boldFace = await evalJs(`(async () => {
+		await document.fonts.load('700 20px "Nori WenKai"', '界面字体');
+		await document.fonts.load('600 20px "Nori WenKai"', '界面字体');
+		const faces = [...document.fonts].filter(f => f.family.replace(/"/g, "") === "Nori WenKai");
+		return {count: faces.length, weights: faces.map(f => String(f.weight)).sort(),
+			boldLoaded: faces.some(f => /^(6|7|8|9)/.test(String(f.weight)) && f.status === "loaded")};
+	})()`)
+	check("②-7 文楷有**真 Bold** face（不是只靠浏览器合成加粗）",
+		boldFace.count >= 2 && boldFace.boldLoaded === true, JSON.stringify(boldFace))
 
 	/* ================= ③ 切到站酷快乐体 ================= */
 	const c2 = await click("站酷快乐体")

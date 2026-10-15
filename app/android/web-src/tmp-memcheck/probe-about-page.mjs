@@ -190,6 +190,21 @@ try {
 		/不随包分发[\s\S]*人设[\s\S]*音效[\s\S]*参考音频[\s\S]*模型/)
 	miss("㉗ 指向仓库根 THIRD-PARTY.md", /THIRD-PARTY\.md/)
 
+	/* 字体许可全文（2026-10-16）: OFL 1.1 要求再分发字体时**附带许可**，
+	   所以两份 OFL 全文要以原文打进包、并且能在页面上就地展开 —— 只写"许可在仓库里"不够。 */
+	const licenseBlocks = await evalJs(`(() => {
+		const ds = [...document.querySelectorAll(".about-license")]
+		return {n: ds.length, texts: ds.map(d => (d.querySelector(".about-license-text")?.textContent || "").slice(0, 4000))}
+	})()`)
+	check("㉘ 页面里有 2 份字体许可全文（霞鹜文楷 / 站酷快乐体）",
+		licenseBlocks.n === 2, JSON.stringify({n: licenseBlocks.n}))
+	check("㉙ 霞鹜文楷那份是 OFL 1.1 原文（含 LXGW + SIL Open Font License）",
+		/LXGW/i.test(licenseBlocks.texts[0] || "") && /SIL Open Font License/i.test(licenseBlocks.texts[0] || ""),
+		JSON.stringify((licenseBlocks.texts[0] || "").slice(0, 120)))
+	check("㉚ 站酷快乐体那份是 OFL 1.1 原文（含 ZCOOL + SIL Open Font License）",
+		/ZCOOL/i.test(licenseBlocks.texts[1] || "") && /SIL Open Font License/i.test(licenseBlocks.texts[1] || ""),
+		JSON.stringify((licenseBlocks.texts[1] || "").slice(0, 120)))
+
 	/* 反馈渠道 */
 	miss("㉘ 含反馈 QQ 群 471419518", /471419518/)
 
