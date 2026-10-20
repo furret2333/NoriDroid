@@ -304,8 +304,10 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         isResumed = true
         pauseGeneration += 1   // 作废 onPause 排的延迟体: 回到前台不该再启悬浮窗
+        val generation = pauseGeneration
         LifecycleLog.record(this, "onResume", "changingConfig=${isChangingConfigurations}")
         webView.onResume()
+        webView.evaluateJavascript("window.dispatchEvent(new Event('nori-app-resume'))", null)
         setupImmersive()
         // 主 App 回到前台: **立刻**让悬浮窗停画, 再去 hide 它。
         //
@@ -317,6 +319,7 @@ class MainActivity : AppCompatActivity() {
         // 主 App 回到前台时隐藏悬浮窗 (延迟一下, 避免退出时 onResume 误杀刚启动的 Service)
         try {
             webView.postDelayed({
+                if (!isResumed || generation != pauseGeneration || isDestroyed) return@postDelayed
                 stopService(Intent(this, FloatService::class.java))
             }, 400)
         } catch (_: Exception) { /* 忽略 */ }
@@ -364,7 +367,7 @@ class MainActivity : AppCompatActivity() {
         webView.destroy()
         // 退出应用时: 若开启了悬浮窗且有权, 启动悬浮窗服务 (Nori 留在屏幕)。
         // 配置重建不算退出 → 该分支不启 (avoid 换配置时桌面突然冒出 Nori)。
-        if (!changing) {
+        if (!changing && isFinishing) {
             try {
                 if (chatBridge.shouldStartFloatOnExit()) {
                     FloatService.startShow(this)

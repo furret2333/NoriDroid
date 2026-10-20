@@ -270,6 +270,25 @@ const PART_PROBE_API = `${M("part-bounds-probe")} window.__noriIdStr = (v) => { 
 } catch (e) { return { ok: false, err: String((e && e.message) || e) } } }; window.__noriModelPoint = (cx, cy) => { try { const f = ${DPR_READ}; return { x: this._viewManager.transformViewX(cx * f), y: this._viewManager.transformViewY(cy * f) }; } catch (e) { return { err: String((e && e.message) || e) } } }; `
 
 /* ---------------- 应用器: 三态判定 ---------------- */
+// Separate token: existing part-bounds-probe installations must receive this addition too.
+const VISIBLE_BOUNDS_API = `${M("visible-canvas-bounds")} window.__noriVisibleBounds = () => { try {
+  const m = this._model, renderer = this.getRenderer(), a = renderer.getMvpMatrix().getArray();
+  if (!m || !a || a.length !== 16 || this._opacity <= 0.001) return null;
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  for (let d = 0, n = m.getDrawableCount(); d < n; d++) {
+    if (!m.getDrawableDynamicFlagIsVisible(d) || m.getDrawableOpacity(d) <= 0.001) continue;
+    const v = m.getDrawableVertices(d);
+    for (let k = 0, count = m.getDrawableVertexCount(d) * 2; k < count; k += 2) {
+      const x = v[k], y = v[k + 1], w = a[3] * x + a[7] * y + a[15];
+      if (!Number.isFinite(w) || Math.abs(w) < 0.000001) return null;
+      const px = ((a[0] * x + a[4] * y + a[12]) / w + 1) * 0.5;
+      const py = (1 - (a[1] * x + a[5] * y + a[13]) / w) * 0.5;
+      if (!Number.isFinite(px) || !Number.isFinite(py)) return null;
+      if (px < l) l = px; if (px > r) r = px; if (py < t) t = py; if (py > b) b = py;
+    }
+  }
+  return r > l && b > t ? { l, t, r, b } : null;
+} catch (e) { return null; } }; `
 let changed = false
 const applied = []
 const already = []
@@ -464,6 +483,23 @@ patch("动作前参数复位", "motion-param-reset", [[MOTION_RESET_OLD, MOTION_
 // 渲染帧率上限 60fps (120Hz 屏省一半; 60Hz 屏无变化)。助手缺失时自动退回原行为。
 patch("渲染帧率上限", "l2d-fps-cap", [[L2D_LOOP_OLD, L2D_LOOP_NEW, "one"]])
 
+// Reloading a model used to accumulate handlers that all release the same global manager.
+const UNLOAD_OLD = `await Zt.init(e, i), await O.init(e, i), Zt.showLive2d(), bs = !1, window.addEventListener(
+    "beforeunload",
+    () => {
+      Zt.release(), O.release(), e.release(), i.release(), V.dispose();
+    },
+    { passive: !0 }
+  );`
+const UNLOAD_NEW = `await Zt.init(e, i), await O.init(e, i), Zt.showLive2d(), bs = !1;
+  ${M("single-unload-handler")}
+  if (window.__noriL2dUnload) window.removeEventListener("beforeunload", window.__noriL2dUnload);
+  window.__noriL2dUnload = () => {
+    Zt.release(), O.release(), e.release(), i.release(), V.dispose();
+  };
+  window.addEventListener("beforeunload", window.__noriL2dUnload, { passive: !0 });`
+patch("模型卸载回调去重", "single-unload-handler", [[UNLOAD_OLD, UNLOAD_NEW, "one"]])
+
 // 规范化注入点: 历史补丁可能在 saveParameters 前堆叠多份 (ModelCanvas/GAZE/旧钩子),
 // 无论堆了几份, 一律收敛为唯一一份规范版 (ModelCanvas + GAZE + 新钩子)。
 // 规范版本身即哨兵, 因此不额外插标记 (避免破坏 HIT_TEST_API 模板上下文)。
@@ -515,6 +551,13 @@ if (source.includes(MODEL_INFO_CANON)) {
 patch("部位几何探针", "part-bounds-probe", [[PART_PROBE_ANCHOR, PART_PROBE_API + PART_PROBE_ANCHOR, "one"]])
 patch("参数相加/读回", "param-add-get", [[PART_PROBE_ANCHOR, PARAM_API + PART_PROBE_ANCHOR, "one"]])
 patch("参数注入点(顶点前)", "param-inject", [[PARAM_INJECT_OLD, PARAM_INJECT_NEW, "one"]])
+patch("渲染可见边界", "visible-canvas-bounds", [[PART_PROBE_ANCHOR, VISIBLE_BOUNDS_API + PART_PROBE_ANCHOR, "one"]])
+const VISIBLE_CONTEXT_OLD = `${M("visible-canvas-bounds")} window.__noriVisibleBounds = () => { try {`
+const VISIBLE_CONTEXT_NEW = VISIBLE_CONTEXT_OLD + `
+  ${M("visible-bounds-context-guard")}
+  const gl = this._viewManager.getGl();
+  if (!gl || gl.isContextLost()) return null;`
+patch("边界上下文丢失保护", "visible-bounds-context-guard", [[VISIBLE_CONTEXT_OLD, VISIBLE_CONTEXT_NEW, "one"]])
 
 /* ---------------- 写入 + 自检 ---------------- */
 if (changed) {
@@ -540,6 +583,9 @@ if (!failures.length) {
 		["部位几何探针", "part-bounds-probe"],
 		["参数相加/读回", "param-add-get"],
 		["参数注入点(顶点前)", "param-inject"],
+		["渲染可见边界", "visible-canvas-bounds"],
+		["模型卸载回调去重", "single-unload-handler"],
+		["边界上下文丢失保护", "visible-bounds-context-guard"],
 	]) {
 		if (!source.includes(M(token))) failures.push(`${name}(自检: 哨兵缺失)`)
 	}

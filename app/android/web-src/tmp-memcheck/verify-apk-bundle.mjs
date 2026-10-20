@@ -95,6 +95,14 @@ if (!webOnly && buf && readZipEntries) {
 }
 
 const need = [
+	["悬浮窗校准缓存", "nori.float-crop.v1"],
+	["悬浮窗新窗口出帧确认", "floatFrameDrawn"],
+	["悬浮窗渲染可见边界", "__noriVisibleBounds"],
+	["悬浮窗绘制后测量", "__noriAfterL2dDraw"],
+	["悬浮窗挂载代次", "beginFloatModelGeometry"],
+	["悬浮窗独立裁剪与身体几何", "setFloatVisibleGeometry"],
+	["悬浮窗动作扩展确认", "__noriFloatGeometryApplied"],
+	["悬浮窗位置大小复位入口", "重置悬浮窗位置和大小"],
 	["记忆库入口样式 mem-enter", "mem-enter"],
 	["记忆库入口文案", "记忆库 · 目标 / 长期记忆 / 历史总结"],
 	["句尾语气词白名单", "啊|呀|哦|哟|啦|呢|吧|嘛|哈|喔|噢"],
@@ -108,19 +116,19 @@ const need = [
 	["新手引导文案(小桧/一群号)", "471419518"],
 	["新手引导文案(API/TTS 推荐)", "Audio 3.1"],
 	["新手引导文案(致谢)", "I_Nori"],
-	["设置页「新手引导」按钮", "新手引导 / 致谢"],
+	["基础设置顶部新手教程入口", "settings-basic-intro"],
+	["设置页新手教程文案", "新手教程 / 致谢"],
 	// 存储自检 (卸载重装读不到数据的排查) + 所有文件访问权限
 	["存储自检样式 store-probe", "store-probe"],
 	["存储自检按钮", "存储自检"],
 	["所有文件访问权限入口", "所有文件访问权限"],
-	// 记忆纠正 (B1/B2): 作废+还原 / 来源标注 / 导出含作废史 / 模糊变量 (C4)
+	// 记忆纠正 (B1/B2): 作废+还原 / 来源标注 / 导出含作废史
 	["作废记录字段 invalidAt", "invalidAt"],
 	["记忆库「已作废（N）」区", "已作废（"],
 	["作废时间展示", "作废于"],
 	["来源标注「原话提取」", "原话提取"],
 	["来源标注「AI 整理」", "AI 整理"],
 	["导出含「已作废的记忆」段", "## 已作废的记忆"],
-	["模糊变量 ui-blur (C4)", "ui-blur-dot"],
 	// 分组 + 可发现性 + 改口消解 (2026-09-27 下午)
 	["记忆库按类型分组样式 mem-group", "mem-group"],
 	["记忆库顶部统计行 mem-stats", "mem-stats"],
@@ -199,6 +207,7 @@ const need = [
 ]
 /** CSS 关键字 (选择器只可能出现在样式里, 查 JS 一定查不到 —— 我第一版就踩了这个) */
 const needCss = [
+	["气泡模糊变量 ui-blur (C4)", "--ui-blur-bubble"],
 	["块视图样式 .mem-block", ".mem-block"],
 	["块内类型小节样式 .mem-sec-title.sub", ".mem-sec-title.sub"],
 	["待整理提示样式 .mem-pending", ".mem-pending"],
@@ -238,10 +247,10 @@ for (const [label, key] of needCss) {
 	console.log(`${has ? "FAIL" : "PASS"}  包内不含「记忆编辑」(用户明确不做的第二步)`)
 	if (has) bad += 1
 }
-// 反向: 像素风下模糊必须归零 —— 断言 CSS 里 --ui-blur-* 的像素档是 0px
+// 反向: 像素风下气泡/提示模糊必须归零；触摸点已在所有主题移除模糊
 {
-	const hasPixel = /--ui-blur-dot:\s*0px/.test(css) && /--ui-blur-bubble:\s*0px/.test(css) && /--ui-blur-chip:\s*0px/.test(css)
-	console.log(`${hasPixel ? "PASS" : "FAIL"}  C4: 像素风 --ui-blur-* 全为 0px (包内 CSS)`)
+	const hasPixel = /--ui-blur-bubble:\s*0px/.test(css) && /--ui-blur-chip:\s*0px/.test(css)
+	console.log(`${hasPixel ? "PASS" : "FAIL"}  C4: 像素风气泡/提示模糊为 0px (包内 CSS)`)
 	if (!hasPixel) bad += 1
 }
 // 正向: 底栏图标 (2026-09-30) —— 6 个 png 必须真的在包里, 否则手机上就是裂图

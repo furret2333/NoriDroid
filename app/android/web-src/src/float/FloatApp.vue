@@ -10,7 +10,7 @@ import {onBeforeUnmount, onMounted, ref} from "vue"
 import {createLive2D, normalizeFps, normalizeRenderScale} from "../services/live2d"
 import {listInstalled} from "../services/live2d/modelStore"
 import {readMotionGroups, readExpressionNames} from "../services/live2d/motions"
-import {modelLayout} from "../services/live2d/touchDetection"
+import {installFloatingGeometry} from "./modelGeometry"
 import {
 	resolveMarkerEmotion, resolveMarkerMotion, pickNeutralIdle,
 	detectExpressionByRules, detectMotionByRules,
@@ -27,6 +27,12 @@ let motionGroups: {group: string; names: string[]}[] = []
 let motionNames: string[] = []
 /** 待机定时器 */
 let idleTimer: ReturnType<typeof setTimeout> | null = null
+let renderPaused = false
+let disposed = false
+let geometrySoon: ReturnType<typeof setTimeout> | undefined
+let geometrySettled: ReturnType<typeof setTimeout> | undefined
+let geometry: ReturnType<typeof installFloatingGeometry> | undefined
+let performanceRevision = 0
 
 declare global {
 	interface Window {
@@ -43,45 +49,6 @@ declare global {
 
 /** 页面自己变成 hidden (WebView 被切走/息屏) 时兜底暂停 —— 与原生指令同一个入口 */
 const onVis = (): void => { window.__noriSetPaused?.(document.hidden) }
-
-/** 测量模型脚底在悬浮窗窗口内的 Y, 上报原生 → 对话框顶边落在 Nori 脚底**下方** (不与模型重叠).
- *  ⚠ 单位必须是**物理像素**: 原生侧的窗口坐标 (WindowManager.LayoutParams.x/y/width/height)
- *  与触摸 rawX/rawY 全是物理像素, 而 getBoundingClientRect() 给的是 CSS 像素 —— 要乘 dpr,
- *  与下面 reportModelRect 的换算保持一致。
- *  2026-10-02 修: 此前漏乘 dpr, 上报值只有真实脚底的一半左右 (dpr≈2.75 时) ⇒ 原生把对话框
- *  顶边算到 Nori 身体中间 (用户报「对话框嵌在 nori 里面、拖不出来」)。 */
-const reportModelFeet = () => {
-	try {
-		const c = l2d.canvas()
-		const ms = window.__noriModelCanvas
-		const L = modelLayout(c, ms?.w ?? 0, ms?.h ?? 0)
-		if (L && L.h > 50) {
-			const dpr = window.devicePixelRatio || 1
-			;(window as unknown as {NoriChat?: {setFloatModelFeet?: (y: number) => void}})
-				.NoriChat?.setFloatModelFeet?.(Math.round((L.y + L.h) * dpr))
-		}
-	} catch { /* 忽略 */ }
-}
-
-/** 上报模型身体矩形 (物理像素, 相对窗口左上角) → 原生据此判断"点在模型上"才弹气泡 */
-const reportModelRect = () => {
-	try {
-		const c = l2d.canvas()
-		if (!c) return
-		const ms = window.__noriModelCanvas
-		const L = modelLayout(c, ms?.w ?? 0, ms?.h ?? 0)
-		if (!L || L.w <= 0 || L.h <= 0) return
-		const dpr = window.devicePixelRatio || 1
-		const rect = {
-			l: Math.round(L.x * dpr),
-			t: Math.round(L.y * dpr),
-			r: Math.round((L.x + L.w) * dpr),
-			b: Math.round((L.y + L.h) * dpr),
-		}
-		;(window as unknown as {NoriChat?: {setFloatModelRect?: (l: number, t: number, r: number, b: number) => void}})
-			.NoriChat?.setFloatModelRect?.(rect.l, rect.t, rect.r, rect.b)
-	} catch { /* 忽略 */ }
-}
 
 /** 刷新能力列表 (模型挂载后读取一次) */
 const refreshCapabilities = async (spec: {directory: string; fileBase: string}) => {
@@ -100,11 +67,12 @@ const refreshCapabilities = async (spec: {directory: string; fileBase: string}) 
 /** 待机小动作: 长时间无互动 → 随机播一个中性 idle 动作 */
 const scheduleIdle = () => {
 	if (idleTimer) clearTimeout(idleTimer)
+	if (renderPaused || disposed) { idleTimer = null; return }
 	idleTimer = setTimeout(() => {
 		idleTimer = null
 		try {
 			const p = pickNeutralIdle(motionGroups)
-			if (p) void l2d.playMotionByIndex(p.group, p.index)
+			if (p) returnToNeutral()
 		} catch { /* 忽略 */ }
 		// 播完再排下一次 (30~60s 随机)
 		scheduleIdle()
@@ -115,19 +83,25 @@ const scheduleIdle = () => {
  *  模型里所有动作都是 Loop:true 不会自己结束, 播完反应动作必须主动切回来
  *  (实测: 说「困」后一直睡到下次说话)。 */
 const returnToNeutral = (): void => {
-	try {
+	const revision = ++performanceRevision
+	void (async () => {
+		if (geometry && !await geometry.protect()) return
+		if (disposed || renderPaused || revision !== performanceRevision) return
 		const p = pickNeutralIdle(motionGroups)
-		if (p) void l2d.playMotionByIndex(p.group, p.index)
+		if (p) await l2d.playMotionByIndex(p.group, p.index)
+		if (disposed || revision !== performanceRevision) return
 		l2d.stopExpression()
-	} catch { /* 忽略 */ }
+		geometry?.neutral()
+	})().catch(() => { /* Keep the conservative window on failure. */ })
 }
 
 /** 窗口尺寸变化 → 重新上报脚底 + 模型区域 (具名: 需要在卸载时解绑) */
 const onWinResize = (): void => {
-	setTimeout(reportModelFeet, 100)
-	setTimeout(reportModelFeet, 400)
-	setTimeout(reportModelRect, 100)
-	setTimeout(reportModelRect, 400)
+	clearTimeout(geometrySoon)
+	clearTimeout(geometrySettled)
+	const report = () => { if (!disposed) geometry?.resize() }
+	geometrySoon = setTimeout(report, 100)
+	geometrySettled = setTimeout(report, 400)
 }
 
 onMounted(async () => {
@@ -146,6 +120,7 @@ onMounted(async () => {
 		const chosen = installed.find((i) => i.id === lastId) ?? installed[0]
 		localStorage.setItem(MODEL_KEY, chosen.id)
 		const spec = {directory: chosen.id, fileBase: chosen.entryBase}
+		const cropModelKey = chosen.revision ? JSON.stringify([chosen.id, chosen.entryBase, chosen.revision]) : undefined
 		const nativeDpr = Math.max(1.5, Math.min(window.devicePixelRatio || 2, 3))
 		// Keep the float window's value locally so a queued remount cannot inherit
 		// a scale written by another WebView through the global hook.
@@ -167,6 +142,9 @@ onMounted(async () => {
 				// 重挂前必须先停掉上一个实例的渲染循环: 库里 load() 会新建模型与新的 rAF 循环,
 				// 旧循环的 _isShow 还是 true ⇒ 不 stop() 就是**两个循环一起画**
 				// (主界面 App.vue 的 loadModel 一直是 destroy() 后再 mount, 悬浮窗漏了这一步)
+				geometry?.stop()
+				geometry = installFloatingGeometry(cropModelKey)
+				delete window.__noriVisibleBounds
 				await l2d.destroy()
 				await l2d.mount(spec, {canvasWidth: "100%", canvasHeight: "100%", host: null})
 				try { l2d.playMotionByIndex("Idle", 0) } catch { /* 忽略 */ }
@@ -174,12 +152,15 @@ onMounted(async () => {
 				// WebGL 上下文丢失时 preventDefault 保持可恢复 (surface 重建常见)
 				try {
 					const cv = l2d.canvas()
-					cv?.addEventListener("webglcontextlost", (e) => e.preventDefault())
+					const mountedGeometry = geometry
+					cv?.addEventListener("webglcontextlost", (e) => {
+						e.preventDefault()
+						mountedGeometry?.contextLost()
+					})
 					cv?.addEventListener("webglcontextrestored", () => { mountModel() })
 				} catch { /* 忽略 */ }
 				await refreshCapabilities(spec)
-				reportModelFeet()
-				reportModelRect()
+				geometry?.start()
 				scheduleIdle()
 			} catch { /* 忽略 */ } finally { mountingSince = 0 }
 		}
@@ -209,8 +190,14 @@ onMounted(async () => {
 		 * 暂停只是不画（模型、画布、手势命中都不动），恢复是即时的。
 		 */
 		window.__noriSetPaused = (p: boolean) => {
+			renderPaused = !!p
+			geometry?.pause()
 			try {
-				if (p) cancelReturnToNeutral()
+				if (p) {
+					cancelReturnToNeutral()
+					if (idleTimer) clearTimeout(idleTimer)
+					idleTimer = null
+				}
 				l2d.pauseRender(!!p)
 				if (!p) scheduleIdle()
 			} catch { /* 忽略 */ }
@@ -219,45 +206,32 @@ onMounted(async () => {
 		// 原生改完悬浮窗 flags 后调用: 重挂模型救回画面 (Nori 约 1 秒后重新出现)
 		window.__noriRefresh = () => { mountModel() }
 		// 聊天气泡驱动 Nori 表演: 表情/动作标记 → 播放对应模型动作 (与主 App 同规则)
-		window.__noriPlayMarker = (emotion: string, motion: string) => {
-			try {
-				if (emotion) {
-					const emo = resolveMarkerEmotion(emotion, exprNames)
-					if (emo) l2d.playExpression(emo)
-					else l2d.stopExpression()
-				}
+		const playResolved = (emotion: string | null, motion: string | null, clearExpression: boolean) => {
+			if (!emotion && !motion && !clearExpression) return
+			const revision = ++performanceRevision
+			void (async () => {
+				if (geometry && !await geometry.protect()) return
+				if (disposed || renderPaused || revision !== performanceRevision) return
+				cancelReturnToNeutral()
+				if (emotion) l2d.playExpression(emotion)
+				else if (clearExpression) l2d.stopExpression()
 				if (motion) {
-					const mo = resolveMarkerMotion(motion, motionNames)
-					if (mo) {
-						void l2d.playMotionByName(mo)
-						scheduleReturnToNeutral(returnToNeutral)
-					} else {
-						const p = pickNeutralIdle(motionGroups)
-						if (p) void l2d.playMotionByIndex(p.group, p.index)
-					}
+					await l2d.playMotionByName(motion)
+					if (revision !== performanceRevision || disposed) return
 				}
-			} catch { /* 忽略 */ }
+				scheduleReturnToNeutral(returnToNeutral)
+			})().catch(() => { /* Retain safe bounds if playback fails. */ })
 		}
-		// 回复正文关键词兜底: 标记缺失时从正文检测情绪/动作 (与主 App triggerEmotion/pickMotionByKeyword 一致)
+		window.__noriPlayMarker = (emotion: string, motion: string) => {
+			playResolved(emotion ? resolveMarkerEmotion(emotion, exprNames) : null,
+				motion ? resolveMarkerMotion(motion, motionNames) : null, !!emotion)
+		}
 		window.__noriPlayByText = (text: string) => {
-			try {
-				if (!text) return
-				const emo = detectExpressionByRules(text, exprNames)
-				if (emo) l2d.playExpression(emo)
-				const mo = detectMotionByRules(text, motionNames)
-				if (mo) {
-					void l2d.playMotionByName(mo)
-					scheduleReturnToNeutral(returnToNeutral)
-				}
-			} catch { /* 忽略 */ }
+			playResolved(detectExpressionByRules(text, exprNames), detectMotionByRules(text, motionNames), false)
 		}
-		// 用户在悬浮窗上操作 (拖动/点按) → 重置待机计时
 		window.__noriTouchActive = () => { scheduleIdle() }
 		// 模型脚底: 等渲染稳定后上报 (对话框贴脚底用)
-		setTimeout(reportModelFeet, 300)
-		setTimeout(reportModelFeet, 1000)
-		setTimeout(reportModelRect, 300)
-		setTimeout(reportModelRect, 1000)
+		onWinResize()
 		// 窗口尺寸变化 (捏合拉大/缩小悬浮窗) → 重新上报脚底+模型区域
 		// 具名函数: 原先用匿名箭头, onBeforeUnmount 无法解绑, 每次挂载累积一个监听器
 		window.addEventListener("resize", onWinResize)
@@ -269,6 +243,11 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+	disposed = true
+	geometry?.stop()
+	performanceRevision++
+	clearTimeout(geometrySoon)
+	clearTimeout(geometrySettled)
 	if (idleTimer) clearTimeout(idleTimer)
 	cancelReturnToNeutral()
 	window.removeEventListener("resize", onWinResize)

@@ -8,16 +8,20 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -25,22 +29,13 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.ImageView
 import java.io.File
+import java.lang.ref.WeakReference
+import java.util.concurrent.atomic.AtomicLong
 
-/**
- * 悬浮窗服务: 应用退出后小尺寸 Live2D 留在桌面. 单击 Nori → 弹出聊天气泡
- * (FloatBubbleActivity, 普通窗口承载输入, 弹键盘 100% 可靠).
- *
- * 关键设计 (Android 12+ 官方机制):
- * - 本窗口永远不可聚焦 (FLAG_NOT_FOCUSABLE): 不抢桌面焦点.
- * - **气泡打开期间加 FLAG_NOT_TOUCHABLE**: Android 12+ 会拦截"被 OVERLAY 遮挡窗口"
- *   的触摸 (untrusted touch), 悬浮窗不穿透的话气泡所有按钮都会点不到.
- *   加 NOT_TOUCHABLE 后触摸穿透悬浮窗直达气泡 → 气泡必定可点 (官方解法).
- *   NOT_TOUCHABLE 不影响渲染 (之前的"Nori 透明"实为气泡窗口的 DIM 变暗, 已清除).
- * - 气泡窗口定位在悬浮窗正下方 (不重叠): Nori 的点击穿过悬浮窗落到桌面,
- *   不会碰到气泡 → 点 Nori 不会弹键盘.
- * - 拖动阈值 25px; 气泡关闭后 600ms 防误触 (点 ✕ 不会立刻又弹出).
- */
+/** 不抢焦点的桌宠窗口。WebView 保留完整画布，原生窗口裁到模型矩形，减少透明区挡手。 */
 class FloatService : Service() {
 
     companion object {
@@ -61,24 +56,105 @@ class FloatService : Service() {
          *  只有按在模型身上才弹聊天气泡 (透明区不误触) */
         @Volatile
         var modelRect: IntArray? = null
-        private const val MIN_W = 160
-        private const val MIN_H = 200
-        private const val MAX_W = 1000
-        private const val MAX_H = 1400
+        private var activeService: WeakReference<FloatService>? = null
+        private var activeChatToken: IBinder? = null
+        private val modelGeneration = AtomicLong()
+        private val frameTransitionGeneration = AtomicLong()
+
+        fun beginModelGeometry(): Long {
+            val generation = modelGeneration.incrementAndGet()
+            activeService?.get()?.let { service -> service.mainHandler.post {
+                if (generation != modelGeneration.get()) return@post
+                service.geometryGeneration = generation
+                service.geometryRevision = 0
+                service.modelCropRect = null
+                service.preciseCrop = false
+                service.pendingGeometryAck = null
+                modelRect = null
+                modelFeetY = -1
+                if (!service.gestureActive && !service.chatTransitionPending) service.updateCrop()
+            } }
+            return generation
+        }
+
+        fun reportVisibleGeometry(report: FloatingModelGeometry) {
+            activeService?.get()?.let { service -> service.mainHandler.post {
+                if (service.floatView == null || report.generation != modelGeneration.get() ||
+                    !acceptsFloatingGeometry(report, service.geometryGeneration, service.geometryRevision, service.winW, service.winH)) return@post
+                service.geometryRevision = report.revision
+                service.modelCropRect = report.crop
+                service.preciseCrop = report.precise
+                modelRect = report.hit
+                modelFeetY = report.feet
+                service.pendingGeometryAck = report.generation to report.revision
+                if (!service.gestureActive && !service.chatTransitionPending) { service.updateCrop(); service.acknowledgeGeometry() }
+            } }
+        }
+
+        fun resetWindow(context: Context) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .remove(KEY_W).remove(KEY_H).remove(KEY_X).remove(KEY_Y).remove(KEY_DENSITY).apply()
+            activeService?.get()?.let { service -> service.mainHandler.post { service.resetWindow() } }
+        }
+
+        fun reportFrameDrawn(request: Long) {
+            activeService?.get()?.let { service -> service.mainHandler.post {
+                if (request == service.chatTransitionId && service.chatTransitionPending && service.transitionCover != null) {
+                    try {
+                        service.webView?.postVisualStateCallback(request, object : WebView.VisualStateCallback() {
+                            override fun onComplete(requestId: Long) { service.revealChatModel(requestId) }
+                        })
+                    } catch (_: Exception) { service.revealChatModel(request) }
+                }
+            } }
+        }
+
+        fun reportModelRect(rect: IntArray, canvasWidth: Int = 0, canvasHeight: Int = 0) {
+            activeService?.get()?.let { service ->
+                service.mainHandler.post {
+                    if (service.floatView == null) return@post
+                    if (service.geometryGeneration != 0L) return@post
+                    // 丢弃缩放前排队的旧画布几何，避免迟到上报把新窗口裁错。
+                    if (canvasWidth > 0 && (kotlin.math.abs(canvasWidth - service.winW) > 3 ||
+                        kotlin.math.abs(canvasHeight - service.winH) > 3)) return@post
+                    modelRect = rect
+                    modelFeetY = rect[3]
+                    if (!service.gestureActive) service.updateCrop()
+                }
+            }
+        }
+
+        /** 聊天期间把原模型窗口附到 Activity 下层，避免 SAW + NOT_TOUCHABLE 被系统降到 0.8 alpha。 */
+        @androidx.annotation.MainThread
+        fun attachChatWindow(token: IBinder) {
+            activeChatToken = token
+            activeService?.get()?.setChatWindow(token)
+        }
+
+        @androidx.annotation.MainThread
+        fun detachChatWindow(token: IBinder) {
+            if (activeChatToken != token) return
+            activeChatToken = null
+            // 必须在 Activity.onStop 内同步移走子窗口；post 会晚于父窗口销毁/closeAll。
+            activeService?.get()?.setChatWindow(null)
+        }
+        private const val DEFAULT_W_DP = 180
+        private const val DEFAULT_H_DP = 236
+        private const val MIN_W_DP = 100
+        private const val MIN_H_DP = 140
+        private const val MAX_W_DP = 420
+        private const val MAX_H_DP = 580
         // 窗口尺寸/位置记忆
         private const val PREFS = "float_window"
         private const val KEY_W = "w"
         private const val KEY_H = "h"
         private const val KEY_X = "x"
         private const val KEY_Y = "y"
+        private const val KEY_DENSITY = "density"
         // 关闭气泡后短时间内不重复打开 (防误触)
         private const val BUBBLE_COOLDOWN_MS = 600L
-        // 长按: 0.8s 内移动不算拖动；到点只解锁拖动，不触发表情/动作。
-        private const val DRAG_LONG_PRESS_MS = 800L
-        // 超过轻点容差就不弹聊天，轻微滑动也不产生反馈。
-        private const val TAP_SLOP = 12f
-        // 拖动阈值: 0.8s 后位移超过 25px → 开始拖动窗口
-        private const val DRAG_THRESHOLD = 25f
+        private const val MIN_VISIBLE_DP = 48
+        private const val CROP_PADDING_DP = 20
         // ES Module 需要 https Origin (file:// 会被浏览器禁止),
         // 故用 appassets 虚拟域名, 再由 shouldInterceptRequest 兜底读取 assets
         private const val ENTRY_URL = "https://appassets.androidplatform.net/assets/float.html"
@@ -127,10 +203,20 @@ class FloatService : Service() {
     private var floatView: View? = null
     private var webView: WebView? = null
     private var floatParams: WindowManager.LayoutParams? = null
+    private var cropLeft = 0
+    private var cropTop = 0
+    private var attachedChatToken: IBinder? = null
+    private var chatTransitionId = 0L
+    private var chatTransitionPending = false
+    private var pendingChatToken: IBinder? = null
+    private var transitionCover: FrameLayout? = null
+    private var transitionImage: ImageView? = null
+    private var transitionTimeout: Runnable? = null
+    private var gestureActive = false
 
     // 窗口状态
-    private var winW = 260
-    private var winH = 340
+    private var winW = 0
+    private var winH = 0
     /** 上次启动气泡的时间戳 (防误触) */
     private var lastBubbleAt = 0L
 
@@ -144,14 +230,16 @@ class FloatService : Service() {
     private var scaledByPinch = false
     /** 按下点在模型身体矩形内 → 轻点弹聊天 */
     private var touchMode = false
-    /** 0.8s 计时 (到点解锁拖动) */
-    private var dragTimer: Runnable? = null
-    /** 0.8s 计时是否已到 (到点才允许拖动, 防误拖) */
-    private var dragArmed = false
-    /** 曾滑出轻点容差，抬起不弹聊天 (防误触) */
+    private var touchSlop = 8
+    /** 已超过系统触摸容差，抬起不再按轻点处理 */
     private var touchMovedFar = false
     /** 已提升为前台服务 (避免重复 startForeground / 重复移除通知) */
     private var isForeground = false
+    private var geometryGeneration = 0L
+    private var geometryRevision = 0L
+    private var modelCropRect: IntArray? = null
+    private var preciseCrop = false
+    private var pendingGeometryAck: Pair<Long, Long>? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -261,27 +349,44 @@ class FloatService : Service() {
      */
     private fun showFloat(): Boolean {
         if (floatView != null) return true
+        if (!android.provider.Settings.canDrawOverlays(this)) return false
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        activeService = WeakReference(this)
+        modelRect = null
+        modelFeetY = -1
+        touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val density = resources.displayMetrics.density
+        val oldDensity = prefs.getFloat(KEY_DENSITY, density).takeIf { it > 0f } ?: density
+        val scale = density / oldDensity
+        val bounds = safeFloatBounds()
+        val requestedW = if (prefs.contains(KEY_W)) (prefs.getInt(KEY_W, 0) * scale).toInt() else dp(DEFAULT_W_DP)
+        val requestedH = if (prefs.contains(KEY_H)) (prefs.getInt(KEY_H, 0) * scale).toInt() else dp(DEFAULT_H_DP)
+        val restored = scaleFloatingSize(requestedW, requestedH, 1f, dp(MIN_W_DP), dp(MIN_H_DP),
+            dp(MAX_W_DP), dp(MAX_H_DP))
+        winW = restored.first
+        winH = restored.second
+        cropLeft = 0; cropTop = 0
+        attachedChatToken = null
         val view = buildFloatView()
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else
             @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
-        // 恢复上次的尺寸/位置记忆
-        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        winW = prefs.getInt(KEY_W, winW)
-        winH = prefs.getInt(KEY_H, winH)
         val params = WindowManager.LayoutParams(
             winW, winH, type,
             // 永远不可聚焦: 不抢桌面焦点, 桌面操作不受影响
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = prefs.getInt(KEY_X, 80)
-            y = prefs.getInt(KEY_Y, 200)
+            gravity = Gravity.TOP or Gravity.LEFT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setFitInsetsTypes(0)
+            x = if (prefs.contains(KEY_X)) (prefs.getInt(KEY_X, 0) * scale).toInt() else bounds.left + dp(28)
+            y = if (prefs.contains(KEY_Y)) (prefs.getInt(KEY_Y, 0) * scale).toInt() else bounds.top + dp(72)
+            applyFloatWindowMode(this, null)
+            val fitted = positionFloatingModel(x, y, width, height, null, bounds, dp(MIN_VISIBLE_DP))
+            x = fitted.x; y = fitted.y
         }
         // 说明: 前台状态已由 onStartCommand 在调用本方法**之前**建立 (顺序不可调换, 见那里的
         // 注释)。这里只负责把窗口加上, 并把成败回传 —— 失败时调用方会 stopSelf(), 此时
@@ -290,6 +395,11 @@ class FloatService : Service() {
             wm?.addView(view, params)
             floatView = view
             floatParams = params
+            view.setOnApplyWindowInsetsListener { v, insets ->
+                updateCrop()
+                v.onApplyWindowInsets(insets)
+            }
+            activeChatToken?.let { setChatWindow(it) }
             Log.d(TAG, "float view added ${winW}x$winH @(${params.x},${params.y})")
             true
         } catch (e: Exception) {
@@ -299,6 +409,267 @@ class FloatService : Service() {
             webView = null
             false
         }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun safeFloatBounds(): FloatingBounds = floatingScreenBounds(this)
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateCrop(true)
+    }
+
+    /** 用最新矩形缩小 native 窗口；WebView 保留完整画布坐标，避免无变化时重复更新布局。 */
+    private fun updateCrop(clampPosition: Boolean = false) {
+        if (floatView == null) return
+        if (chatTransitionPending) return
+        if (gestureActive && !scaledByPinch) return
+        val child = webView ?: return
+        val params = floatParams ?: return
+        val fullX = params.x - cropLeft
+        val fullY = params.y - cropTop
+        val bounds = safeFloatBounds()
+        val crop = modelWindowCrop(winW, winH, if (geometryGeneration != 0L) modelCropRect else modelRect,
+            dp(if (preciseCrop) CROP_PADDING_DP else 28))
+        // Geometry updates change only the crop. Keep the complete canvas anchored on screen.
+        val fitted = if (clampPosition) positionFloatingModel(fullX, fullY, winW, winH, modelRect, bounds, dp(MIN_VISIBLE_DP))
+            else FloatingFrame(fullX, fullY, winW, winH)
+        cropLeft = crop.x
+        cropTop = crop.y
+        val childParams = child.layoutParams as FrameLayout.LayoutParams
+        if (childParams.width != winW || childParams.height != winH ||
+            childParams.leftMargin != -cropLeft || childParams.topMargin != -cropTop) {
+            childParams.width = winW
+            childParams.height = winH
+            childParams.leftMargin = -cropLeft
+            childParams.topMargin = -cropTop
+            child.layoutParams = childParams
+        }
+        val nextX = fitted.x + cropLeft
+        val nextY = fitted.y + cropTop
+        if (params.x == nextX && params.y == nextY && params.width == crop.width &&
+            params.height == crop.height) return
+        params.x = nextX
+        params.y = nextY
+        params.width = crop.width
+        params.height = crop.height
+        submitFloatLayout()
+    }
+
+    private fun acknowledgeGeometry() {
+        if (chatTransitionPending) return
+        val (generation, revision) = pendingGeometryAck ?: return
+        if (!submitFloatLayout()) return
+        pendingGeometryAck = null
+        webView?.evaluateJavascript("window.__noriFloatGeometryApplied && window.__noriFloatGeometryApplied($generation,$revision)", null)
+    }
+
+    private fun resetWindow() {
+        chatTransitionId = frameTransitionGeneration.incrementAndGet()
+        finishChatTransition()
+        val params = floatParams ?: return
+        val bounds = safeFloatBounds()
+        gestureActive = false
+        dragging = false
+        scaledByPinch = false
+        scaleModelGeometry(dp(DEFAULT_W_DP), dp(DEFAULT_H_DP))
+        params.x = bounds.left + dp(28) + cropLeft
+        params.y = bounds.top + (bounds.height - winH) / 3 + cropTop
+        updateCrop(true)
+        acknowledgeGeometry()
+        saveState()
+    }
+
+    private fun setChatWindow(token: IBinder?) {
+        if (chatTransitionPending && pendingChatToken == token) return
+        val request = frameTransitionGeneration.incrementAndGet().also { chatTransitionId = it }
+        finishChatTransition()
+        if (attachedChatToken == token) return
+        val root = floatView as? FrameLayout ?: return
+        val params = floatParams ?: return
+        // Keep the old overlay surface displaying a local snapshot until the new window draws.
+        // onStop must restore the desktop window synchronously, so this async path is opening-only.
+        if (token != null && attachedChatToken == null && Build.VERSION.SDK_INT >= 34 && root.isAttachedToWindow) {
+            chatTransitionPending = true
+            pendingChatToken = token
+            copyFloatingFrame(root, mainHandler) { bitmap ->
+                if (request != chatTransitionId || root !== floatView || activeChatToken != token) {
+                    bitmap?.recycle()
+                    return@copyFloatingFrame
+                }
+                if (bitmap == null || bitmap.width != params.width || bitmap.height != params.height) {
+                    LifecycleLog.record(this, "floatChatFrameCopyUnavailable", "using direct window reattachment")
+                    bitmap?.recycle()
+                    chatTransitionPending = false
+                    pendingChatToken = null
+                    reattachChatWindow(token)
+                    updateCrop(); acknowledgeGeometry()
+                } else beginCoveredChatWindow(root, params, token, bitmap, request)
+            }
+        } else reattachChatWindow(token)
+    }
+
+    @android.annotation.TargetApi(34)
+    private fun beginCoveredChatWindow(oldRoot: FrameLayout, previous: WindowManager.LayoutParams,
+        token: IBinder, bitmap: Bitmap, request: Long) {
+        val manager = wm ?: run { bitmap.recycle(); chatTransitionPending = false; return }
+        val child = webView ?: run { bitmap.recycle(); chatTransitionPending = false; return }
+        val image = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_XY
+            setImageBitmap(bitmap)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        transitionCover = oldRoot
+        transitionImage = image
+        oldRoot.addView(image, FrameLayout.LayoutParams(-1, -1))
+        child.alpha = 0f // Replace the live pixels in the same frame; do not blend two copies.
+        // Wait for the cover's actual hardware frame, rather than merely posting a delay.
+        oldRoot.viewTreeObserver.registerFrameCommitCallback {
+            mainHandler.post {
+                if (request != chatTransitionId || oldRoot !== floatView || !chatTransitionPending || transitionCover !== oldRoot) return@post
+                val childParams = child.layoutParams
+                val nextRoot = FrameLayout(this).apply { clipChildren = true }
+                val next = WindowManager.LayoutParams().apply {
+                    copyFrom(previous)
+                    applyFloatWindowMode(this, token)
+                    alpha = 0f // The old window holds the visible frame while WebView reattaches.
+                }
+                try {
+                    oldRoot.removeView(child)
+                    child.alpha = 1f
+                    nextRoot.addView(child, childParams)
+                    manager.addView(nextRoot, next)
+                    floatView = nextRoot
+                    floatParams = next
+                    attachedChatToken = token
+                    nextRoot.setOnApplyWindowInsetsListener { v, insets -> updateCrop(); v.onApplyWindowInsets(insets) }
+                    child.evaluateJavascript("window.__noriFloatFrameRequest = $request", null)
+                } catch (error: Exception) {
+                    Log.w(TAG, "covered chat attach failed; keeping desktop window", error)
+                    LifecycleLog.record(this, "floatChatAttachFailed", "covered switch: ${error.javaClass.simpleName}")
+                    try { if (nextRoot.isAttachedToWindow) manager.removeViewImmediate(nextRoot) } catch (_: Exception) {}
+                    nextRoot.removeView(child)
+                    if (child.parent == null) oldRoot.addView(child, 0, childParams)
+                    floatView = oldRoot
+                    floatParams = previous
+                    attachedChatToken = null
+                    finishChatTransition()
+                }
+            }
+        }
+        oldRoot.invalidate()
+        transitionTimeout = Runnable {
+            if (request == chatTransitionId && chatTransitionPending) {
+                LifecycleLog.record(this, "floatChatTransitionTimeout", "new model frame not confirmed within 1800ms")
+                if (floatView === oldRoot) {
+                    finishChatTransition()
+                    reattachChatWindow(token)
+                } else revealChatModel(request)
+            }
+        }.also { mainHandler.postDelayed(it, 1800) }
+    }
+
+    private fun revealChatModel(request: Long) {
+        if (request != chatTransitionId || !chatTransitionPending) return
+        val root = floatView ?: return
+        val params = floatParams ?: return
+        params.alpha = 1f
+        if (!submitFloatLayout()) { finishChatTransition(); return }
+        root.invalidate()
+        root.postOnAnimation { root.postOnAnimation {
+            if (request == chatTransitionId) finishChatTransition()
+        } }
+    }
+
+    private fun finishChatTransition() {
+        transitionTimeout?.let { mainHandler.removeCallbacks(it) }
+        transitionTimeout = null
+        val cover = transitionCover
+        transitionCover = null
+        if (cover != null && cover !== floatView) {
+            try { wm?.removeViewImmediate(cover) } catch (_: Exception) {}
+        } else transitionImage?.let { cover?.removeView(it) }
+        transitionImage?.setImageDrawable(null)
+        transitionImage = null
+        webView?.alpha = 1f
+        // HWUI may still retain a submitted display list; let it release the drawn bitmap.
+        chatTransitionPending = false
+        pendingChatToken = null
+        floatParams?.let { if (it.alpha != 1f) { it.alpha = 1f; submitFloatLayout() } }
+        updateCrop()
+        acknowledgeGeometry()
+    }
+
+    private fun reattachChatWindow(token: IBinder?) {
+        val root = floatView ?: return
+        val manager = wm ?: return
+        val previous = floatParams ?: return
+        val next = WindowManager.LayoutParams().apply {
+            copyFrom(previous)
+            applyFloatWindowMode(this, token)
+        }
+        // WindowManager 不允许原地改窗口类型；只重挂 native 根视图，保留同一 WebView/模型实例。
+        try {
+            manager.removeViewImmediate(root)
+        } catch (e: IllegalArgumentException) {
+            // 父窗口被系统提前清理时，根视图已不在 WindowManager 中，仍尝试重新附着。
+            Log.w(TAG, "model window was already detached", e)
+        } catch (e: Exception) {
+            Log.w(TAG, "detach model window failed", e)
+            return
+        }
+        floatParams = next
+        try {
+            manager.addView(root, next)
+            attachedChatToken = token
+        } catch (e: Exception) {
+            Log.w(TAG, "attach model window failed; restoring desktop overlay", e)
+            LifecycleLog.record(this, "floatChatAttachFailed", "${e.javaClass.simpleName}: ${e.message}")
+            applyFloatWindowMode(next, null)
+            attachedChatToken = null
+            try { manager.addView(root, next) }
+            catch (fallback: Exception) {
+                Log.e(TAG, "restore model overlay failed", fallback)
+                removeFloat()
+                stopSelf()
+            }
+        }
+    }
+
+    private fun submitFloatLayout(): Boolean {
+        val root = floatView ?: return false
+        val params = floatParams ?: return false
+        val manager = wm ?: return false
+        return try { manager.updateViewLayout(root, params); true }
+        catch (e: Exception) { Log.w(TAG, "update float layout failed", e); false }
+    }
+
+    private fun scaleModelGeometry(width: Int, height: Int) {
+        if (width == winW && height == winH) return
+        val sy = height.toFloat() / winH
+        modelRect = modelRect?.let { r ->
+            val sx = width.toFloat() / winW
+            intArrayOf((r[0] * sx).toInt(), (r[1] * sy).toInt(), (r[2] * sx).toInt(), (r[3] * sy).toInt())
+        }
+        modelCropRect = modelCropRect?.let { r ->
+            val sx = width.toFloat() / winW
+            intArrayOf((r[0] * sx).toInt(), (r[1] * sy).toInt(), (r[2] * sx).toInt(), (r[3] * sy).toInt())
+        }
+        if (modelFeetY > 0) modelFeetY = (modelFeetY * sy).toInt()
+        winW = width
+        winH = height
+    }
+
+    private fun applyFloatWindowMode(params: WindowManager.LayoutParams, chatToken: IBinder?) {
+        val base = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        params.type = if (chatToken != null) WindowManager.LayoutParams.TYPE_APPLICATION_MEDIA
+            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        params.token = chatToken
+        params.flags = if (chatToken != null) base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else base
+        params.alpha = 1f
     }
 
     /**
@@ -371,10 +742,15 @@ class FloatService : Service() {
             Notification.Builder(this, FGS_CHANNEL)
         else
             @Suppress("DEPRECATION") Notification.Builder(this)
+        val stop = PendingIntent.getService(
+            this, FGS_PI_REQ + 1, Intent(this, FloatService::class.java).setAction(ACTION_HIDE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         b.setSmallIcon(R.drawable.ic_stat_nori)
             .setContentTitle("NoriDroid")
             .setContentText("悬浮窗运行中")
             .setOngoing(true)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "关闭悬浮窗", stop)
         pi?.let { b.setContentIntent(it) }
         return b.build()
     }
@@ -393,30 +769,29 @@ class FloatService : Service() {
     /** 记忆当前尺寸/位置, 下次启动悬浮窗时恢复 */
     private fun saveState() {
         try {
-            val p = floatParams
+            val p = floatParams ?: return
             getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putInt(KEY_W, winW)
                 .putInt(KEY_H, winH)
-                .putInt(KEY_X, p?.x ?: 80)
-                .putInt(KEY_Y, p?.y ?: 200)
+                .putInt(KEY_X, p.x - cropLeft)
+                .putInt(KEY_Y, p.y - cropTop)
+                .putFloat(KEY_DENSITY, resources.displayMetrics.density)
                 .apply()
         } catch (_: Exception) { /* 忽略 */ }
     }
 
-    /** 单击 Nori → 弹出聊天气泡.
-     *  悬浮窗**零改动**: 改 flags 会弄坏渲染 (Nori 透明), 绝不触碰.
-     *  对话框顶部伸进悬浮窗底部留白 (显示回复文字, 无需点击), 输入框在悬浮窗下方可点. */
+    /** 轻点模型打开聊天，传入完整画布原点，保持物理像素坐标一致。 */
     private fun launchFloatBubble() {
         if (FloatBubbleActivity.isOpen) return
-        val now = System.currentTimeMillis()
+        val now = SystemClock.uptimeMillis()
         if (now - lastBubbleAt < BUBBLE_COOLDOWN_MS) return
         lastBubbleAt = now
         try {
             val p = floatParams
             val intent = Intent(this, FloatBubbleActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                putExtra(FloatBubbleActivity.EXTRA_X, p?.x ?: 80)
-                putExtra(FloatBubbleActivity.EXTRA_Y, p?.y ?: 200)
+                putExtra(FloatBubbleActivity.EXTRA_X, (p?.x ?: 80) - cropLeft)
+                putExtra(FloatBubbleActivity.EXTRA_Y, (p?.y ?: 200) - cropTop)
                 putExtra(FloatBubbleActivity.EXTRA_W, winW)
                 putExtra(FloatBubbleActivity.EXTRA_H, winH)
                 putExtra(FloatBubbleActivity.EXTRA_MODEL_FEET, modelFeetY)
@@ -513,80 +888,71 @@ class FloatService : Service() {
         wv.setOnTouchListener { _, event -> handleFloatTouch(event) }
         webView = wv
         wv.loadUrl(ENTRY_URL)
-        return wv
+        return FrameLayout(this).apply {
+            clipChildren = true
+            addView(wv, FrameLayout.LayoutParams(winW, winH))
+        }
     }
 
     // ---------------- 触摸手势 ----------------
 
     private fun handleFloatTouch(event: MotionEvent): Boolean {
         val params = floatParams ?: return false
-        // 气泡打开期间悬浮窗是穿透的 (NOT_TOUCHABLE), 这里不会收到触摸; 防御保留
-        if (FloatBubbleActivity.isOpen) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                gestureActive = true
                 dragging = false
                 scaledByPinch = false
-                dragArmed = false
                 touchMovedFar = false
                 dragStartX = event.rawX
                 dragStartY = event.rawY
                 winStartX = params.x
                 winStartY = params.y
-                // 按下即算互动 → 重置待机计时
-                notifyTouchActive()
-                // 按下 → 启动 0.8s 计时，到点只解锁拖动
                 val r = modelRect
-                touchMode = r != null && isInModelRect(event, params, r)
-                val runnable = Runnable {
-                    dragArmed = true
-                }
-                dragTimer = runnable
-                mainHandler.postDelayed(runnable, DRAG_LONG_PRESS_MS)
+                touchMode = !FloatBubbleActivity.isOpen && r != null && isInModelRect(event, params, r)
+                notifyTouchActive()
+                // 首先交给 WebView，保留 Live2D 的轻点/抚摸；越过 touch slop 后转为原生拖动。
                 return false
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount >= 2) {
+                    cancelWebTouch(event)
                     scaledByPinch = true
                     dragging = false
-                    // 双指缩放开始 → 取消长按计时, 直接可缩放
-                    cancelDragTimer()
-                    dragArmed = true
                     pinchDist = dist(event)
+                    touchMode = false
+                    touchMovedFar = true
                 }
-                return scaledByPinch
+                return true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (scaledByPinch && event.pointerCount >= 2) {
                     val d = dist(event)
                     if (pinchDist > 0) {
-                        val ratio = d / pinchDist
-                        winW = (winW * ratio).toInt().coerceIn(MIN_W, MAX_W)
-                        winH = (winH * ratio).toInt().coerceIn(MIN_H, MAX_H)
-                        params.width = winW
-                        params.height = winH
-                        wm?.updateViewLayout(floatView!!, params)
-                        pinchDist = d
+                        val ratio = (d / pinchDist).coerceIn(0.85f, 1.18f)
+                        resizeFloat(ratio)
+                        pinchDist = d.coerceAtLeast(1f)
                     }
                     return true
                 }
+                if (scaledByPinch) return true
                 if (event.pointerCount == 1) {
                     val dx = event.rawX - dragStartX
                     val dy = event.rawY - dragStartY
                     val moved = dx * dx + dy * dy
-                    if (!dragArmed) {
-                        // 0.8s 内: 移动不拖动
-                        if (moved > TAP_SLOP * TAP_SLOP) touchMovedFar = true
-                        return false
-                    }
-                    // 0.8s 后: 允许拖动
-                    if (!dragging && moved > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+                    if (!dragging && moved > touchSlop * touchSlop) {
                         dragging = true
-                        cancelDragTimer()
+                        touchMovedFar = true
+                        cancelWebTouch(event)
                     }
                     if (dragging) {
-                        params.x = winStartX + dx.toInt()
-                        params.y = winStartY + dy.toInt()
-                        wm?.updateViewLayout(floatView!!, params)
+                        val frame = positionFloatingModel(
+                            winStartX - cropLeft + dx.toInt(), winStartY - cropTop + dy.toInt(),
+                            winW, winH, modelRect, safeFloatBounds(), dp(MIN_VISIBLE_DP),
+                        )
+                        params.x = frame.x + cropLeft
+                        params.y = frame.y + cropTop
+                        submitFloatLayout()
                         return true
                     }
                 }
@@ -594,47 +960,71 @@ class FloatService : Service() {
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 if (event.pointerCount <= 2) {
-                    scaledByPinch = false
-                    // 缩放结束: 剩余手指不再是"轻点模型"语义 → 退出触摸模式, 防误弹气泡
+                    // 保留缩放标记直到最后一指抬起，避免剩余手指跳位或触发聊天。
+                    pinchDist = 0f
                     touchMode = false
-                    touchMovedFar = false
-                    // 重置拖动起点, 防止缩放手势结束后拖动跳位
-                    dragStartX = event.rawX
-                    dragStartY = event.rawY
-                    winStartX = params.x
-                    winStartY = params.y
-                    saveState() // 缩放结束: 记忆尺寸
+                    touchMovedFar = true
+                    saveState()
                 }
-                return scaledByPinch
+                return true
             }
             MotionEvent.ACTION_UP -> {
-                cancelDragTimer()
+                gestureActive = false
+                updateCrop()
+                acknowledgeGeometry()
                 if (dragging || scaledByPinch) {
-                    saveState() // 拖动/缩放结束: 记忆位置与尺寸
-                    notifyTouchActive() // 拖动/缩放也算互动 → 重置待机
+                    saveState()
+                    notifyTouchActive()
+                    dragging = false
+                    scaledByPinch = false
+                    touchMode = false
                     return true
                 }
-                if (touchMode && !touchMovedFar && !dragArmed) {
-                    // 轻点模型 (0.8s 内抬起、几乎没动) → 弹气泡
+                if (touchMode && !touchMovedFar) {
                     launchFloatBubble()
                 }
-                // 按住超 0.8s 未拖动 (想拖没拖) / 模型外点按 / 快速滑动 → 不弹气泡 (防误触)
                 notifyTouchActive()
+                touchMode = false
                 return false
             }
             MotionEvent.ACTION_CANCEL -> {
-                cancelDragTimer()
-                // 系统打断/手指滑出: 只处理手势, 不触发弹气泡
-                return dragging || scaledByPinch
+                val handled = dragging || scaledByPinch
+                gestureActive = false
+                updateCrop()
+                acknowledgeGeometry()
+                if (dragging || scaledByPinch) saveState()
+                dragging = false
+                scaledByPinch = false
+                touchMode = false
+                touchMovedFar = false
+                return handled
             }
         }
-        return dragging || scaledByPinch
+        return true
     }
 
-    /** 取消长按拖动计时 */
-    private fun cancelDragTimer() {
-        dragTimer?.let { mainHandler.removeCallbacks(it) }
-        dragTimer = null
+    private fun resizeFloat(ratio: Float) {
+        val params = floatParams ?: return
+        val oldW = winW
+        val oldH = winH
+        val (newW, newH) = scaleFloatingSize(
+            winW, winH, ratio, dp(MIN_W_DP), dp(MIN_H_DP),
+            dp(MAX_W_DP), dp(MAX_H_DP),
+        )
+        if (newW == oldW && newH == oldH) return
+        val centerX = params.x - cropLeft + oldW / 2
+        val centerY = params.y - cropTop + oldH / 2
+        scaleModelGeometry(newW, newH)
+        val frame = positionFloatingModel(centerX - winW / 2, centerY - winH / 2, winW, winH,
+            modelRect, safeFloatBounds(), dp(MIN_VISIBLE_DP))
+        params.x = frame.x + cropLeft
+        params.y = frame.y + cropTop
+        updateCrop()
+    }
+
+    private fun cancelWebTouch(event: MotionEvent) {
+        val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+        try { webView?.onTouchEvent(cancel) } finally { cancel.recycle() }
     }
 
     private fun dist(e: MotionEvent): Float {
@@ -643,11 +1033,12 @@ class FloatService : Service() {
         return Math.sqrt((x * x + y * y).toDouble()).toFloat()
     }
 
-    /** 按下的屏幕点是否落在模型身体矩形内 (矩形相对窗口, ±20px 容差) */
+    /** 按下的屏幕点是否落在模型矩形内 (矩形相对完整画布; 原生触摸点相对裁剪窗口)。 */
     private fun isInModelRect(event: MotionEvent, params: WindowManager.LayoutParams, r: IntArray): Boolean {
-        val px = event.rawX - params.x
-        val py = event.rawY - params.y
-        return px >= r[0] - 20 && px <= r[2] + 20 && py >= r[1] - 20 && py <= r[3] + 20
+        val px = event.rawX - params.x + cropLeft
+        val py = event.rawY - params.y + cropTop
+        val margin = dp(12)
+        return px >= r[0] - margin && px <= r[2] + margin && py >= r[1] - margin && py <= r[3] + margin
     }
 
     /** 通知悬浮窗页面: 用户互动了 → 重置待机计时 */
@@ -677,12 +1068,24 @@ class FloatService : Service() {
     }
 
     private fun removeFloat() {
-        cancelDragTimer()
+        chatTransitionId = frameTransitionGeneration.incrementAndGet()
+        finishChatTransition()
         saveState() // 退出前记忆尺寸/位置
         try { floatView?.let { wm?.removeView(it) } } catch (_: Exception) { /* 忽略 */ }
         try { webView?.destroy() } catch (_: Exception) { /* 忽略 */ }
         webView = null
         floatView = null
         floatParams = null
+        modelRect = null
+        modelFeetY = -1
+        modelCropRect = null
+        preciseCrop = false
+        pendingGeometryAck = null
+        geometryGeneration = 0
+        geometryRevision = 0
+        attachedChatToken = null
+        gestureActive = false
+        mainHandler.removeCallbacksAndMessages(null)
+        if (activeService?.get() === this) activeService = null
     }
 }

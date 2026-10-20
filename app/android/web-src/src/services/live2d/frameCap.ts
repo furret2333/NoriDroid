@@ -49,6 +49,8 @@ export interface FrameCapHost {
 	__noriL2dPaused?: boolean
 	/** 真正画过的帧数（仅供门禁/诊断断言"暂停期间确实一帧都没画"） */
 	__noriL2dDraws?: number
+	/** Optional read-only post-render measurement; installed only by the floating page. */
+	__noriAfterL2dDraw?: () => void
 	__noriL2dTick?: (updater: {updateTime: () => void}, model: {update: () => void}) => void
 }
 
@@ -155,6 +157,7 @@ export const installFrameCap = (
 		updater.updateTime()
 		model.update()
 		host.__noriL2dDraws = (host.__noriL2dDraws || 0) + 1
+		try { host.__noriAfterL2dDraw?.() } catch { /* Measurements must never stop rendering. */ }
 		// 注: 这里**不能**挂"额外参数"类效果 —— `model.update()` 里已经把顶点算完了,
 		// 之后再改参数画面上看不出来(而且下一帧会被重载覆盖)。额外参数要在**库的参数流水线里、
 		// `this._model.update()` 之前**加, 见 blink.ts 与补丁 param-inject。

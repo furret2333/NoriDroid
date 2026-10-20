@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
@@ -11,7 +12,9 @@ import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.WindowInsets
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -19,19 +22,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
-/**
- * 悬浮窗聊天气泡 Activity: 半透明小窗口, 首次生成时定位在 **Nori 模型下方** (不重叠),
- * 承载输入框 + 回复. 位置算法见 BubblePlacement.kt 的 placeBubble (纯函数, 可单测).
- *
- * 为什么这样设计 (对应 Android 12+ 官方机制):
- * - 气泡是普通 Activity 窗口 → 弹键盘 100% 可靠.
- * - 落在模型下方 → 输入行 (窗口底部) 在悬浮窗 OVERLAY 覆盖区之外 →
- *   不会触发 untrusted touch 拦截, 点击必定生效.
- * - 点 Nori (悬浮窗, 穿透) → 触摸落到桌面, 不会碰到气泡 → 不会弹键盘.
- * - 点气泡空白处/输入框 → 聚焦输入框 → 键盘弹出 (系统标准行为).
- * - 关闭: 点 ✕ / 按返回 (点 Nori 不会关闭气泡, 防误触).
- * - 窗口高度随内容增长 (初始只有输入框, 随文字生成向下长), 键盘弹出时不超过键盘顶.
- */
+/** 普通 Activity 聊天窗口：独立拖动把手，只点击输入框才弹出键盘。 */
 class FloatBubbleActivity : Activity() {
 
     private var webView: WebView? = null
@@ -43,12 +34,16 @@ class FloatBubbleActivity : Activity() {
     private var uy = 0
     private var uw = 0
     private var usableBottom = 0
+    private var screenBottom = 0
+    private var frameBeforeIme: FloatingFrame? = null
     /** 模型脚底到悬浮窗底边的留白 (回复区可透过去显示的区域); 参与初始高度计算 */
     private var safeTop = 0
     /** JS 上报的拖动把手区域 (相对窗口左上角) */
     private var handleRect: IntArray? = null
     /** 锁定: 固定位置/大小 (拖动/缩放失效) */
-    private var locked = false
+    @Volatile private var locked = false
+    private var modelHostToken: android.os.IBinder? = null
+    private var modelHostActive = false
 
     // 手势状态 (原生处理, rawX/rawY 屏幕绝对坐标不受窗口移动影响)
     private var dragStartX = 0f
@@ -56,9 +51,10 @@ class FloatBubbleActivity : Activity() {
     private var winStartX = 0
     private var winStartY = 0
     private var dragging = false
-    /** 双指捏合: X/Y 分量独立缩放 (横向拉宽 / 纵向拉高) */
-    private var pinchX = 0f
-    private var pinchY = 0f
+    private var dragCandidate = false
+    private var touchSlop = 8
+    /** 双指捏合按比例缩放，避免横竖分量分别变化导致窗口变形。 */
+    private var pinchDist = 0f
     private var scaledByPinch = false
 
     companion object {
@@ -69,10 +65,10 @@ class FloatBubbleActivity : Activity() {
         const val EXTRA_H = "h"
         const val EXTRA_MODEL_FEET = "feet"
         // 拖动/缩放钳制
-        private const val MIN_W = 260
-        private const val MAX_W = 1200
-        private const val MIN_H = 320
-        private const val MAX_H = 1400
+        private const val MIN_W_DP = 280
+        private const val MAX_W_DP = 600
+        private const val MIN_H_DP = 160
+        private const val MAX_H_DP = 700
         // 窗口位置记忆 (拖动/缩放后保存, 下次从原位置弹出)
         private const val PREFS = "float_bubble"
         private const val KEY_X = "x"
@@ -80,6 +76,7 @@ class FloatBubbleActivity : Activity() {
         private const val KEY_W = "w"
         private const val KEY_H = "h"
         private const val KEY_SAVED = "saved"
+        private const val KEY_DENSITY = "density"
         // ES Module 需要 https Origin, 由 shouldInterceptRequest 兜底读 assets
         private const val ENTRY_URL = "https://appassets.androidplatform.net/assets/bubble.html"
 
@@ -91,22 +88,11 @@ class FloatBubbleActivity : Activity() {
     /** 屏幕可用区 (排除状态栏 + 导航栏/任务栏): 气泡窗口不能压到系统栏区域
      *  (否则点击被系统栏吃掉、渲染发黑) */
     private fun usableArea(): IntArray {
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val metrics = wm.currentWindowMetrics
-            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
-                android.view.WindowInsets.Type.systemBars()
-            )
-            intArrayOf(
-                insets.left, insets.top,
-                metrics.bounds.width() - insets.left - insets.right,
-                metrics.bounds.height() - insets.top - insets.bottom
-            )
-        } else {
-            val dm = resources.displayMetrics
-            intArrayOf(0, 0, dm.widthPixels, dm.heightPixels)
-        }
+        val b = floatingScreenBounds(this)
+        return intArrayOf(b.left, b.top, b.right - b.left, b.bottom - b.top)
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -118,16 +104,15 @@ class FloatBubbleActivity : Activity() {
         ux = a[0]; uy = a[1]; uw = a[2]
         val uh = a[3]
         usableBottom = uy + uh
+        screenBottom = usableBottom
+        touchSlop = ViewConfiguration.get(this).scaledTouchSlop
 
         // 宽度: 悬浮窗宽度的合理值 (与悬浮窗基本同宽, 封顶 600)
-        val maxW = (uw - 8).coerceAtLeast(180)
-        winW = intent.getIntExtra(EXTRA_W, 260).coerceIn(180, minOf(maxW, 600))
+        val maxW = (uw - dp(8)).coerceAtLeast(1)
+        val minW = dp(MIN_W_DP).coerceAtMost(maxW)
+        winW = intent.getIntExtra(EXTRA_W, dp(320)).coerceIn(minW, minOf(maxW, dp(MAX_W_DP)).coerceAtLeast(minW))
 
-        // 布局 (2026-10-02 用户报「对话框嵌在 Nori 里面」后修): 首次生成时对话框顶边落在
-        // **模型底边下方** (不重叠, 一眼可见、随手能拖); 输入行在悬浮窗底边之下 (OVERLAY 上层的
-        // 悬浮窗压住输入行会影响点击). 落点算法抽在纯函数 placeBubble() 里 —— 单位与边界都在那,
-        // 便于在 JVM 上真跑单测 (tmp-memcheck/probe-bubble-place.mjs).
-        // 悬浮窗零改动 → Nori 永不透明.
+        // 首次生成优先放在模型下方，空间不足时向上放置；用户拖过的位置优先。
         val fx = intent.getIntExtra(EXTRA_X, 80)
         val fy = intent.getIntExtra(EXTRA_Y, 200)
         val fw = intent.getIntExtra(EXTRA_W, 260)
@@ -140,14 +125,19 @@ class FloatBubbleActivity : Activity() {
         // 记忆的位置: 用户拖过/缩放过对话框 → 下次从原位置弹出 (用户自己摆的优先, 不再自动算)
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val hasSaved = prefs.getBoolean(KEY_SAVED, false)
+        val savedDensity = prefs.getFloat(KEY_DENSITY, resources.displayMetrics.density).takeIf { it > 0f } ?: resources.displayMetrics.density
+        val restoreScale = resources.displayMetrics.density / savedDensity
         if (hasSaved) {
-            val sx = prefs.getInt(KEY_X, px)
-            val sy = prefs.getInt(KEY_Y, 0)
+            val sx = (prefs.getInt(KEY_X, px) * restoreScale).toInt()
+            val sy = (prefs.getInt(KEY_Y, 0) * restoreScale).toInt()
             // 恢复记忆尺寸 (钳制到当前屏幕可用范围)
-            val savedW = prefs.getInt(KEY_W, 0)
-            val savedH = prefs.getInt(KEY_H, 0)
-            winW = savedW.coerceIn(MIN_W, (uw - 8).coerceAtLeast(MIN_W))
-            winH = savedH.coerceIn(MIN_H, (usableBottom - uy - 8).coerceAtLeast(MIN_H))
+            val savedW = (prefs.getInt(KEY_W, 0) * restoreScale).toInt()
+            val savedH = (prefs.getInt(KEY_H, 0) * restoreScale).toInt()
+            val minH = dp(MIN_H_DP).coerceAtMost((usableBottom - uy).coerceAtLeast(1))
+            val restored = scaleFloatingSize(savedW, savedH, 1f, minW, minH,
+                minOf(dp(MAX_W_DP), maxW), minOf(dp(MAX_H_DP), (usableBottom - uy - dp(8)).coerceAtLeast(1)))
+            winW = restored.first
+            winH = restored.second
             px = sx.coerceIn(ux, (ux + uw - winW).coerceAtLeast(ux))
             py = sy.coerceIn(uy, (usableBottom - winH).coerceAtLeast(uy))
             totalH = winH
@@ -159,6 +149,7 @@ class FloatBubbleActivity : Activity() {
                 floatX = fx, floatY = fy, floatW = fw, floatH = fh,
                 modelBottom = feet, winW = winW,
                 screenLeft = ux, screenTop = uy, screenRight = ux + uw, screenBottom = usableBottom,
+                density = resources.displayMetrics.density,
             )
             px = layout.x
             py = layout.y
@@ -166,15 +157,30 @@ class FloatBubbleActivity : Activity() {
             safeTop = layout.safeTop
             Log.d(TAG, "bubble placed belowModel=${layout.belowModel} modelBottom=$feet")
         }
-        winH = totalH
+        savedInstanceState?.let {
+            winW = it.getInt(KEY_W, winW)
+            totalH = it.getInt(KEY_H, totalH)
+            px = it.getInt(KEY_X, px)
+            py = it.getInt(KEY_Y, py)
+            locked = it.getBoolean("locked", false)
+        }
+        val initial = fitFloatingWindow(px, py, winW, totalH, FloatingBounds(ux, uy, ux + uw, usableBottom))
+        px = initial.x; py = initial.y
+        winW = initial.width
+        winH = initial.height
         Log.d(TAG, "bubble window: float=($fx,$fy,${fw}x$fh) feet=$feet size=${winW}x$winH " +
             "pos=($px,$py) safeTop=$safeTop usable=($ux,$uy,${uw}x$uh)")
 
         window.setBackgroundDrawableResource(android.R.color.transparent)
         // 防止气泡窗口对底层内容变暗/混合 (悬浮窗 Nori 保持清晰不透明)
         window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        window.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            else WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         window.attributes = window.attributes.apply {
-            gravity = Gravity.TOP or Gravity.START
+            gravity = Gravity.TOP or Gravity.LEFT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setFitInsetsTypes(0)
             this.x = px
             this.y = py
             width = winW
@@ -198,6 +204,13 @@ class FloatBubbleActivity : Activity() {
         settings.textZoom = 100
         wv.isFocusable = true
         wv.isFocusableInTouchMode = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            wv.setOnApplyWindowInsetsListener { view, insets ->
+                // WindowMetrics 的 Insets 相对屏幕/task；不能用小窗口的局部 bottom 再减一次导航栏。
+                updateImeArea(insets.isVisible(WindowInsets.Type.ime()))
+                view.onApplyWindowInsets(insets)
+            }
+        }
 
         // 对话/记忆/TTS/设置桥: 复用主 App 同一份数据
         val chatBridge = ChatBridge(this)
@@ -264,21 +277,23 @@ class FloatBubbleActivity : Activity() {
         setContentView(wv)
         webView = wv
         wv.loadUrl(ENTRY_URL)
+        wv.requestApplyInsets()
     }
 
     /** JS 桥: 上报拖动把手区域 + 锁定状态 (窗口移动/缩放由原生触摸处理) */
     inner class BubbleWindowControl {
         @android.webkit.JavascriptInterface
         fun setHandleRect(l: Int, t: Int, r: Int, b: Int) {
-            handleRect = intArrayOf(l, t, r, b)
-            Log.d(TAG, "handle rect=$l,$t,$r,$b")
+            runOnUiThread { handleRect = intArrayOf(l, t, r, b) }
         }
 
         @android.webkit.JavascriptInterface
         fun setLocked(l: Boolean) {
-            locked = l
-            Log.d(TAG, "locked=$l")
+            runOnUiThread { locked = l }
         }
+
+        @android.webkit.JavascriptInterface
+        fun isLocked(): Boolean = locked
     }
 
     /** 触摸处理: 把手拖动 + 双指缩放 (rawX/rawY 屏幕绝对坐标, 窗口移动不影响) */
@@ -287,87 +302,92 @@ class FloatBubbleActivity : Activity() {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 dragging = false
+                dragCandidate = false
                 scaledByPinch = false
                 dragStartX = event.rawX
                 dragStartY = event.rawY
                 val a = window.attributes
                 winStartX = a.x
                 winStartY = a.y
-                // 按下点在把手区域内 → 启动拖动 (±20px 容差, 防坐标取整偏差)
                 val hr = handleRect
                 if (hr != null) {
-                    val px = event.rawX - a.x
-                    val py = event.rawY - a.y
-                    if (px >= hr[0] - 20 && px <= hr[2] + 20 && py >= hr[1] - 20 && py <= hr[3] + 20) {
-                        dragging = true
-                    }
+                    val px = event.x
+                    val py = event.y
+                    val margin = 0
+                    dragCandidate = px >= hr[0] - margin && px <= hr[2] + margin &&
+                        py >= hr[1] - margin && py <= hr[3] + margin
                 }
-                return dragging
+                return dragCandidate
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount >= 2) {
+                    val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                    try { webView?.onTouchEvent(cancel) } finally { cancel.recycle() }
                     scaledByPinch = true
                     dragging = false
-                    pinchX = Math.abs(event.getX(0) - event.getX(1))
-                    pinchY = Math.abs(event.getY(0) - event.getY(1))
+                    dragCandidate = false
+                    pinchDist = pointerDistance(event)
                 }
                 return scaledByPinch
             }
             MotionEvent.ACTION_MOVE -> {
                 if (scaledByPinch && event.pointerCount >= 2) {
-                    val nx = Math.abs(event.getX(0) - event.getX(1))
-                    val ny = Math.abs(event.getY(0) - event.getY(1))
-                    // X/Y 分量独立缩放: 横向拉开只调宽, 纵向拉开只调高
-                    var sx = 1f
-                    var sy = 1f
-                    if (pinchX > 0f) sx = nx / pinchX
-                    if (pinchY > 0f) sy = ny / pinchY
-                    resizeWindow(sx, sy)
-                    pinchX = nx
-                    pinchY = ny
+                    val next = pointerDistance(event)
+                    if (pinchDist > 0f) resizeWindow((next / pinchDist).coerceIn(0.85f, 1.18f))
+                    pinchDist = next.coerceAtLeast(1f)
                     return true
                 }
-                if (dragging && event.pointerCount == 1) {
-                    // 12px 阈值: 轻触/长按微动不算拖动
+                if (scaledByPinch) return true
+                if (dragCandidate && event.pointerCount == 1) {
                     val dx = event.rawX - dragStartX
                     val dy = event.rawY - dragStartY
-                    if (dx * dx + dy * dy < 144) return true
-                    moveWindow(
-                        winStartX + dx.toInt(),
-                        winStartY + dy.toInt()
-                    )
+                    if (!dragging && dx * dx + dy * dy <= touchSlop * touchSlop) return true
+                    dragging = true
+                    moveWindow(winStartX + dx.toInt(), winStartY + dy.toInt())
                     return true
                 }
                 return false
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 if (event.pointerCount <= 2) {
-                    scaledByPinch = false
+                    if (scaledByPinch) saveWindowState()
                     dragging = false
+                    dragCandidate = false
+                    pinchDist = 0f
                 }
-                return scaledByPinch
+                return true
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                val wasHandled = dragging || scaledByPinch
+            MotionEvent.ACTION_UP -> {
+                val handled = dragCandidate || dragging || scaledByPinch
+                if (dragging) snapToNearestEdge()
+                if (handled) saveWindowState()
+                dragging = false
+                dragCandidate = false
+                scaledByPinch = false
+                return handled
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                val handled = dragging || scaledByPinch || dragCandidate
                 if (dragging || scaledByPinch) saveWindowState()
                 dragging = false
+                dragCandidate = false
                 scaledByPinch = false
-                return wasHandled
+                return handled
             }
         }
         return false
     }
 
-    /** 记忆窗口位置/尺寸 (下次从原位置弹出) */
     private fun saveWindowState() {
         try {
             val a = window.attributes
             getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putBoolean(KEY_SAVED, true)
-                .putInt(KEY_X, a.x)
-                .putInt(KEY_Y, a.y)
-                .putInt(KEY_W, winW)
-                .putInt(KEY_H, winH)
+                .putInt(KEY_X, frameBeforeIme?.x ?: a.x)
+                .putInt(KEY_Y, frameBeforeIme?.y ?: a.y)
+                .putInt(KEY_W, frameBeforeIme?.width ?: winW)
+                .putInt(KEY_H, frameBeforeIme?.height ?: winH)
+                .putFloat(KEY_DENSITY, resources.displayMetrics.density)
                 .apply()
             Log.d(TAG, "bubble state saved: (${a.x},${a.y}) ${winW}x$winH")
         } catch (_: Exception) { /* 忽略 */ }
@@ -384,16 +404,18 @@ class FloatBubbleActivity : Activity() {
         window.attributes = a
     }
 
-    /** 缩放窗口: 宽/高独立缩放 (横向拉宽 / 纵向拉高), 以窗口中心为锚, 钳制尺寸与屏幕边界 */
-    private fun resizeWindow(sx: Float, sy: Float) {
-        if (sx <= 0f || sy <= 0f) return
+    /** 以窗口中心等比缩放，同时限制大小和屏幕边界。 */
+    private fun resizeWindow(scale: Float) {
+        if (!scale.isFinite() || scale <= 0f) return
         val a = window.attributes
         val cx = a.x + winW / 2
         val cy = a.y + winH / 2
-        val maxH = (usableBottom - uy - 8).coerceAtLeast(MIN_H)
-        val maxW = (uw - 8).coerceAtLeast(MIN_W)
-        val nw = (winW * sx).toInt().coerceIn(MIN_W, minOf(maxW, MAX_W))
-        val nh = (winH * sy).toInt().coerceIn(MIN_H, minOf(maxH, MAX_H))
+        val maxH = (usableBottom - uy - dp(8)).coerceAtLeast(1)
+        val maxW = (uw - dp(8)).coerceAtLeast(1)
+        val minW = dp(MIN_W_DP).coerceAtMost(maxW)
+        val minH = dp(MIN_H_DP).coerceAtMost(maxH)
+        val (nw, nh) = scaleFloatingSize(winW, winH, scale, minW, minH,
+            minOf(maxW, dp(MAX_W_DP)), minOf(maxH, dp(MAX_H_DP)))
         if (nw == winW && nh == winH) return
         winW = nw
         winH = nh
@@ -409,9 +431,94 @@ class FloatBubbleActivity : Activity() {
     }
 
     override fun onDestroy() {
+        releaseModelWindow()
         try { webView?.destroy() } catch (_: Exception) { /* 忽略 */ }
         webView = null
-        isOpen = false
         super.onDestroy()
+    }
+
+    private fun pointerDistance(event: MotionEvent): Float {
+        val dx = event.getX(0) - event.getX(1)
+        val dy = event.getY(0) - event.getY(1)
+        return Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+    }
+
+    private fun snapToNearestEdge() {
+        val a = window.attributes
+        applyFrame(fitFloatingWindow(a.x, a.y, winW, winH,
+            FloatingBounds(ux, uy, ux + uw, usableBottom), dp(28)))
+    }
+
+    private fun applyFrame(frame: FloatingFrame) {
+        val a = window.attributes
+        if (a.x == frame.x && a.y == frame.y && a.width == frame.width && a.height == frame.height) return
+        winW = frame.width; winH = frame.height
+        a.x = frame.x; a.y = frame.y
+        a.width = winW; a.height = winH
+        window.attributes = a
+    }
+
+    private fun updateImeArea(imeVisible: Boolean) {
+        val previousBottom = usableBottom
+        val bounds = floatingScreenBounds(this)
+        ux = bounds.left; uy = bounds.top; uw = bounds.width
+        screenBottom = bounds.bottom
+        usableBottom = screenBottom
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && imeVisible) {
+            val metrics = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).currentWindowMetrics
+            val imeBottom = metrics.windowInsets.getInsets(WindowInsets.Type.ime()).bottom
+            if (imeBottom > 0) usableBottom = minOf(screenBottom, metrics.bounds.bottom - imeBottom).coerceAtLeast(uy + 1)
+            if (frameBeforeIme != null && previousBottom == usableBottom) return
+            if (frameBeforeIme == null) {
+                val a = window.attributes
+                frameBeforeIme = FloatingFrame(a.x, a.y, winW, winH)
+            }
+        }
+        val a = window.attributes
+        val desired = frameBeforeIme ?: FloatingFrame(a.x, a.y, winW, winH)
+        // 先上移，只有可用区整体容纳不下时才缩短，收键盘后恢复原窗口。
+        applyFrame(fitFloatingWindow(desired.x, desired.y, desired.width, desired.height,
+            FloatingBounds(ux, uy, ux + uw, usableBottom)))
+        if (!imeVisible) frameBeforeIme = null
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateImeArea(false)
+        webView?.requestApplyInsets()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        val a = window.attributes
+        val frame = frameBeforeIme ?: FloatingFrame(a.x, a.y, winW, winH)
+        outState.putInt(KEY_X, frame.x); outState.putInt(KEY_Y, frame.y)
+        outState.putInt(KEY_W, frame.width); outState.putInt(KEY_H, frame.height)
+        outState.putBoolean("locked", locked)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isOpen = true
+        modelHostActive = true
+        // onResume 时 DecorView 可能尚未加到 WindowManager，等父窗口 token 可用再附着模型。
+        window.decorView.post {
+            if (!modelHostActive || isFinishing || isDestroyed) return@post
+            val token = window.decorView.windowToken ?: return@post
+            modelHostToken = token
+            FloatService.attachChatWindow(token)
+        }
+    }
+
+    override fun onStop() {
+        isOpen = false
+        releaseModelWindow()
+        super.onStop()
+    }
+
+    private fun releaseModelWindow() {
+        modelHostActive = false
+        modelHostToken?.let { FloatService.detachChatWindow(it) }
+        modelHostToken = null
     }
 }

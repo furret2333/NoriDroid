@@ -424,9 +424,18 @@
 		<transition name="sheet">
 			<div v-if="panel && panel !== 'touch' && panel !== 'tts'" class="sheet-mask" @click.self="panel = ''">
 				<div class="sheet">
-					<div class="sheet-head">
+					<div class="sheet-head" :class="{'settings-sheet-head': panel === 'settings'}">
 						<span class="sheet-title">{{ panelTitle(panel) }}</span>
-						<button class="x" @click="panel = ''">✕</button>
+						<div v-if="panel === 'settings'" class="settings-bgm-player" :class="{ 'is-playing': bgmCanSkip }">
+							<span class="settings-bgm-copy">
+								<b>{{ bgmQuickTrack }}</b>
+								<small>{{ bgmQuickStatus }}</small>
+							</span>
+							<span class="settings-bgm-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+							<button class="settings-bgm-control" type="button" :aria-label="bgmQuickActionLabel" :title="bgmQuickActionLabel" @click="onBgmQuickToggle"><span aria-hidden="true">{{ bgmState === 'missing' && cfg.bgmEnabled ? '↻' : cfg.bgmEnabled ? 'Ⅱ' : '▶' }}</span></button>
+							<button class="settings-bgm-control settings-bgm-next" type="button" aria-label="换一首" title="换一首" :disabled="!bgmCanSkip" @click="onBgmNext">⏭</button>
+						</div>
+						<button class="x" :aria-label="'关闭'" @click="panel = ''">✕</button>
 					</div>
 					<div class="sheet-body">
 						
@@ -836,57 +845,142 @@
 						</template>
 						<template v-else-if="panel === 'settings'">
 							<div class="settings-shell">
-								<header class="settings-overview">
-									<div class="settings-overline">NORI CONTROL DECK</div>
-									<div class="settings-overview-row">
-										<div>
-											<h2>设置</h2>
-											<p class="settings-overview-subtitle">海的深处....</p>
-											<p class="settings-overview-quote">若记忆终将散落，请在呼唤中重新认识我一次。</p>
+								<div class="settings-tabs" role="tablist" aria-label="设置级别">
+									<button type="button" role="tab" :aria-selected="settingsTab === 'basic'" :class="{active: settingsTab === 'basic'}" @click="settingsTab = 'basic'">基础设置</button>
+									<button type="button" role="tab" :aria-selected="settingsTab === 'advanced'" :class="{active: settingsTab === 'advanced'}" @click="settingsTab = 'advanced'">进阶设置</button>
+								</div>
+								<button v-if="settingsTab === 'basic'" class="settings-intro-entry settings-basic-intro btn ripple intro-open" @click="introOpen">
+									<span class="settings-intro-copy"><b>新手教程 / 致谢</b><small>快速了解 Nori 的功能和设置</small></span>
+									<span class="settings-entry-arrow" aria-hidden="true">→</span>
+								</button>
+								<div v-if="settingsTab === 'basic'" class="settings-basic-grid">
+									<div class="settings-basic-column">
+									<section class="settings-basic-group settings-basic-group-connection">
+										<div class="settings-basic-heading"><h3>连接</h3><small>{{ modelReady ? '已配置' : '待配置' }}</small></div>
+										<div class="settings-row">
+											<label>API Base URL</label>
+											<input v-model="cfg.baseUrl" type="text" spellcheck="false" autocomplete="off" />
 										</div>
-										<div class="settings-overview-visual" aria-hidden="true">
-											<img :src="'images/cg-touch-her.webp'" alt="" />
+										<div class="settings-row">
+											<label>API Key</label>
+											<input v-model="cfg.apiKey" type="text" autocomplete="off" spellcheck="false" />
 										</div>
+										<div class="settings-row">
+											<label>模型</label>
+											<div class="model-pick">
+												<select v-model="cfg.model">
+													<option value="" disabled>— 选择模型 —</option>
+													<option v-for="md in modelOptions" :key="md" :value="md">{{ md }}</option>
+												</select>
+												<button class="mini ripple" @click="refreshModels">加载模型</button>
+											</div>
+											<div v-if="modelLoadMsg" class="hint">{{ modelLoadMsg }}</div>
+										</div>
+									</section>
+									<section class="settings-basic-group settings-basic-group-display">
+										<div class="settings-basic-heading"><h3>显示清晰度</h3></div>
+										<div class="settings-row">
+											<label>渲染分辨率 {{ renderScaleNum.toFixed(1) }}x（原生 {{ nativeDpr.toFixed(1) }}x）</label>
+											<input type="range" min="0.5" max="3.0" step="0.1" v-model.number="cfg.renderScale" @change="applyRenderScale" />
+											<div class="hint">越高越清晰、越耗电；调到原生清晰度可获得最清楚的显示。</div>
+										</div>
+									</section>
+									<section class="settings-basic-group settings-basic-group-music">
+										<div class="settings-basic-heading"><h3>背景音乐</h3><small>{{ bgmState === 'ready' ? '资源已就绪' : bgmState === 'downloading' ? `下载中 ${bgmPct}%` : '首次播放需下载' }}</small></div>
+										<div class="settings-row">
+											<label>播放曲目</label>
+											<div class="model-pick">
+												<select :value="cfg.bgmTrack" @change="onBgmTrackChange"><option value="random">随机播放</option><option v-for="t in BGM_TRACKS" :key="t.id" :value="t.id">{{ t.name }}</option></select>
+												<button class="mini ripple" :disabled="!bgmCanSkip" @click="onBgmNext">换一首</button>
+											</div>
+										</div>
+										<div class="settings-row">
+											<label>音量 {{ Math.round((Number(cfg.bgmVolume) || 0) * 100) }}%</label>
+											<input type="range" min="0" max="1" step="0.01" v-model.number="cfg.bgmVolume" @input="onBgmVolume" @change="persistSettings" />
+										</div>
+										<button v-if="bgmState === 'missing'" class="mini ripple" @click="onBgmDownload">下载背景音乐资源</button>
+										<button v-else-if="bgmState === 'downloading'" class="mini ripple" disabled>正在下载 {{ bgmPct }}%</button>
+									</section>
+									<section class="settings-basic-group settings-basic-group-float">
+										<div class="settings-basic-heading"><h3>悬浮窗</h3></div>
+										<div class="settings-row">
+											<div class="row-inline"><label>离开应用后显示悬浮窗 Nori</label><input type="checkbox" v-model="cfg.floatEnabled" @change="onFloatToggle" /></div>
+											<div class="hint">{{ floatPermissionHint }}</div>
+											<button class="mini ripple" @click="resetFloatWindow">重置悬浮窗位置和大小</button>
+										</div>
+									</section>
 									</div>
-									<button class="settings-intro-entry btn ripple intro-open" @click="introOpen">
-										<span class="settings-intro-copy"><b>新手引导 / 致谢</b><small>第一次使用？从这里快速了解 Nori</small></span>
-										<span class="settings-entry-arrow" aria-hidden="true">→</span>
-									</button>
-									<nav class="settings-jumps" aria-label="设置分区">
-										<a href="#settings-connection">连接</a>
-										<a href="#settings-display">显示</a>
-										<a href="#settings-storage">存储</a>
-										<a href="#settings-sound">声音</a>
-										<a href="#settings-memory">记忆</a>
-										<a href="#settings-window">窗口</a>
-									</nav>
-								</header>
+									<div class="settings-basic-column">
+									<section class="settings-basic-group settings-basic-group-persona">
+										<div class="settings-basic-heading"><h3>人设与语音</h3></div>
+										<div class="settings-row">
+											<label>人设文案（提示词）</label>
+											<div class="row-inline">
+												<button class="mini ripple" @click="doImportPersona">导入文件</button>
+												<button class="mini ripple" :disabled="!personaCustom" @click="doResetPersona">清除自定义</button>
+											</div>
+											<div class="hint">{{ personaStateText }}</div>
+											<div v-if="personaMsg" class="hint" :class="{ok: personaMsgOk, bad: !personaMsgOk}">{{ personaMsg }}</div>
+										</div>
+										<div class="settings-row">
+											<div class="row-inline"><label>官方人设</label><button class="mini ripple" :disabled="personaDlBusy" @click="openPersonaGate">{{ personaDlBusy ? "下载中…" : "下载官方人设" }}</button></div>
+											<div v-if="personaDlMsg" class="hint" :class="{ok: personaDlOk, bad: !personaDlOk}">{{ personaDlMsg }}</div>
+										</div>
+										<div class="settings-row settings-tts-entry">
+											<button class="settings-entry-button ripple" @click="openPanel('tts')">
+												<span class="settings-entry-icon" aria-hidden="true">◌</span>
+												<span class="settings-entry-copy"><b>语音合成</b><small>配置朗读服务、音色与试听</small></span>
+												<span class="settings-entry-arrow" aria-hidden="true">→</span>
+											</button>
+										</div>
+									</section>
+									<section class="settings-basic-group settings-basic-group-preferences">
+										<div class="settings-basic-heading"><h3>日常偏好</h3></div>
+										<div class="settings-row">
+											<div class="row-inline"><label>动态背景（数据海）</label><input type="checkbox" v-model="cfg.dataseaBg" @change="onDataseaBgToggle" /></div>
+										</div>
+										<div class="settings-row">
+											<div class="row-inline"><label>让 Nori 知道时间</label><input type="checkbox" v-model="cfg.timeAware" @change="persistSettings" /></div>
+										</div>
+										<div class="settings-row">
+											<label>安静模式</label>
+											<div class="model-pick"><select v-model="cfg.quietMode" @change="onQuietModeChange"><option value="off">关闭</option><option value="auto">自动（每日 23:00–次日 8:00）</option><option value="manual">手动</option></select></div>
+											<div v-if="cfg.quietMode === 'manual'" class="row-inline"><label>立即静音</label><input type="checkbox" v-model="cfg.quietOn" @change="onQuietToggle" /></div>
+										</div>
+										<div class="settings-row">
+											<div class="row-inline"><label>Nori 主动搭话</label><input type="checkbox" v-model="cfg.ambientEnabled" @change="onAmbientToggle" /></div>
+										</div>
+									</section>
+									<section class="settings-basic-group settings-basic-group-memory">
+										<div class="settings-basic-heading"><h3>数据与记忆</h3></div>
+										<div class="settings-row">
+											<label>数据目录</label><div class="hint ok">{{ storagePath }}</div>
+										</div>
+										<div class="settings-row">
+											<div class="row-inline"><label>所有文件访问权限{{ allFilesAccess ? '（已授权）' : '（未授权）' }}</label><button class="mini ripple" @click="doRequestAllFiles">去授权</button></div>
+										</div>
+										<div class="settings-row">
+											<label>长期记忆与历史摘要</label>
+											<button class="mini ripple" @click="openPanel('memories')">打开记忆库 · {{ nonGoalMemories.length + goals.length }} 条</button>
+										</div>
+									</section>
+									</div>
+								</div>
+								<template v-else>
+									<header class="settings-overview settings-advanced-overview">
+										<div class="settings-overline">NORI CONTROL DECK</div>
+										<nav class="settings-jumps" aria-label="设置分区">
+											<a href="#settings-connection">连接</a>
+											<a href="#settings-display">显示</a>
+											<a href="#settings-storage">存储</a>
+											<a href="#settings-sound">声音</a>
+											<a href="#settings-memory">记忆</a>
+											<a href="#settings-window">窗口</a>
+										</nav>
+									</header>
 								<details id="settings-connection" class="settings-section">
-									<summary><span><b>连接与人设</b><small>决定 Nori 如何理解和回应你</small></span><i aria-hidden="true"></i></summary>
+										<summary><span><b>连接与模型</b><small>配置 API 地址、密钥和模型</small></span><i aria-hidden="true"></i></summary>
 									<div class="settings-section-body">
-							<!-- 自定义人设（2026-10-01 用户要求）: 放在面板**最顶上** —— 内置人设已删除, 这份就是 Nori 的唯一设定,
-							     比 API Key/模型这些还靠前, 否则用户根本找不到 -->
-							<div class="settings-row">
-								<label>人设文案（提示词）</label>
-								<div class="row-inline">
-									<button class="mini ripple" @click="doImportPersona">导入文件</button>
-									<button class="mini ripple" :disabled="!personaCustom" @click="doResetPersona">清除自定义</button>
-								</div>
-								<div class="hint">{{ personaStateText }}</div>
-								<div v-if="personaMsg" class="hint" :class="{ok: personaMsgOk, bad: !personaMsgOk}">{{ personaMsg }}</div>
-								<div class="hint">选一个 UTF-8 文本文件（.md/.txt，≤200KB）当人设; 只存在本机, 不上传、不进包</div>
-							</div>
-							<!-- 官方人设下载（2026-10-14 用户要求）: 人设不随包分发, 新用户本来只能去群里要 ——
-							     这里给一个 App 内的下载入口, 与「下载模型」同一道「人设授权验证」, 答对才去下。
-							     ⚠ 它必须排在「人设文案」正下方（probe-persona-import 断言的就是这个顺序）。 -->
-							<div class="settings-row">
-								<label>官方人设（下载）</label>
-								<div class="row-inline">
-									<button class="mini ripple" :disabled="personaDlBusy" @click="openPersonaGate">{{ personaDlBusy ? "下载中…" : "下载官方人设" }}</button>
-								</div>
-								<div v-if="personaDlMsg" class="hint" :class="{ok: personaDlOk, bad: !personaDlOk}">{{ personaDlMsg }}</div>
-								<div class="hint">从 inori 的静态托管下载官方人设文案（约 20KB），下完直接作为本机人设生效。下载前需要答对「人设授权验证」的问题。</div>
-							</div>
 							<div class="settings-row">
 								<label>API Base URL</label>
 								<input v-model="cfg.baseUrl" type="text" spellcheck="false" autocomplete="off" />
@@ -906,13 +1000,6 @@
 								</div>
 								<div v-if="modelLoadMsg" class="hint">{{ modelLoadMsg }}</div>
 							</div>
-																<div class="settings-row settings-tts-entry">
-																	<button class="settings-entry-button ripple" @click="openPanel('tts')">
-																		<span class="settings-entry-icon" aria-hidden="true">◌</span>
-																		<span class="settings-entry-copy"><b>语音合成</b><small>配置 Nori 的朗读服务、音色与试听效果</small></span>
-																		<span class="settings-entry-arrow" aria-hidden="true">→</span>
-																	</button>
-																</div>
 								</div>
 							</details>
 
@@ -927,11 +1014,6 @@
 								<label>气泡宽度 {{ bubbleWidthNum }}%（推荐 82%）</label>
 								<input type="range" min="55" max="95" step="1" v-model.number="cfg.bubbleWidth" />
 								<div class="hint">越窄，每行字数越少，标点更容易单独成行；觉得句号/问号落单就调宽一点</div>
-							</div>
-							<div class="settings-row">
-								<label>渲染分辨率 {{ renderScaleNum.toFixed(1) }}x（原生清晰度 {{ nativeDpr.toFixed(1) }}x）</label>
-								<input type="range" min="0.5" max="3.0" step="0.1" v-model.number="cfg.renderScale" @change="applyRenderScale" />
-								<div class="hint">越高越清晰、越耗电，拉到「原生清晰度」最清楚</div>
 							</div>
 							<div class="settings-row">
 								<label>渲染帧率上限 {{ l2dFpsNum === 0 ? "不限制" : `${l2dFpsNum} fps` }}（形象 + 背景）</label>
@@ -1151,19 +1233,20 @@
 									<div class="settings-section-body">
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>退出后显示悬浮窗 Nori</label>
+									<label>离开应用后显示悬浮窗 Nori</label>
 									<input type="checkbox" v-model="cfg.floatEnabled" @change="onFloatToggle" />
 								</div>
-								<div class="hint">开启后，按返回键退出应用时，Nori 会以小悬浮窗留在屏幕上（可拖动、双指缩放）。首次开启需要授权悬浮窗权限</div>
+								<div class="hint">开启后，按 Home、切后台或退出应用时，Nori 会留在屏幕上。{{ floatPermissionHint }}</div>
 							</div>
 							<div class="settings-row">
 								<label>悬浮窗渲染分辨率 {{ Number(cfg.floatRenderScale).toFixed(1) }}x（推荐 {{ nativeDpr.toFixed(1) }}x）</label>
 								<input type="range" min="0.5" max="3.0" step="0.1" v-model.number="cfg.floatRenderScale" @change="onFloatRenderScale" />
 								<div class="hint">渲染分辨率同主 App，越高越清晰也越耗电（悬浮窗尺寸用双指缩放调节，自动记忆）</div>
+								<button class="btn ripple" @click="resetFloatWindow">重置悬浮窗位置和大小</button>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline label-only">悬浮窗触摸手势</div>
-								<div class="hint">· 轻点 Nori 身体 → 弹出聊天气泡<br />· 轻微滑动 → 不触发表情、动作或聊天气泡<br />· 按住 0.8 秒后再移动 → 移动悬浮窗（0.8 秒内移动不算拖动，防误拖）<br />· 双指捏合 → 调整悬浮窗大小（任意位置均可）<br />· 拖动、点按都会重置待机小动作计时<br />· 对话框打开时：拖 ≡ 把手移动、双指捏合缩放、短按 ✕ 锁定、长按 ✕ 退出</div>
+									<div class="hint">· 轻点 Nori 身体 → 打开聊天窗口<br />· 按住并移动 → 直接拖动桌宠，允许把留白和部分模型移出屏幕<br />· 在窗口内双指捏合 → 等比调整大小<br />· 拖动和点按都会重置待机计时<br />· 聊天窗口：拖 ≡ 标题栏移动，双指捏合缩放，点锁形图标固定位置和大小，点 × 关闭<br />· 只有点击输入框才唤起键盘</div>
 							</div>
 									</div>
 								</details>
@@ -1191,6 +1274,7 @@
 							</div>
 									</div>
 								</details>
+								</template>
 
 								<div class="settings-bottom-actions">
 									<button class="btn ripple primary settings-save-button" @click="saveSettingsNow">保存设置</button>
@@ -1548,6 +1632,7 @@ const loading = ref(false)
 const error = ref("")
 const ready = ref(false)
 const panel = ref<P>("")
+const settingsTab = ref<"basic" | "advanced">("basic")
 const currentModelId = ref<string>("")
 const motions = ref<MotionGroup[]>([])
 const expressions = ref<string[]>([])
@@ -1705,7 +1790,7 @@ const hideThumb = (e: Event) => { (e.currentTarget as HTMLElement).style.visibil
  * 版本号：与 app/android/app/build.gradle 的 versionName 保持一致（前端随 APK 一起发版）。
  * ⚠ 别拿 web-src/package.json 的 version（脚手架留下的 0.1.0）当版本号 —— 那不是用户看到的版本。
  * 上游声明与许可清单同步自仓库根的 THIRD-PARTY.md（App 里只放要点 + 指向它）。 */
-const APP_VERSION = "2.3.0"
+const APP_VERSION = "2.4.0"
 const UPSTREAM_REPO_URL = "https://github.com/erhiolab/DeepEr"
 const LIVE2D_EULA_URL = "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
 /** 通用外链打开：与 openRepo / openSteamWishlist 同款（优先原生 openExternal，桥不支持时退回 window.open）。
@@ -2228,12 +2313,12 @@ const boxStyle = (t: {x: number; y: number; w: number; h: number}) => {
 
 let stagePointers = 0
 
-/* ---------------- 手指触摸追踪 (半透明磨砂小白点) ---------------- */
+/* ---------------- 手指触摸追踪 (半透明小白点) ---------------- */
 const touchDotHost = ref<HTMLElement | null>(null)
 /** 每个活动手指的 dot 元素 */
 const touchDots = new Map<number, HTMLElement>()
 
-/** 手指按下: 在对应位置生成磨砂白点 (内联样式, 避免 scoped CSS 不作用于动态元素) */
+/** 手指按下: 在对应位置生成白点 (内联样式, 避免 scoped CSS 不作用于动态元素) */
 const spawnTouchDot = (pointerId: number, x: number, y: number) => {
 	if (!touchDotHost.value) return
 	let dot = touchDots.get(pointerId)
@@ -2246,25 +2331,20 @@ const spawnTouchDot = (pointerId: number, x: number, y: number) => {
 			height: "22px",
 			borderRadius: "50%",
 			background: "radial-gradient(circle at 35% 30%, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.4) 55%, rgba(255,255,255,0.1) 100%)",
-			// 模糊走 CSS 变量: 像素风格下 --ui-blur-dot = 0px (保持"无模糊"的像素质感),
-			// 柔和风格下 2px。内联样式里的 var() 同样能被继承解析 (此元素在 .stage-root 内)
-			backdropFilter: "blur(var(--ui-blur-dot, 3px))",
-			WebkitBackdropFilter: "blur(var(--ui-blur-dot, 3px))",
 			border: "1px solid rgba(255,255,255,0.55)",
 			boxShadow: "0 0 12px rgba(255,255,255,0.35), inset 0 0 6px rgba(255,255,255,0.3)",
 			opacity: "1",
-			transform: "translate(-50%, -50%)",
+			willChange: "transform",
 			transition: "opacity 0.28s ease-out",
 			pointerEvents: "none",
 			zIndex: "50",
-			left: `${x}px`,
-			top: `${y}px`,
+			left: "0",
+			top: "0",
 		})
 		touchDotHost.value.appendChild(dot)
 		touchDots.set(pointerId, dot)
 	}
-	dot.style.left = `${x}px`
-	dot.style.top = `${y}px`
+	dot.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`
 	dot.style.opacity = "1"
 }
 
@@ -2272,8 +2352,7 @@ const spawnTouchDot = (pointerId: number, x: number, y: number) => {
 const moveTouchDot = (pointerId: number, x: number, y: number) => {
 	const dot = touchDots.get(pointerId)
 	if (!dot) return
-	dot.style.left = `${x}px`
-	dot.style.top = `${y}px`
+	dot.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`
 }
 
 /** 手指抬起: 让 dot 淡出后移除 */
@@ -2891,6 +2970,7 @@ const refreshMemFromDisk = () => {
 const openPanel = (p: P) => {
 	sideRailOpen.value = false
 	imageMenu.value = false
+	if (p === "settings" && panel.value !== p) settingsTab.value = "basic"
 	// 打开/关闭任何面板都重置"记忆库入口"的连击计数 —— 否则计数会跨场景累积
 	// (用户点两下入口、去别的面板逛一圈、回来点一下就直接进去了)
 	resetMemEntryGate()
@@ -4831,17 +4911,24 @@ const applyTtsVolume = () => setTtsVolume(Number(cfg.ttsVolume))
 const bgmNowName = ref("")
 const bgmState = ref<BgmState>("missing")
 const bgmPct = ref(0)
-const onBgmToggle = (e: Event): void => {
-	// 控件是单向 :checked 绑定, 必须从事件取值回写 cfg (否则点击永远无效)
-	cfg.bgmEnabled = (e.target as HTMLInputElement).checked
+const setBgmEnabled = (enabled: boolean): void => {
+	cfg.bgmEnabled = enabled
 	const id = syncBgm(cfg)
-	bgmNowName.value = id ? bgmNameOf(id) : ""
+	bgmNowName.value = id ? bgmNameOf(id) : bgmNameOf(cfg.bgmTrack)
 	persistSettings()
+}
+const onBgmToggle = (e: Event): void => setBgmEnabled((e.target as HTMLInputElement).checked)
+const onBgmQuickToggle = (): void => {
+	if (bgmState.value === "missing" && cfg.bgmEnabled) {
+		downloadBgm()
+		return
+	}
+	setBgmEnabled(!cfg.bgmEnabled)
 }
 const onBgmTrackChange = (e: Event): void => {
 	cfg.bgmTrack = (e.target as HTMLSelectElement).value
 	const id = syncBgm(cfg)
-	bgmNowName.value = id ? bgmNameOf(id) : bgmNowName.value
+	bgmNowName.value = id ? bgmNameOf(id) : bgmNameOf(cfg.bgmTrack)
 	persistSettings()
 }
 const onBgmVolume = (): void => {
@@ -4956,6 +5043,18 @@ const quietActive = (): boolean => {
 	}
 	return false
 }
+const bgmQuietHold = ref(false)
+const bgmQuickTrack = computed(() => bgmNowName.value || bgmNameOf(cfg.bgmTrack))
+const bgmQuickActionLabel = computed(() => bgmState.value === "missing" && cfg.bgmEnabled
+	? "重新下载背景音乐"
+	: cfg.bgmEnabled ? "暂停背景音乐" : "播放背景音乐")
+const bgmQuickStatus = computed(() => {
+	if (bgmState.value === "downloading") return `正在准备音乐 · ${bgmPct.value}%`
+	if (bgmState.value === "missing") return cfg.bgmEnabled ? "音乐资源未就绪 · 点此重试" : "背景音乐已暂停"
+	if (cfg.bgmEnabled && bgmQuietHold.value) return "安静模式暂停中"
+	return cfg.bgmEnabled ? "正在循环播放" : "背景音乐已暂停"
+})
+const bgmCanSkip = computed(() => cfg.bgmEnabled && bgmState.value === "ready" && !bgmQuietHold.value)
 /** ambient 总闸: 设置开关 × 安静模式 × 番茄钟专注 (唯一入口, 任何重评估都走这里) */
 const ambientAllowed = (): boolean => cfg.ambientEnabled && !quietActive() && !pomoFocus.value
 /** 番茄钟专注期静音是否生效 (声明在使用点之前: 供 bgmHeld 与 applyQuiet 判断) */
@@ -4965,6 +5064,7 @@ const bgmHeld = (): boolean => quietActive() || pomoFocusMuteOn
 let quietTimer = 0
 const applyQuiet = (): void => {
 	const q = quietActive()
+	bgmQuietHold.value = q || pomoFocusMuteOn
 	setAmbientEnabled(ambientAllowed())
 	if (q || pomoFocusMuteOn) pauseBgm()
 	else if (cfg.bgmEnabled) resumeBgm()
@@ -6233,27 +6333,78 @@ const saveSettingsNow = () => {
 }
 
 /* ---------------- 悬浮窗 ---------------- */
-/** 悬浮窗开关切换: 只保存设置 + 记录原生标记; 悬浮窗在退出应用后才显示 (不占用主 App 使用) */
-const onFloatToggle = () => {
+const floatPermission = ref<"unknown" | "granted" | "denied" | "pending" | "revoked">("unknown")
+let floatEnablePending = false
+const floatPermissionHint = computed(() => {
+	if (floatPermission.value === "pending") return "等待系统授权，授权返回后自动开启。"
+	if (floatPermission.value === "revoked") return "悬浮窗权限已被撤销，请重新开启并授权。"
+	if (floatPermission.value === "denied") return "尚未获得悬浮窗权限，开启时会前往系统设置。"
+	if (floatPermission.value === "granted") return "悬浮窗权限已授权。"
+	return "首次开启需要授权悬浮窗权限。"
+})
+const saveFloatEnabled = () => {
 	persistSettings()
+	try { window.NoriChat?.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 忽略 */ }
+}
+const refreshFloatPermission = () => {
 	const nori = window.NoriChat
-	if (!nori) return
-	try { nori.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 忽略 */ }
+	if (!nori?.canFloat || document.hidden) return
+	try {
+		const granted = nori.canFloat()
+		const wasEnabled = !!cfg.floatEnabled
+		if (floatEnablePending) {
+			cfg.floatEnabled = granted
+			floatEnablePending = false
+			floatPermission.value = granted ? "granted" : "denied"
+			saveFloatEnabled()
+		} else if (!granted && wasEnabled) {
+			cfg.floatEnabled = false
+			floatPermission.value = "revoked"
+			saveFloatEnabled()
+		} else if (granted) floatPermission.value = "granted"
+		else if (floatPermission.value !== "revoked") floatPermission.value = "denied"
+		if (!granted) nori.hideFloat?.()
+	} catch { /* 忽略 */ }
+}
+
+/** 授权前保留关闭状态；返回应用后核对权限，再启用原生标记。 */
+const onFloatToggle = (event: Event) => {
+	const nori = window.NoriChat
+	floatEnablePending = false
 	if (cfg.floatEnabled) {
 		try {
-			if (!nori.canFloat?.()) {
+			if (!nori?.canFloat?.()) {
+				cfg.floatEnabled = false
+				// v-model 同一事件内 true→false 可能被合并为无变化，显式还原原生复选框。
+				if (event.target instanceof HTMLInputElement) event.target.checked = false
+				floatEnablePending = !!nori?.requestFloatPermission
+				floatPermission.value = floatEnablePending ? "pending" : "denied"
+				saveFloatEnabled()
 				triggerBubble("请在系统设置里允许悬浮窗权限")
-				nori.requestFloatPermission?.()
+				nori?.requestFloatPermission?.()
 				return
 			}
-			triggerBubble("已开启：退出应用后 Nori 会留在桌面")
-		} catch { /* 忽略 */ }
+			floatPermission.value = "granted"
+			triggerBubble("已开启：离开应用后 Nori 会留在屏幕上")
+		} catch {
+			cfg.floatEnabled = false
+			if (event.target instanceof HTMLInputElement) event.target.checked = false
+		}
 	} else {
-		try { nori.hideFloat?.() } catch { /* 忽略 */ }
+		try { nori?.hideFloat?.() } catch { /* 忽略 */ }
 	}
+	saveFloatEnabled()
 }
 
 /** 悬浮窗: 渲染分辨率设置 → 保存 + 实时通知悬浮窗页面 */
+const resetFloatWindow = () => {
+	try {
+		if (!window.NoriChat?.resetFloatWindow) return
+		window.NoriChat.resetFloatWindow()
+		triggerBubble("已重置，离开应用后可查看悬浮窗")
+	} catch { triggerBubble("重置失败，请重试") }
+}
+
 const onFloatRenderScale = () => {
 	cfg.floatRenderScale = normalizeRenderScale(cfg.floatRenderScale, nativeDpr.value)
 	persistSettings()
@@ -6315,6 +6466,7 @@ const setStageRenderPaused = (paused: boolean): void => {
 }
 
 const onVisibility = () => {
+	if (!document.hidden) refreshFloatPermission()
 	refreshStorage()
 	// 切后台: 立即落盘防抖中的聊天记录, 避免丢最后一次写入
 	if (document.hidden) {
@@ -6350,6 +6502,7 @@ onMounted(async () => {
 	document.addEventListener("pointercancel", onStagePointerUp)
 	
 	window.addEventListener("focus", refreshStorage)
+	window.addEventListener("nori-app-resume", refreshFloatPermission)
 	document.addEventListener("visibilitychange", onVisibility)
 	// TTS 合成失败提示 (不打断对话)
 	setTtsErrorHandler((msg) => triggerBubble(`语音合成失败：${msg}`))
@@ -6424,6 +6577,7 @@ onMounted(async () => {
 	cfg.floatRenderScale = normalizeRenderScale(s.floatRenderScale, nativeDpr.value)
 	// 同步原生悬浮窗开关标记 (退出判断用, 不依赖 settings.json 读写时序)
 	try { window.NoriChat?.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 忽略 */ }
+	refreshFloatPermission()
 	// 应用内朗读音量 (按设置初始化; 之后滑块可实时调整)
 	setTtsVolume(Number(cfg.ttsVolume))
 	// 背景音乐: 注册资源状态回调后恢复播放 (缺失时自动下载; 自动播放被拦时服务内挂手势重试)
@@ -6553,6 +6707,7 @@ onBeforeUnmount(async () => {
 	document.removeEventListener("pointerup", onStagePointerUp)
 	document.removeEventListener("pointercancel", onStagePointerUp)
 	window.removeEventListener("focus", refreshStorage)
+	window.removeEventListener("nori-app-resume", refreshFloatPermission)
 	document.removeEventListener("visibilitychange", onVisibility)
 	if (touchBubbleTimer) clearTimeout(touchBubbleTimer)
 	if (voiceSaveTimer) clearTimeout(voiceSaveTimer)
@@ -6560,10 +6715,7 @@ onBeforeUnmount(async () => {
 	flushChatPersist()
 	// 页面销毁前: 记忆/总结的防抖写盘也立即落盘 (防丢最后改动)
 	await flushMemoryPersist()
-	// 退出时: 若开启了悬浮窗, 启动悬浮窗服务 (应用关闭但 Nori 留在屏幕)
-	try {
-		if (cfg.floatEnabled) window.NoriChat?.showFloat?.()
-	} catch { /* 忽略 */ }
+	// 悬浮窗的启动由 MainActivity 生命周期统一处理，页面卸载不重复拉起。
 	// 页面销毁前停止朗读 / 流式聊天 / 背景音乐
 	stopTTS()
 	cancelChatStream()
@@ -6638,7 +6790,7 @@ onBeforeUnmount(async () => {
 	--px-red: #d4706e;
 	--px-white: var(--px-text);
 	--px-grey: #94a3b8;
-	--px-dim: #475569;
+	--px-dim: #7c8db5;
 
 	/* 旧语义 token 保留为**别名**, 指向新色板 —— 这样已有的 100+ 处 var() 引用不用逐个改,
 	   整页换肤只发生在这一个地方, 也不会漏掉任何一处。 */
@@ -6681,7 +6833,6 @@ onBeforeUnmount(async () => {
 	/** 背景模糊强度 (C4, 2026-09-27): 像素风一律 0 —— `backdrop-filter` 是**每帧对背后整块区域
 	 *  重新采样合成**, 在 60fps + Live2D(WebGL) + 数据海(2D canvas) 同屏时是实打实的 GPU 开销。
 	 *  像素风本来也不需要模糊 (像素 UI 的通行做法是实色面板 + 硬边)。 */
-	--ui-blur-dot: 0px;
 	--ui-blur-bubble: 0px;
 	--ui-blur-chip: 0px;
 	--ui-blur-mask: 0px;
@@ -6699,9 +6850,8 @@ onBeforeUnmount(async () => {
 	--ui-lift: 0px;
 	--ui-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
 	--ui-inner-glow: rgba(0, 0, 0, 0);
-	/* 柔和风恢复一点毛玻璃质感 (比原来的 10/14/12px 更省): 气泡 6px、角落提示 8px、触点 2px。
+	/* 柔和风恢复一点毛玻璃质感 (比原来的 10/14/12px 更省): 气泡 6px、角落提示 8px。
 	   要彻底省电可以把这几个值也写 0 —— 观感差异很小。 */
-	--ui-blur-dot: 2px;
 	--ui-blur-bubble: 6px;
 	--ui-blur-chip: 8px;
 	--ui-blur-mask: 3px;
@@ -6725,7 +6875,6 @@ onBeforeUnmount(async () => {
 	--ui-lift: 0px;
 	--ui-shadow: 0 14px 32px rgba(2, 8, 18, 0.34), 0 0 0 1px rgba(127, 212, 230, 0.05);
 	--ui-inner-glow: rgba(127, 212, 230, 0.08);
-	--ui-blur-dot: 4px;
 	--ui-blur-bubble: 10px;
 	--ui-blur-chip: 12px;
 	--ui-blur-mask: 5px;
@@ -6753,7 +6902,7 @@ onBeforeUnmount(async () => {
 	border-color: rgba(127, 212, 230, 0.34);
 }
 
-/* 手指触摸追踪: 半透明磨砂小白点 */
+/* 手指触摸追踪: 半透明小白点 */
 .touch-dot-host {
 	position: absolute;
 	inset: 0;
@@ -6763,17 +6912,18 @@ onBeforeUnmount(async () => {
 }
 .touch-dot {
 	position: absolute;
+	left: 0;
+	top: 0;
 	width: 22px;
 	height: 22px;
 	border-radius: 50%;
-	/* 半透明磨砂质感: 白色渐变 + 模糊 */
+	/* 白色渐变保留高光与半透明质感 */
 	background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.35) 55%, rgba(255,255,255,0.08) 100%);
-	backdrop-filter: blur(var(--ui-blur-dot));
-	-webkit-backdrop-filter: blur(var(--ui-blur-dot));
 	border: 1px solid rgba(255,255,255,0.5);
 	box-shadow: 0 0 12px rgba(255,255,255,0.35), inset 0 0 6px rgba(255,255,255,0.3);
 	opacity: 1;
-	transform: translate(-50%, -50%) scale(1);
+	transform: translate3d(0, 0, 0) translate(-50%, -50%);
+	will-change: transform;
 	transition: opacity 0.28s ease-out;
 	pointer-events: none;
 }
@@ -7670,6 +7820,195 @@ onBeforeUnmount(async () => {
 	flex-direction: column;
 	gap: 10px;
 	padding: 2px 0 14px;
+	container-type: inline-size;
+}
+.settings-sheet-head {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-areas: "title close" "player player";
+	align-items: center;
+	gap: 9px 10px;
+}
+.settings-sheet-head .sheet-title { grid-area: title; min-width: 0; }
+.settings-sheet-head > .x { grid-area: close; }
+.settings-bgm-player {
+	grid-area: player;
+	width: 100%;
+	max-width: 300px;
+	box-sizing: border-box;
+	justify-self: end;
+	display: grid;
+	grid-template-columns: minmax(72px, 1fr) 56px 32px 32px;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	padding: 0;
+}
+.settings-bgm-icon {
+	width: 52px;
+	height: 20px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 3px;
+}
+.settings-bgm-icon i {
+	width: 3px;
+	height: 4px;
+	flex: 0 0 auto;
+	background: var(--px-amber);
+	border-radius: 2px;
+}
+.settings-bgm-icon i:nth-child(2),
+.settings-bgm-icon i:nth-child(8) { height: 7px; }
+.settings-bgm-icon i:nth-child(3),
+.settings-bgm-icon i:nth-child(7) { height: 10px; }
+.settings-bgm-icon i:nth-child(4),
+.settings-bgm-icon i:nth-child(6) { height: 14px; }
+.settings-bgm-icon i:nth-child(5) { height: 17px; }
+.settings-bgm-player.is-playing .settings-bgm-icon i {
+	animation: settings-bgm-wave 0.85s ease-in-out infinite alternate;
+}
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(1),
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(9) { animation-delay: 0s; }
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(2),
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(8) { animation-delay: 0.1s; }
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(3),
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(7) { animation-delay: 0.2s; }
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(4),
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(6) { animation-delay: 0.3s; }
+.settings-bgm-player.is-playing .settings-bgm-icon i:nth-child(5) { animation-delay: 0.2s; }
+@keyframes settings-bgm-wave {
+	from { transform: scaleY(0.55); opacity: 0.65; }
+	to { transform: scaleY(1); opacity: 1; }
+}
+.settings-bgm-copy {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+.settings-bgm-copy small,
+.settings-bgm-copy b {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.settings-bgm-copy small { color: var(--fg-dim); font-size: 10px; line-height: 1.2; }
+.settings-bgm-copy b { color: var(--fg); font-size: 12px; line-height: 1.2; font-weight: 600; }
+.settings-bgm-control {
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	display: grid;
+	place-items: center;
+	color: var(--px-amber);
+	font-size: 17px;
+	line-height: 1;
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 50%;
+}
+.settings-bgm-control.settings-bgm-next {
+	color: var(--fg-dim);
+}
+.settings-bgm-control:disabled { opacity: 0.38; }
+.settings-bgm-control:active { transform: translateY(1px); }
+.settings-tabs {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 4px;
+	padding: 4px;
+	background: var(--px-panel);
+	border-bottom: 1px solid var(--line-soft);
+}
+.settings-tabs button {
+	min-height: 38px;
+	padding: 7px 10px;
+	color: var(--fg-dim);
+	font-size: 13px;
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: var(--ui-radius-ctl);
+}
+.settings-tabs button.active {
+	color: var(--fg);
+	font-weight: 650;
+	background: rgba(127, 212, 230, 0.12);
+	border-color: rgba(127, 212, 230, 0.38);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.settings-basic-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	align-items: start;
+	gap: 9px;
+}
+.settings-basic-column { display: contents; }
+.settings-basic-group-connection { order: 1; }
+.settings-basic-group-persona { order: 2; }
+.settings-basic-group-display { order: 3; }
+.settings-basic-group-preferences { order: 4; }
+.settings-basic-group-music { order: 5; }
+.settings-basic-group-memory { order: 6; }
+.settings-basic-group-float { order: 7; }
+.settings-basic-group {
+	min-width: 0;
+	border: 1px solid var(--line-soft);
+	border-radius: var(--ui-radius-card);
+	background: rgba(13, 25, 44, 0.66);
+	overflow: hidden;
+}
+.settings-basic-group-music { border-top: 2px solid var(--px-amber); }
+.settings-basic-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 11px 12px 5px;
+}
+.settings-basic-heading h3 {
+	min-width: 0;
+	margin: 0;
+	color: var(--fg);
+	font-size: 14px;
+	font-weight: 650;
+}
+.settings-basic-heading small {
+	flex: 0 1 auto;
+	color: var(--fg-dim);
+	font-size: 10px;
+	text-align: right;
+}
+.settings-basic-group > .settings-row {
+	padding: 9px 12px;
+}
+.settings-basic-group > .settings-row + .settings-row {
+	border-top: 1px solid rgba(148, 163, 184, 0.09);
+}
+.settings-basic-group > .settings-row input[type=text] { width: 100%; box-sizing: border-box; }
+.settings-basic-group .model-pick { min-width: 0; }
+.settings-basic-group .model-pick select { min-width: 0; }
+@container (min-width: 600px) {
+	.settings-basic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.settings-basic-column {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 9px;
+	}
+}
+@media (min-width: 720px) {
+	.settings-sheet-head {
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		grid-template-areas: "title player close";
+		gap: 12px;
+	}
 }
 .settings-overview {
 	padding: 4px 4px 2px;
@@ -7747,6 +8086,7 @@ onBeforeUnmount(async () => {
 	border: 1px solid rgba(127, 212, 230, 0.25);
 	color: var(--fg);
 }
+.settings-basic-intro { margin-top: 0; }
 .settings-intro-copy {
 	display: flex;
 	flex-direction: column;

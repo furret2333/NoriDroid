@@ -1,4 +1,4 @@
-// ../src/services/pomo-stats.ts
+// src/services/pomo-stats.ts
 var KEEP_DAYS = 3650;
 var dayKey = (d = /* @__PURE__ */ new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 var dayMinutes = (d) => (d?.focusMs !== void 0 ? d.focusMs / 6e4 : d?.focusMin || 0) + (d?.countUpMs !== void 0 ? d.countUpMs / 6e4 : d?.countUpMin || 0);

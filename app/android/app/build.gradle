@@ -11,8 +11,8 @@ android {
         applicationId "com.noridroid"
         minSdk 24
         targetSdk 34
-        versionCode 5
-        versionName "2.3.0"
+        versionCode 6
+        versionName "2.4.0"
     }
 
     /* 2026-10-02 用户要求切正式签名。keystore.properties 在 .gitignore 里（不进仓库/公开仓库）；

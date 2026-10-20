@@ -10,6 +10,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.zip.ZipInputStream
@@ -77,7 +78,13 @@ class ModelBridge(private val appContext: Context) {
             root.listFiles()?.forEach { dir ->
                 dir.takeIf { it.isDirectory }?.let { d ->
                     findEntryBase(d)?.let { base ->
-                        arr.put(JSONObject().put("id", d.name).put("entryBase", base))
+                        // Stat metadata also invalidates cached geometry after model replacement.
+                        val fingerprint = d.walkTopDown().filter { it.isFile }
+                            .sortedBy { it.relativeTo(d).path }
+                            .joinToString("\n") { "${it.relativeTo(d).path}:${it.length()}:${it.lastModified()}" }
+                        val revision = MessageDigest.getInstance("SHA-256")
+                            .digest(fingerprint.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+                        arr.put(JSONObject().put("id", d.name).put("entryBase", base).put("revision", revision))
                     }
                 }
             }

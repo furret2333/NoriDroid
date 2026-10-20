@@ -7,6 +7,7 @@ import {fetchLive2dList} from "../gateway/api"
 interface InstalledMeta {
 	id: string
 	entryBase: string
+	revision?: string
 }
 
 interface Bridge {

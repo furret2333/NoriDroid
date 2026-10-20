@@ -1,13 +1,8 @@
 <script setup lang="ts">
 /**
  * 悬浮窗聊天气泡 (FloatBubbleActivity 承载): 输入 + 回复 + TTS + 记忆.
- * 布局 (用户设计): 回复文字在顶部 (对话框顶部伸进悬浮窗底部留白, 纯展示不交互),
- * 输入框在底部 (悬浮窗下方 → 可点击, 键盘弹出).
- * 交互: 拖动把手/双指缩放由**原生**处理 (rawX 屏幕绝对坐标, 不受窗口移动影响),
- * 本页只上报把手位置 + 锁定状态; ✕ 短按锁定/长按退出.
- * 点 Nori 不会碰到本窗口, 不会弹键盘. 悬浮窗零改动 → Nori 永不透明.
- * 注意: 回复区必须始终占位 (flex:1), 否则输入行会被 flex 顶到窗口顶部
- * (伸进悬浮窗的区域) → 被悬浮窗盖住 → 键盘打不开.
+ * 顶部标题栏拖动，锁定/关闭各自独立；原生处理拖动和等比缩放。
+ * 回复区可滚动，输入行固定在底部，只有输入框接受输入焦点。
  * 记忆/总结: 与主 App 共用同一份 chat.json / memory 库 —— 剥离表情标记、
  * 追加历史、写长期记忆、生成历史总结, 悬浮窗对话与主 App 无缝衔接.
  */
@@ -55,7 +50,7 @@ const showMemTip = (t: string) => {
 	if (memTipTimer) clearTimeout(memTipTimer)
 	memTipTimer = setTimeout(() => { memTip.value = "" }, 2600)
 }
-/** 锁定: 固定窗口位置/大小 (原生拖动/缩放失效), ✕ 短按切换, 长按退出 */
+/** 锁定只固定位置与大小，输入、发送和关闭仍可操作。 */
 const locked = ref(false)
 const inputEl = ref<HTMLInputElement | null>(null)
 const replyEl = ref<HTMLDivElement | null>(null)
@@ -69,6 +64,7 @@ type BubbleBridge = {
 type BubbleWindowBridge = {
 	setHandleRect?: (l: number, t: number, r: number, b: number) => void
 	setLocked?: (l: boolean) => void
+	isLocked?: () => boolean
 }
 const bubbleBridge = () => (window as unknown as {NoriChat?: BubbleBridge}).NoriChat
 const winBridge = () => (window as unknown as {BubbleWindow?: BubbleWindowBridge}).BubbleWindow
@@ -87,22 +83,9 @@ const reportHandleRect = () => {
 	} catch { /* 忽略 */ }
 }
 
-// ---------------- ✕: 短按锁定 / 长按退出 ----------------
-let closeTimer: number | undefined
-const onCloseStart = (e: TouchEvent) => {
-	e.preventDefault()
-	closeTimer = window.setTimeout(() => {
-		closeTimer = undefined
-		closeBubble() // 长按 600ms → 退出对话框
-	}, 600)
-}
-const onCloseEnd = () => {
-	if (closeTimer) {
-		clearTimeout(closeTimer)
-		closeTimer = undefined
-		locked.value = !locked.value // 短按 → 切换锁定 (再按解锁)
-		winBridge()?.setLocked?.(locked.value)
-	}
+const toggleLocked = () => {
+	locked.value = !locked.value
+	winBridge()?.setLocked?.(locked.value)
 }
 
 // 回复内容变化时自动滚到底部, 新文字始终可见 (贴在输入框上方)
@@ -115,8 +98,10 @@ watch(replyText, () => {
 
 /** 窗口缩放后把手位置会变 → 重新上报 (具名 + onBeforeUnmount 解绑:
  *  原先用匿名箭头函数, 无法移除, 每次挂载都累积一个监听器) */
+let handleTimer: ReturnType<typeof setTimeout> | undefined
 const onWinResize = (): void => {
-	setTimeout(reportHandleRect, 100)
+	clearTimeout(handleTimer)
+	handleTimer = setTimeout(reportHandleRect, 100)
 }
 
 onMounted(() => {
@@ -130,13 +115,11 @@ onMounted(() => {
 	// TTS 状态 (显示正在朗读)
 	onSpeakingChange((p) => { typing.value = p })
 	// 上报把手区域: 等布局稳定后 (原生据此识别拖动起点)
+	locked.value = winBridge()?.isLocked?.() ?? false
 	nextTick(reportHandleRect)
-	setTimeout(reportHandleRect, 300)
+	onWinResize()
 	window.addEventListener("resize", onWinResize)
 })
-
-/** 点气泡空白处 → 聚焦输入框 → 键盘弹出 */
-const focusInput = () => inputEl.value?.focus()
 
 /** 关闭气泡 (Activity) */
 const closeBubble = () => {
@@ -336,15 +319,29 @@ const send = async () => {	const text = draft.value.trim()
 /** 关闭对话框前 flush 未落盘的聊天历史 + 记忆 (防丢最后一次写入) */
 onBeforeUnmount(async () => {
 	window.removeEventListener("resize", onWinResize)
+	clearTimeout(handleTimer)
+	if (memTipTimer) clearTimeout(memTipTimer)
 	flushChatPersist()
 	await flushMemoryPersist()
 })
 </script>
 
 <template>
-	<!-- 回复文字在顶部 (伸进悬浮窗底部留白, 纯展示), 输入框在底部 (悬浮窗下方, 可点) -->
-	<div class="bubble-root" @click="focusInput">
+	<!-- 标题栏、可滚动回复、固定输入行。 -->
+	<div class="bubble-root">
 		<div class="bubble-panel">
+			<div class="bubble-toolbar">
+				<div ref="handleEl" class="bubble-handle" :class="{ locked }" @click.stop.prevent>≡ <span>Nori</span></div>
+				<button class="bubble-lock" :class="{ locked }" :aria-pressed="locked" :aria-label="locked ? '解锁聊天窗口' : '锁定聊天窗口'" :title="locked ? '解锁聊天窗口' : '锁定聊天窗口'" @click.stop="toggleLocked">
+					<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<rect x="5" y="10" width="14" height="11" rx="2" />
+						<path :d="locked ? 'M8 10V7a4 4 0 0 1 8 0v3' : 'M8 10V7a4 4 0 0 1 7.5-2'" />
+					</svg>
+				</button>
+				<button class="bubble-close" aria-label="关闭聊天窗口" title="关闭聊天窗口" @click.stop="closeBubble">
+					<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18" /></svg>
+				</button>
+			</div>
 			<!-- 回复区常驻占位 (flex:1): 保证输入行永远在底部, 不被悬浮窗遮挡 -->
 			<div ref="replyEl" class="bubble-reply">
 				<div v-if="!replyText && !typing" class="bubble-hint">Nori 的回复会显示在这里</div>
@@ -353,20 +350,12 @@ onBeforeUnmount(async () => {
 				<div v-if="memTip" class="bubble-memtip">{{ memTip }}</div>
 			</div>
 			<div class="bubble-input-row">
-				<!-- 拖动把手: 位置上报给原生, 由原生触摸识别拖动 (点击不冒泡 → 不弹键盘) -->
-				<div
-					ref="handleEl"
-					class="bubble-handle"
-					:class="{ locked }"
-					@click.stop.prevent
-				>≡</div>
 				<input
 					ref="inputEl"
 					v-model="draft"
 					class="bubble-input"
 					placeholder="和 Nori 说点什么…"
 					@keydown.enter="send"
-					@click.stop="focusInput"
 					:disabled="busy"
 				/>
 				<button
@@ -381,14 +370,6 @@ onBeforeUnmount(async () => {
 					class="bubble-send stop"
 					@click.stop="stopTts()"
 				>■</button>
-				<!-- ✕: 短按锁定 (固定位置大小), 长按退出对话框 -->
-				<button
-					class="bubble-close"
-					:class="{ locked }"
-					@touchstart.stop.prevent="onCloseStart"
-					@touchend.stop.prevent="onCloseEnd"
-					@touchcancel.stop.prevent="onCloseEnd"
-				>{{ locked ? "🔒" : "✕" }}</button>
 			</div>
 		</div>
 	</div>
@@ -405,8 +386,7 @@ onBeforeUnmount(async () => {
 	-webkit-tap-highlight-color: transparent;
 }
 .bubble-panel {
-	/* 全透明面板: 顶部重叠进悬浮窗底部留白, 回复文字显示在那里 (纯展示);
-	   输入框在底部 (悬浮窗下方, 可点击) */
+	/* 面板提供稳定对比度，避免下方应用内容干扰阅读。 */
 	position: absolute;
 	left: 6px;
 	right: 6px;
@@ -414,7 +394,7 @@ onBeforeUnmount(async () => {
 	bottom: 6px;
 	display: flex;
 	flex-direction: column;
-	background: transparent;
+	background: rgba(15, 23, 42, 0.9);
 	border: 1px solid rgba(148, 163, 184, 0.18);
 	border-radius: 18px;
 	box-shadow: 0 -8px 30px rgba(0,0,0,0.35);
@@ -431,15 +411,16 @@ onBeforeUnmount(async () => {
 }
 .bubble-handle {
 	/* 拖动把手: 按住移动对话框窗口 */
-	flex-shrink: 0;
-	width: 34px;
-	height: 38px;
+	flex: 1;
+	min-width: 0;
+	height: 44px;
 	display: flex;
 	align-items: center;
-	justify-content: center;
+	justify-content: flex-start;
+	gap: 8px;
+	padding: 0 12px;
 	border-radius: 10px;
-	background: rgba(148, 163, 184, 0.12);
-	border: 1px solid rgba(148, 163, 184, 0.22);
+	background: transparent;
 	color: #94a3b8;
 	font-size: 15px;
 	font-weight: 700;
@@ -518,20 +499,40 @@ onBeforeUnmount(async () => {
 	/* 停止态: 中性灰, 与"发送"区分 */
 	&.stop { background: rgba(148, 163, 184, 0.32); }
 }
-.bubble-close {
+.bubble-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 0;
+	padding: 0 6px 0 4px;
 	flex-shrink: 0;
-	width: 34px;
-	height: 38px;
+	background: rgba(15, 23, 42, 0.88);
+}
+.bubble-close, .bubble-lock {
+	flex-shrink: 0;
+	width: 44px;
+	height: 44px;
+	padding: 0;
+	display: grid;
+	place-items: center;
 	border-radius: 10px;
-	background: rgba(148, 163, 184, 0.14);
-	border: 1px solid rgba(148, 163, 184, 0.25);
-	color: #cbd5e1;
-	font-size: 13px;
-	line-height: 1;
-	touch-action: none;
+	background: transparent;
+	border: 0;
+	color: #94a3b8;
+	touch-action: manipulation;
+	svg {
+		width: 18px;
+		height: 18px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 1.7;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+	&:active { background: rgba(148, 163, 184, 0.12); }
+	&:focus-visible { outline: 2px solid #7dd3fc; outline-offset: -5px; }
 	&.locked {
-		background: rgba(250, 204, 21, 0.18);
-		border-color: rgba(250, 204, 21, 0.4);
+		background: rgba(125, 211, 252, 0.08);
+		color: #7dd3fc;
 	}
 }
 </style>

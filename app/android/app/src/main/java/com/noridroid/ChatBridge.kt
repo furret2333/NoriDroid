@@ -457,17 +457,17 @@ class ChatBridge(private val appContext: Context) {
         return if (n == SETTINGS_FILE) secureSettingsForRead(raw) else raw
     }
 
-    /** 退出应用时是否应启动悬浮窗 (原生开关标记 或 settings.json 的 floatEnabled) */
+    /** 原生标记一旦存在即为准；只有旧安装尚无标记时才回退到设置文件。 */
     fun shouldStartFloatOnExit(): Boolean {
         return runCatching {
-            val prefEnabled = appContext.getSharedPreferences("float_enabled_prefs", Context.MODE_PRIVATE)
-                .getBoolean("float_enabled", false)
-            val fileEnabled = runCatching {
+            val prefs = appContext.getSharedPreferences("float_enabled_prefs", Context.MODE_PRIVATE)
+            val enabled = if (prefs.contains("float_enabled")) prefs.getBoolean("float_enabled", false)
+            else runCatching {
                 val raw = readFile("settings.json")
                 if (raw.isBlank()) false
                 else JSONObject(raw).optBoolean("floatEnabled", false)
             }.getOrDefault(false)
-            (prefEnabled || fileEnabled) &&
+            enabled &&
                 android.provider.Settings.canDrawOverlays(appContext)
         }.getOrDefault(false)
     }
@@ -1122,8 +1122,7 @@ class ChatBridge(private val appContext: Context) {
     @android.webkit.JavascriptInterface
     fun canFloat(): Boolean {
         return runCatching {
-            val act = appContext as? Activity
-            act != null && android.provider.Settings.canDrawOverlays(act)
+            android.provider.Settings.canDrawOverlays(appContext)
         }.getOrDefault(false)
     }
 
@@ -1214,8 +1213,38 @@ class ChatBridge(private val appContext: Context) {
     /** 悬浮窗页面: 上报模型身体矩形 (相对悬浮窗窗口, 物理像素) → 只在模型身上点按才弹气泡 */
     @android.webkit.JavascriptInterface
     fun setFloatModelRect(l: Int, t: Int, r: Int, b: Int) {
-        FloatService.modelRect = intArrayOf(l, t, r, b)
+        FloatService.reportModelRect(intArrayOf(l, t, r, b))
     }
+
+    @android.webkit.JavascriptInterface
+    fun setFloatModelGeometry(l: Int, t: Int, r: Int, b: Int, canvasWidth: Int, canvasHeight: Int) {
+        FloatService.reportModelRect(intArrayOf(l, t, r, b), canvasWidth, canvasHeight)
+    }
+
+    @android.webkit.JavascriptInterface
+    fun beginFloatModelGeometry(): Long = FloatService.beginModelGeometry()
+
+    @android.webkit.JavascriptInterface
+    fun setFloatVisibleGeometry(json: String) {
+        try {
+            val value = JSONObject(json)
+            fun rect(key: String): IntArray {
+                val array = value.getJSONArray(key)
+                require(array.length() == 4)
+                return IntArray(4) { array.getInt(it) }
+            }
+            FloatService.reportVisibleGeometry(FloatingModelGeometry(
+                value.getLong("generation"), value.getLong("revision"), value.getInt("width"), value.getInt("height"),
+                rect("crop"), rect("hit"), value.getInt("feet"), value.getBoolean("precise"),
+            ))
+        } catch (error: Exception) { Log.w(TAG, "invalid float geometry", error) }
+    }
+
+    @android.webkit.JavascriptInterface
+    fun resetFloatWindow() { FloatService.resetWindow(appContext) }
+
+    @android.webkit.JavascriptInterface
+    fun floatFrameDrawn(request: Long) { FloatService.reportFrameDrawn(request) }
 
     /** 聊天气泡: 表情/动作标记 → 转发给悬浮窗 Nori 播放 (主 App 同规则驱动表演) */
     @android.webkit.JavascriptInterface

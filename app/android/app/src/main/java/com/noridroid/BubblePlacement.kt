@@ -64,14 +64,24 @@ fun placeBubble(
     screenTop: Int,
     screenRight: Int,
     screenBottom: Int,
+): BubbleLayout = placeBubble(floatX, floatY, floatW, floatH, modelBottom, winW,
+    screenLeft, screenTop, screenRight, screenBottom, 1f)
+
+/** 物理像素坐标保持不变；界面间距和高度随屏幕密度换算。 */
+fun placeBubble(
+    floatX: Int, floatY: Int, floatW: Int, floatH: Int, modelBottom: Int, winW: Int,
+    screenLeft: Int, screenTop: Int, screenRight: Int, screenBottom: Int, density: Float,
 ): BubbleLayout {
+    val d = density.takeIf { it.isFinite() && it > 0f } ?: 1f
+    fun dp(value: Int) = kotlin.math.round(value * d).toInt().coerceAtLeast(1)
+    val gap = dp(GAP)
     // 地板线: 对话框顶边不得高于它。模型底未知 → 用悬浮窗底边 (保守: 保证不压模型)
     val floorY = if (modelBottom > 0) floatY + modelBottom else floatY + floatH
     // 模型脚底到窗底的留白 = 对话框顶部可以「透过去」显示回复的区域 (封顶防暴涨)
-    val safeTop = if (modelBottom > 0) (floatH - modelBottom).coerceIn(0, SAFE_TOP_CAP) else 0
-    val hFull = safeTop + TEXT_TOP_PAD + INPUT_H + REPLY_MAX
-    val hMin = TEXT_TOP_PAD + INPUT_H + REPLY_MIN
-    val belowY = floorY + GAP
+    val safeTop = if (modelBottom > 0) (floatH - modelBottom).coerceIn(0, dp(SAFE_TOP_CAP)) else 0
+    val hFull = safeTop + dp(TEXT_TOP_PAD) + dp(INPUT_H) + dp(REPLY_MAX)
+    val hMin = dp(TEXT_TOP_PAD) + dp(INPUT_H) + dp(REPLY_MIN)
+    val belowY = floorY + gap
     val y: Int
     val h: Int
     when {
@@ -83,10 +93,10 @@ fun placeBubble(
             h = if (room >= hFull) hFull else room
         }
         // 下方放不下 → 挪到悬浮窗上方 (同样不与模型重叠)
-        floatY - GAP - screenTop >= hMin -> {
-            val room = floatY - GAP - screenTop
+        floatY - gap - screenTop >= hMin -> {
+            val room = floatY - gap - screenTop
             h = if (room >= hFull) hFull else room
-            y = floatY - GAP - h
+            y = floatY - gap - h
         }
         // 上下都塞不下 (小屏且悬浮窗贴屏边) → 钳进屏幕, 至少保住输入行可见
         else -> {

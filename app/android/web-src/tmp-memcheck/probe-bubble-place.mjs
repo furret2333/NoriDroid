@@ -40,7 +40,9 @@ const run = (cmd, args, cwd) => {
 /** 找编译产物目录 (含 com/noridroid/BubblePlacementKt.class 的那一层 build variant) */
 const findKotlinClasses = () => {
 	if (!existsSync(KOTLIN_CLASSES_ROOT)) return ""
-	for (const v of readdirSync(KOTLIN_CLASSES_ROOT)) {
+	const variants = process.env.NORI_KOTLIN_VARIANT ? [process.env.NORI_KOTLIN_VARIANT]
+		: ["release", ...readdirSync(KOTLIN_CLASSES_ROOT).filter(v => v !== "release")]
+	for (const v of variants) {
 		const dir = join(KOTLIN_CLASSES_ROOT, v)
 		if (existsSync(join(dir, "com/noridroid/BubblePlacementKt.class"))) return dir
 	}

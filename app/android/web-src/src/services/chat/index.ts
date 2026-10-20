@@ -302,6 +302,8 @@ interface NoriChat {
 	closeFloatBubble: () => void
 	/** 悬浮窗: 设置渲染分辨率 (x) */
 	setFloatRenderScale: (s: number) => void
+	/** Restore the desktop pet's saved position and size. */
+	resetFloatWindow?: () => void
 }
 
 declare global {
