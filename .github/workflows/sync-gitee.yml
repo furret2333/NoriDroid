@@ -66,7 +66,7 @@ jobs:
           APK="$(ls dist/*.apk | head -n1)"
           echo "APK=${APK}" >> "$GITHUB_ENV"
           echo "APK_SHA=$(sha256sum "$APK" | awk '{print $1}')" >> "$GITHUB_ENV"
-          echo "local apk: ${APK} (sha256 ${APK_SHA})"
+          echo "local apk: ${APK}"
 
       # ===== 关键路径：官网下载链接指向这里，必须最先完成 =====
       - name: Publish raw copy in the Gitee repo (this is what the website links to)
