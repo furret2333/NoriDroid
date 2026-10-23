@@ -1,0 +1,25 @@
+# 在线人数计数服务（Cloudflare Worker + Durable Object）
+# 部署：在 services/presence 下执行 `npx wrangler deploy`
+name = "noridroid-presence"
+main = "src/index.mjs"
+compatibility_date = "2025-12-01"
+
+# 免费版即可（Workers / Durable Objects 各有 10 万请求/天的免费额度）。
+# 若量大到超限，再升级 Workers Paid（最低 $5/月）。
+workers_dev = true
+
+# 国内可达：workers.dev 在部分网络被污染/阻断，这里绑自定义域名（inori.mom 已托管在 Cloudflare）。
+# 部署时自动创建 DNS 记录与证书；如提示 zone 不在当前账号，需要先在 Cloudflare 里把这个域名
+# 接入同一个账号（或改用账号里已有的域名）。
+[[routes]]
+pattern = "presence.inori.mom"
+custom_domain = true
+
+[[durable_objects.bindings]]
+name = "PRESENCE"
+class_name = "Presence"
+
+# SQLite 后端：Workers 免费版只支持 SQLite-backed Durable Objects。
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Presence"]

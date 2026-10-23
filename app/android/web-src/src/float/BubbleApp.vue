@@ -13,6 +13,7 @@ import {
 	type ChatMsg, type Settings, personaPrompt,
 } from "../services/chat"
 import {parseMarkerDelta} from "../services/chat/markers"
+import {createReplyMetadataFilter, stripInternalPromptMetadata} from "../services/chat/replyMetadata"
 import {
 	extractMemoriesSmart,
 	summarizeIfNeeded, flushMemoryPersist,
@@ -196,7 +197,9 @@ const send = async () => {	const text = draft.value.trim()
 
 		// 剥离隐藏的【表情:xxx】【动作:xxx】标记 (标记不显示、不朗读、不写记忆)
 		const markerBuf = {value: ""}
+		const metadataFilter = createReplyMetadataFilter()
 		let reply = ""
+		let receivedDelta = false
 		let pendingSpeech = ""
 		let streamOk = false
 		// 本次会话是否收到过表演标记 (有 → 已驱动; 无 → 回复完成后正文关键词兜底)
@@ -212,9 +215,11 @@ const send = async () => {	const text = draft.value.trim()
 			sendChatStream(s.baseUrl, s.apiKey, s.model, payload, {
 				onDelta: (delta) => {
 					if (delta === "null") return
+					receivedDelta = true
 					const {clean, emotion, motion} = parseMarkerDelta(delta, markerBuf)
-					reply += clean
-					pendingSpeech += clean
+					const safeClean = metadataFilter.push(clean)
+					reply += safeClean
+					pendingSpeech += safeClean
 					flushSpeech()
 					// 标记驱动悬浮窗 Nori 表演 (与主 App 同规则映射)
 					if (emotion || motion) {
@@ -225,19 +230,25 @@ const send = async () => {	const text = draft.value.trim()
 				},
 				onDone: (content) => {
 					streamOk = true
-					if (ttsOn) {
-						if (pendingSpeech.trim()) speakAppend(s, pendingSpeech)
-						endSpeakSession()
-					}
 					// content 是含标记的全文: 若流式累积为空 (非流式回退), 整体剥离一次
-					if (content && !reply.trim()) {
+					if (content && !receivedDelta) {
 						const fresh = {value: ""}
 						const {clean, emotion, motion} = parseMarkerDelta(content, fresh)
-						reply = clean
+						reply = stripInternalPromptMetadata(clean).trim()
+						pendingSpeech = reply
 						if (emotion || motion) {
 							markerSeen = true
 							try { bubbleBridge()?.playFloatMarker?.(emotion ?? "", motion ?? "") } catch { /* 忽略 */ }
 						}
+					} else {
+						const tail = metadataFilter.finish()
+						reply += tail
+						pendingSpeech += tail
+					}
+					if (ttsOn) {
+						flushSpeech()
+						if (pendingSpeech.trim()) speakAppend(s, pendingSpeech)
+						endSpeakSession()
 					}
 					markerBuf.value = ""
 					replyText.value = reply
@@ -291,9 +302,8 @@ const send = async () => {	const text = draft.value.trim()
 						const live = loadChat()
 						const base = live.length >= all.length ? live : all
 						const dropN = summarized ? safeTrimDrop(base.length) : 0
-						if (dropN > 0) {
-							// 裁剪前把将被裁掉的消息备份进日记源缓冲 (FE-M5)
-							bufferDiarySource(base.slice(0, dropN))
+						if (dropN > 0 && bufferDiarySource(base.slice(0, dropN))) {
+							// 日记素材保存成功后才裁剪，失败时保留原聊天。
 							const kept = base.slice(dropN)
 							kept.unshift({role: "system", content: "（更早的对话已压缩为历史总结，可在设置→记忆系统查看）", ts: Date.now(), placeholder: true} as ChatMsg)
 							const firstReal = kept.find(m => m.role !== "system")

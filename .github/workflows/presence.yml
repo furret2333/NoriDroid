@@ -1,0 +1,68 @@
+# 在线人数计数服务（services/presence）的测试与部署。
+#
+# 部署需要仓库 Secrets：
+#   CLOUDFLARE_API_TOKEN  —— Workers 部署权限
+#   CLOUDFLARE_ACCOUNT_ID —— Cloudflare 账号 ID
+# 没配 Secret 时只跑单测、跳过部署（不会把 CI 弄红）。
+#
+# 也可以本地手动部署：cd services/presence && npx wrangler deploy
+
+name: Presence 服务
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "services/presence/**"
+      - ".github/workflows/presence.yml"
+  pull_request:
+    paths:
+      - "services/presence/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 纯逻辑单测
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/presence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test test/logic.test.mjs
+
+  deploy:
+    name: 部署到 Cloudflare
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/presence
+    # ⚠ GitHub Actions 的 if 表达式**不允许**直接引用 secrets（会报
+    #   Unrecognized named-value: 'secrets'，整个 workflow 直接失效）。
+    #   所以先映射到 job 级 env，再用 env 判断。
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: 部署（未配置 Secret 时跳过）
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        run: npx --yes wrangler@4 deploy
+      - name: 提示
+        if: env.CLOUDFLARE_API_TOKEN == ''
+        run: |
+          echo "::notice::未配置 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID，已跳过部署。"
+          echo "本地部署：cd services/presence && npx wrangler deploy"

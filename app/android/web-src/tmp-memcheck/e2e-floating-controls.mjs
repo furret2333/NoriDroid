@@ -101,8 +101,47 @@ try {
 			return input.width > 80 && send.bottom <= innerHeight && send.right <= innerWidth;
 		})()`))
 	}
+	// Drive the real BubbleApp send/TTS pipeline with local bridge responses only.
+	await evaluate(`(() => {
+		window.__replyTest = {spoken: [], snapshots: [], mode: 'stream', done: false};
+		const read = NoriChat.readFile;
+		NoriChat.readFile = name => name === 'settings.json' ? JSON.stringify({
+			apiKey: 'local-test', model: 'local-test', smartRecall: false, memoryLlmExtract: false,
+			memoryRealtimeExtract: false, ttsEnabled: true, ttsProvider: 'fish', ttsApiKey: 'local-test'
+		}) : read(name);
+		NoriChat.ttsStream = (...args) => {
+			__replyTest.spoken.push(args.at(-1));
+			queueMicrotask(() => window.__noriTtsDone?.('{"ok":true}'));
+		};
+		NoriChat.chatStream = () => setTimeout(async () => {
+			const content = '【消息发送时间】2026-10-2100:58\\n(UTC+08:00)\\n' + (__replyTest.mode === 'metadata' ? '' : '你好。明天 08:00 见。');
+			if (__replyTest.mode !== 'done') for (const char of content) {
+				window.__noriChatDelta?.(char);
+				await new Promise(resolve => setTimeout(resolve, 0));
+				__replyTest.snapshots.push(document.querySelector('.bubble-text')?.textContent || '');
+			}
+			window.__noriChatDone?.(JSON.stringify({ok: true, content}));
+			__replyTest.done = true;
+		}, 0);
+	})()`)
+	for (const mode of ['stream', 'done', 'metadata']) {
+		await evaluate(`(() => {
+			Object.assign(__replyTest, {mode: ${JSON.stringify(mode)}, spoken: [], snapshots: [], done: false});
+			const input = document.querySelector('input'); input.value = '本地测试'; input.dispatchEvent(new Event('input', {bubbles: true}));
+		})()`)
+		await sleep(20)
+		await evaluate("document.querySelector('.bubble-send').click()")
+		await waitFor("__replyTest.done && !document.querySelector('input').disabled")
+		await sleep(120)
+		const expected = mode === 'metadata' ? '' : '你好。明天 08:00 见。'
+		check(`${mode}: 悬浮回复和朗读仅含正文`, await evaluate(`
+			(document.querySelector('.bubble-text')?.textContent || '') === ${JSON.stringify(expected)} &&
+			__replyTest.spoken.join('') === ${JSON.stringify(expected)} &&
+			__replyTest.snapshots.every(text => !/消息发送时间|2026|UTC|00:58/.test(text))`),
+			JSON.stringify(await evaluate("({text: document.querySelector('.bubble-text')?.textContent || '', spoken: __replyTest.spoken})")))
+	}
 	await send("Emulation.setDeviceMetricsOverride", {width: 520, height: 900, deviceScaleFactor: 1, mobile: false})
-	const seed = Buffer.from(JSON.stringify({dataseaBg: false, floatEnabled: false})).toString("base64url")
+	const seed = Buffer.from(JSON.stringify({dataseaBg: true, floatEnabled: false})).toString("base64url")
 	await send("Page.navigate", {url: `http://127.0.0.1:8123/assets/web/index.html?seed=${seed}`})
 	await waitFor("!!document.querySelector('.fab-label')")
 	await evaluate("Array.from(document.querySelectorAll('button')).find(b => b.querySelector('.fab-label')?.textContent === '设置').click()")
@@ -122,6 +161,14 @@ try {
 	await evaluate("__floatTest.permitted = false; window.dispatchEvent(new Event('nori-app-resume'))")
 	await sleep(50)
 	check("撤销权限后自动关闭并说明原因", await evaluate("!document.querySelector('.settings-basic-group-float input[type=checkbox]').checked && !__floatTest.enabled && document.querySelector('.settings-basic-group-float').textContent.includes('已被撤销')"))
+	await waitFor('window.__noriL2dDraws > 2')
+	await evaluate("window.__noriAppPaused = true; window.dispatchEvent(new Event('nori-app-pause')); document.dispatchEvent(new Event('visibilitychange')); __floatTest.draws = window.__noriL2dDraws; __floatTest.particles = JSON.stringify(window.__noriDataseaDebug().px)")
+	await sleep(500)
+	check("主 Activity 暂停但文档仍可见时，模型和动态背景都停画", await evaluate("!document.hidden && __noriL2dPaused && __floatTest.draws === window.__noriL2dDraws && __floatTest.particles === JSON.stringify(window.__noriDataseaDebug().px)"))
+	await evaluate("window.__noriAppPaused = false; window.dispatchEvent(new Event('nori-app-resume'))")
+	await waitFor('window.__noriL2dDraws > __floatTest.draws')
+	await sleep(100)
+	check("回主界面后同一模型和动态背景恢复绘制", await evaluate("!window.__noriL2dPaused && __floatTest.particles !== JSON.stringify(window.__noriDataseaDebug().px)"))
 	check("无未捕获前端异常", errors.length === 0, errors.join(", "))
 } catch (error) {
 	check("测试执行", false, error.stack)

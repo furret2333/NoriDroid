@@ -149,7 +149,7 @@ const mkMem = (id, content, over = {}) => ({
 const seedDisk = (memories, extra = {}) => {
 	files.set("memory.json", JSON.stringify({memories, summaries: [], summarizedMsgCount: 0, tombstones: [], ...extra}))
 }
-const clearTestDisk = () => { files.clear(); mem.__resetMemorySessionForTest() }
+const clearTestDisk = () => { files.clear(); mem.__resetMemorySessionForTest(); diary.__resetDiaryCacheForTest() }
 const resetDisk = () => { clearTestDisk(); mem.reloadMemory() }
 const diskMemories = () => { try { return JSON.parse(files.get("memory.json") || "{}").memories ?? [] } catch { return [] } }
 
@@ -3514,7 +3514,9 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 			core.diversifyHits(oneType, 6).length === 6)
 
 		// ⑤ 召回入口的开关: 默认 (写入侧) 不套配额
-		const items39 = withId.map(p => p.item)
+		// The scores above belong to diversifyHits fixtures. Give recallMemories
+		// distinct real importance values too, so creation-time ties cannot decide this test.
+		const items39 = withId.map(p => ({...p.item, importance: p.score / 10}))
 		const plain = core.recallMemories(items39, "内容", 6, false).hits.map(h => h.id)
 		check("T39-A2f: recallMemories 默认 diversify=false ⇒ 写入侧判重候选保持\"纯按分取前 N\"",
 			plain.length <= 6 && !plain.includes("c1"), JSON.stringify(plain))

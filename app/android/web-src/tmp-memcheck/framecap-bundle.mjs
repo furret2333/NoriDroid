@@ -1,4 +1,4 @@
-// src/services/live2d/frameCap.ts
+// ../src/services/live2d/frameCap.ts
 var L2D_FRAME_TOLERANCE_MS = 2;
 var L2D_FPS_OPTIONS = [0, 60, 30, 20, 15];
 var L2D_FPS_DEFAULT = 60;
@@ -34,10 +34,6 @@ var installFrameCap = (host, fps = L2D_FPS_DEFAULT, now = () => performance.now(
     updater.updateTime();
     model.update();
     host.__noriL2dDraws = (host.__noriL2dDraws || 0) + 1;
-    try {
-      host.__noriAfterL2dDraw?.();
-    } catch {
-    }
   };
 };
 export {

@@ -293,16 +293,20 @@ for (const [label, key] of needCss) {
 	const wa = existsSync(path.join(dir, "WebAssets.kt")) ? readFileSync(path.join(dir, "WebAssets.kt"), "utf-8") : ""
 	const ma = existsSync(path.join(dir, "MainActivity.kt")) ? readFileSync(path.join(dir, "MainActivity.kt"), "utf-8") : ""
 	// 2026-10-16 起白名单放的是**基础域名**（含子域）：pinme 的静态托管子域换过三次，
-	// 写死单个子域时换源会再踩一次同样的坑。前端那一侧仍断言精确主机（见 need 列表）。
-	const hasDomain = wa.includes('ALLOWED_SUBRESOURCE_DOMAINS = setOf("pinme.dev")')
+	// 写死单个子域时换源会再踩一次同样的坑。
+	// 2026-10-23 起额外放行本项目 Supabase host（在线人数 fetch 备用通道），所以用包含判断而不是等值。
+	const hasDomain = /ALLOWED_SUBRESOURCE_DOMAINS\s*=\s*setOf\([^)]*"pinme\.dev"/.test(wa)
+	const hasSupabase = wa.includes("xztoatqtnlehfauywosa.supabase.co")
 	const hasApi = wa.includes("fun isAllowedSubresource(")
 	const hasSuffix = wa.includes("endsWith(\".$it\")")
 	const usesIt = ma.includes("WebAssets.isAllowedSubresource(url)")
-	console.log(`${hasDomain ? "PASS" : "FAIL"}  原生子资源白名单是基础域名（pinme.dev，含子域）`)
+	console.log(`${hasDomain ? "PASS" : "FAIL"}  原生子资源白名单含基础域名（pinme.dev，含子域）`)
+	console.log(`${hasSupabase ? "PASS" : "FAIL"}  原生子资源白名单含在线人数 Supabase host`)
 	console.log(`${hasApi ? "PASS" : "FAIL"}  原生提供 isAllowedSubresource()（导航仍只允许 appassets）`)
 	console.log(`${hasSuffix ? "PASS" : "FAIL"}  子域匹配逻辑在（endsWith 判定）`)
 	console.log(`${usesIt ? "PASS" : "FAIL"}  主界面拦截器用子资源判定（否则前端 fetch 会被拦成 Failed to fetch）`)
 	if (!hasDomain) bad += 1
+	if (!hasSupabase) bad += 1
 	if (!hasApi) bad += 1
 	if (!hasSuffix) bad += 1
 	if (!usesIt) bad += 1
@@ -356,5 +360,25 @@ for (const [label, key] of needCss) {
 	if (!hasUrl) bad += 1
 	if (!hasStream) bad += 1
 }
+// 在线人数（2026-10-21）: 前端产物要能调 presencePing，原生要有对应 @JavascriptInterface 方法
+{
+	const kt = path.resolve(import.meta.dirname, "..", "..", "app", "src", "main", "java", "com", "noridroid", "ChatBridge.kt")
+	const ktSrc = existsSync(kt) ? readFileSync(kt, "utf-8") : ""
+	const hasNative = ktSrc.includes("fun presencePing(")
+	const hasJs = String(js || "").includes("presencePing")
+	// 2026-10-22 补：光有方法名不够 —— 曾经因为请求打到根路径（缺 /v1/heartbeat）而全绿
+	const hasPath = String(js || "").includes("/v1/heartbeat")
+	// 2026-10-23 起主后端是 Supabase RPC，产物里必须有函数名（否则就是没打进包）
+	const hasRpc = String(js || "").includes("presence_heartbeat")
+	console.log(`${hasNative ? "PASS" : "FAIL"}  原生里有在线人数心跳桥方法（presencePing）`)
+	console.log(`${hasJs ? "PASS" : "FAIL"}  前端产物里接上了在线人数心跳（presencePing）`)
+	console.log(`${hasPath ? "PASS" : "FAIL"}  前端产物里带 /v1/heartbeat 路径（旧后端兼容）`)
+	console.log(`${hasRpc ? "PASS" : "FAIL"}  前端产物里带 Supabase RPC 函数名（presence_heartbeat）`)
+	if (!hasNative) bad += 1
+	if (!hasJs) bad += 1
+	if (!hasPath) bad += 1
+	if (!hasRpc) bad += 1
+}
+
 console.log(bad ? `\n${bad} 项未通过` : "\n全部通过: APK 内的前端就是本轮构建")
 process.exitCode = bad ? 1 : 0

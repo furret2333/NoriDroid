@@ -136,7 +136,19 @@ class FloatService : Service() {
             if (activeChatToken != token) return
             activeChatToken = null
             // 必须在 Activity.onStop 内同步移走子窗口；post 会晚于父窗口销毁/closeAll。
-            activeService?.get()?.setChatWindow(null)
+            activeService?.get()?.let { service ->
+                // A prepared close has already detached the child. Keep its desktop
+                // cover until the new live frame is ready.
+                if (service.attachedChatToken != null || service.pendingChatToken != null) service.setChatWindow(null)
+            }
+        }
+
+        /** Called before finish(), while the Activity token can still be copied safely. */
+        @androidx.annotation.MainThread
+        fun prepareChatWindowClose(token: IBinder, ready: () -> Unit) {
+            val service = activeService?.get()
+            if (activeChatToken != token || service == null) ready()
+            else service.setChatWindow(null, ready)
         }
         private const val DEFAULT_W_DP = 180
         private const val DEFAULT_H_DP = 236
@@ -235,6 +247,7 @@ class FloatService : Service() {
     private var touchMovedFar = false
     /** 已提升为前台服务 (避免重复 startForeground / 重复移除通知) */
     private var isForeground = false
+    private var renderPaused = false
     private var geometryGeneration = 0L
     private var geometryRevision = 0L
     private var modelCropRect: IntArray? = null
@@ -288,8 +301,7 @@ class FloatService : Service() {
             ACTION_SET_PAUSED -> {
                 val paused = intent.getBooleanExtra(EXTRA_PAUSED, true)
                 if (floatView == null) stopSelf()
-                else webView?.evaluateJavascript(
-                    "window.__noriSetPaused && window.__noriSetPaused($paused)", null)
+                else setRenderPaused(paused)
             }
             else -> {
                 // 显示悬浮窗 (B3)。顺序是**被 AOSP 强制**的, 不能调换:
@@ -405,7 +417,7 @@ class FloatService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "addView failed", e)
             // 窗口没加上: 把刚创建的 WebView 一起释放, 否则它留着 JS 引擎和渲染循环
-            try { webView?.destroy() } catch (_: Exception) { /* 忽略 */ }
+            try { webView?.let { destroyNoriWebView(it) } } catch (_: Exception) { /* 忽略 */ }
             webView = null
             false
         }
@@ -481,21 +493,38 @@ class FloatService : Service() {
         saveState()
     }
 
-    private fun setChatWindow(token: IBinder?) {
-        if (chatTransitionPending && pendingChatToken == token) return
+    private fun setRenderPaused(paused: Boolean) {
+        renderPaused = paused
+        webView?.let { view ->
+            view.evaluateJavascript(
+                "window.__noriFloatNativePaused = $paused; window.__noriSetPaused && window.__noriSetPaused($paused)", null)
+            if (paused) view.onPause() else view.onResume()
+        }
+    }
+
+    private fun setChatWindow(token: IBinder?, onDetached: (() -> Unit)? = null) {
+        // onStop must cancel an unfinished close and detach synchronously, before token teardown.
+        if (chatTransitionPending && pendingChatToken == token && token != null) return
+        var notified = false
+        val ready = {
+            if (!notified) { notified = true; onDetached?.invoke() }
+        }
         val request = frameTransitionGeneration.incrementAndGet().also { chatTransitionId = it }
         finishChatTransition()
-        if (attachedChatToken == token) return
-        val root = floatView as? FrameLayout ?: return
-        val params = floatParams ?: return
-        // Keep the old overlay surface displaying a local snapshot until the new window draws.
-        // onStop must restore the desktop window synchronously, so this async path is opening-only.
-        if (token != null && attachedChatToken == null && Build.VERSION.SDK_INT >= 34 && root.isAttachedToWindow) {
+        if (attachedChatToken == token) { ready(); return }
+        val root = floatView as? FrameLayout ?: run { ready(); return }
+        val params = floatParams ?: run { ready(); return }
+        val sourceToken = attachedChatToken
+        val opening = token != null && sourceToken == null
+        val closing = token == null && sourceToken != null && onDetached != null
+        if ((opening || closing) && !renderPaused && Build.VERSION.SDK_INT >= 34 && root.isAttachedToWindow) {
             chatTransitionPending = true
             pendingChatToken = token
             copyFloatingFrame(root, mainHandler) { bitmap ->
-                if (request != chatTransitionId || root !== floatView || activeChatToken != token) {
+                val expectedToken = if (opening) token else sourceToken
+                if (request != chatTransitionId || root !== floatView || activeChatToken != expectedToken) {
                     bitmap?.recycle()
+                    ready()
                     return@copyFloatingFrame
                 }
                 if (bitmap == null || bitmap.width != params.width || bitmap.height != params.height) {
@@ -505,29 +534,48 @@ class FloatService : Service() {
                     pendingChatToken = null
                     reattachChatWindow(token)
                     updateCrop(); acknowledgeGeometry()
-                } else beginCoveredChatWindow(root, params, token, bitmap, request)
+                    ready()
+                } else beginCoveredChatWindow(root, params, token, bitmap, request, ready)
             }
-        } else reattachChatWindow(token)
+        } else { reattachChatWindow(token); ready() }
     }
 
     @android.annotation.TargetApi(34)
     private fun beginCoveredChatWindow(oldRoot: FrameLayout, previous: WindowManager.LayoutParams,
-        token: IBinder, bitmap: Bitmap, request: Long) {
-        val manager = wm ?: run { bitmap.recycle(); chatTransitionPending = false; return }
-        val child = webView ?: run { bitmap.recycle(); chatTransitionPending = false; return }
+        token: IBinder?, bitmap: Bitmap, request: Long, ready: () -> Unit) {
+        val manager = wm ?: run { bitmap.recycle(); chatTransitionPending = false; ready(); return }
+        val child = webView ?: run { bitmap.recycle(); chatTransitionPending = false; ready(); return }
+        val sourceToken = attachedChatToken
+        // A closing transition needs its own desktop cover: the Activity's child window
+        // cannot survive finish(). Opening can continue to use the original desktop root.
+        val cover = if (token == null) FrameLayout(this) else oldRoot
         val image = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_XY
             setImageBitmap(bitmap)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        transitionCover = oldRoot
+        transitionCover = cover
         transitionImage = image
-        oldRoot.addView(image, FrameLayout.LayoutParams(-1, -1))
-        child.alpha = 0f // Replace the live pixels in the same frame; do not blend two copies.
+        cover.addView(image, FrameLayout.LayoutParams(-1, -1))
+        val coverParams = if (cover !== oldRoot) WindowManager.LayoutParams().apply {
+            copyFrom(previous)
+            applyFloatWindowMode(this, null)
+            alpha = 0f
+        } else null
+        if (coverParams != null) {
+            try { manager.addView(cover, coverParams) }
+            catch (error: Exception) {
+                LifecycleLog.record(this, "floatChatFrameCopyUnavailable", "close cover: ${error.javaClass.simpleName}")
+                finishChatTransition()
+                reattachChatWindow(token)
+                ready()
+                return
+            }
+        } else child.alpha = 0f // Same root: replace live pixels rather than blend two copies.
         // Wait for the cover's actual hardware frame, rather than merely posting a delay.
-        oldRoot.viewTreeObserver.registerFrameCommitCallback {
+        cover.viewTreeObserver.registerFrameCommitCallback {
             mainHandler.post {
-                if (request != chatTransitionId || oldRoot !== floatView || !chatTransitionPending || transitionCover !== oldRoot) return@post
+                if (request != chatTransitionId || oldRoot !== floatView || !chatTransitionPending || transitionCover !== cover) return@post
                 val childParams = child.layoutParams
                 val nextRoot = FrameLayout(this).apply { clipChildren = true }
                 val next = WindowManager.LayoutParams().apply {
@@ -536,6 +584,10 @@ class FloatService : Service() {
                     alpha = 0f // The old window holds the visible frame while WebView reattaches.
                 }
                 try {
+                    if (coverParams != null) {
+                        coverParams.alpha = 1f
+                        manager.updateViewLayout(cover, coverParams)
+                    }
                     oldRoot.removeView(child)
                     child.alpha = 1f
                     nextRoot.addView(child, childParams)
@@ -543,8 +595,12 @@ class FloatService : Service() {
                     floatView = nextRoot
                     floatParams = next
                     attachedChatToken = token
+                    if (cover !== oldRoot) {
+                        manager.removeViewImmediate(oldRoot)
+                    }
                     nextRoot.setOnApplyWindowInsetsListener { v, insets -> updateCrop(); v.onApplyWindowInsets(insets) }
                     child.evaluateJavascript("window.__noriFloatFrameRequest = $request", null)
+                    ready()
                 } catch (error: Exception) {
                     Log.w(TAG, "covered chat attach failed; keeping desktop window", error)
                     LifecycleLog.record(this, "floatChatAttachFailed", "covered switch: ${error.javaClass.simpleName}")
@@ -553,12 +609,14 @@ class FloatService : Service() {
                     if (child.parent == null) oldRoot.addView(child, 0, childParams)
                     floatView = oldRoot
                     floatParams = previous
-                    attachedChatToken = null
+                    attachedChatToken = sourceToken
                     finishChatTransition()
+                    if (token == null) reattachChatWindow(null)
+                    ready()
                 }
             }
         }
-        oldRoot.invalidate()
+        cover.invalidate()
         transitionTimeout = Runnable {
             if (request == chatTransitionId && chatTransitionPending) {
                 LifecycleLog.record(this, "floatChatTransitionTimeout", "new model frame not confirmed within 1800ms")
@@ -566,6 +624,7 @@ class FloatService : Service() {
                     finishChatTransition()
                     reattachChatWindow(token)
                 } else revealChatModel(request)
+                ready()
             }
         }.also { mainHandler.postDelayed(it, 1800) }
     }
@@ -873,6 +932,7 @@ class FloatService : Service() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 Log.d(TAG, "page finished: $url")
                 super.onPageFinished(view, url)
+                setRenderPaused(renderPaused)
             }
         }
         wv.webChromeClient = object : WebChromeClient() {
@@ -1071,8 +1131,8 @@ class FloatService : Service() {
         chatTransitionId = frameTransitionGeneration.incrementAndGet()
         finishChatTransition()
         saveState() // 退出前记忆尺寸/位置
-        try { floatView?.let { wm?.removeView(it) } } catch (_: Exception) { /* 忽略 */ }
-        try { webView?.destroy() } catch (_: Exception) { /* 忽略 */ }
+        try { floatView?.let { wm?.removeViewImmediate(it) } } catch (_: Exception) { /* 忽略 */ }
+        try { webView?.let { destroyNoriWebView(it) } } catch (_: Exception) { /* 忽略 */ }
         webView = null
         floatView = null
         floatParams = null

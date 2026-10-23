@@ -1,4 +1,4 @@
-// src/services/chat/index.ts
+// ../src/services/chat/index.ts
 var bridge = () => {
   if (!window.NoriChat) throw new Error("NoriChat \u672A\u6CE8\u5165");
   return window.NoriChat;
@@ -20,15 +20,6 @@ var writeFile = (name, content) => {
     return false;
   }
 };
-var PERSONA_DOWNLOAD_URL = "https://c8b197e2.pinme.dev";
-var PERSONA_DOWNLOAD_HOST = (() => {
-  try {
-    return new URL(PERSONA_DOWNLOAD_URL).host;
-  } catch {
-    return PERSONA_DOWNLOAD_URL;
-  }
-})();
-var PERSONA_MAX_BYTES = 200 * 1024;
 var PLACEHOLDER_PREFIX = "\uFF08\u66F4\u65E9\u7684\u5BF9\u8BDD\u5DF2\u538B\u7F29";
 var isPlaceholderMsg = (m) => m.role === "system" && (m.placeholder === true || m.content.startsWith(PLACEHOLDER_PREFIX));
 var filterChatMsgs = (arr) => {
@@ -72,7 +63,7 @@ var loadChat = () => {
 var chatQueue = Promise.resolve();
 var streamQueue = Promise.resolve();
 
-// src/services/nori-diary.ts
+// ../src/services/nori-diary.ts
 var FILE = "nori-diary.json";
 var FILE_BAK = "nori-diary.json.bak";
 var EMPTY = { entries: [] };

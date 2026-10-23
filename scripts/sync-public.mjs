@@ -42,8 +42,8 @@ const PUBLIC_REMOTE = "https://github.com/furret2333/NoriDroid.git"
 const COMMIT_IDENTITY = {name: "HuiOVO", email: "317002734+furret2333@users.noreply.github.com"}
 
 /** 根级只保留这些（其余根级条目一律排除，并逐条打印原因） */
-const ROOT_KEEP_FILES = [".gitignore", ".gitattributes", "README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md", "RELEASE_NOTES_v2.1.0.md", "RELEASE_NOTES_v2.4.0.md"]
-const ROOT_KEEP_DIRS = [".github", "app", "scripts"]
+const ROOT_KEEP_FILES = [".gitignore", ".gitattributes", "README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md", "RELEASE_NOTES_v2.1.0.md", "RELEASE_NOTES_v2.4.0.md", "RELEASE_NOTES_v2.5.0.md"]
+const ROOT_KEEP_DIRS = [".github", "app", "scripts", "services"]
 /** 根级"内部文档"的命名（用户要求：这些是项目记忆，留在私有仓库，不进公开仓库） */
 const ROOT_DOC_PATTERNS = [/^交接-.*\.md$/, /^实机验证清单-.*\.md$/, /^待办清单-.*\.md$/,
 	/^记忆模块重构方案-.*\.md$/, /^长期.*\.md$/, /^回滚说明\.txt$/]
@@ -85,7 +85,9 @@ const DROP_DEV_FILES = [
 /** 必须存在的文件（校验用；少一个就说明导出/清理错了） */
 const MUST_HAVE = ["app/android/app/src/main/java/com/noridroid/ChatBridge.kt",
 	"app/android/web-src/src/App.vue", "app/android/web-src/tmp-memcheck/run-tests.mjs",
-	"README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md", ".github/workflows/android.yml"]
+	"README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md", ".github/workflows/android.yml",
+	// 在线人数计数服务（2026-10-21）: 公开仓库也要能自部署，否则 SETUP/README 指向的功能不存在
+	"services/presence/src/index.mjs", "services/presence/wrangler.toml"]
 /** 最少文件数（低于这个数说明导出不完整） */
 const MIN_FILES = 150
 

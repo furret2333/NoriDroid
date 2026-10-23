@@ -47,3 +47,22 @@ node tmp-memcheck/run-all-gates.mjs              # 全套（需要 Edge，约 18
 ```
 
 完整门禁需要 Windows 上的 Edge 与 harness；没有 Edge 时使用 `--fast` 只运行 Node 门禁。API keys are kept in the Android Keystore-backed private store; other user data remains in `Download/NoriDroid/`.
+
+## 4. 可选：在线人数计数服务
+
+「关于」页的「此刻在线 / 今日来过」不是内置数据，需要一个匿名心跳计数服务。
+**不部署也能正常构建与使用**：`PRESENCE_URL` 为空时关于页不显示人数、设置里没有开关、也不会发任何请求。
+
+当前主方案是 **Supabase 免费版**（Postgres RPC，一个 SQL 文件搞定，国内手机实测可达）：
+
+1. 建一个 Supabase 免费项目；
+2. 在 SQL Editor 执行 `services/presence-supabase/schema.sql`；
+3. 把 `https://<ref>.supabase.co/rest/v1/rpc/presence_heartbeat` 和 publishable key 填进
+   `app/android/web-src/src/services/presence.ts` 的 `PRESENCE_URL` / `PRESENCE_KEY`；
+4. `pnpm build`，照常打包。
+
+详细步骤与验证命令见 [`services/presence-supabase/README.md`](services/presence-supabase/README.md)，
+设计说明见 [`docs/在线人数-Supabase后端-20261023.md`](docs/在线人数-Supabase后端-20261023.md)。
+
+> 旧的 Cloudflare Worker 方案（`services/presence/`）保留作备用；`*.workers.dev` 在国内被 DNS 污染/阻断，
+> 不要用于国内用户。

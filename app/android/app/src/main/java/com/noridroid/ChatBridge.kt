@@ -478,11 +478,10 @@ class ChatBridge(private val appContext: Context) {
     /** 两个 WebView 共享同一锁；校验和替换必须处在同一临界区。 */
     @android.webkit.JavascriptInterface
     fun writeFileIfUnchanged(name: String, expected: String, content: String): String = synchronized(FILE_LOCK) {
-        if (safeName(name) != "memory.json") return@synchronized "err:unsupported"
-        val state = readFileStateUnlocked(name)
-        if (state.optString("status") == "error") return@synchronized "err:read"
-        if (state.optString("content") != expected) return@synchronized "conflict"
-        writeFileUnlocked(name, content)
+        ConditionalFileWrite.run(name, expected, content, read = {
+            val state = readFileStateUnlocked(name)
+            state.optString("status") to state.optString("content")
+        }, write = { writeFileUnlocked(name, it) })
     }
 
     private fun writeFileUnlocked(name: String, content: String): String {
@@ -804,6 +803,75 @@ class ChatBridge(private val appContext: Context) {
     fun checkDeepSeekBalance(apiKey: String, baseUrl: String) {
         ioExecutor.execute {
             postToJs("__noriDeepseekBalanceRes", checkDeepSeekBalanceSync(apiKey, baseUrl))
+        }
+    }
+
+    /* ---------------- 在线人数: 匿名心跳 (2026-10-21) ---------------- */
+
+    /**
+     * 「此刻在线」心跳: JS 侧每 5 分钟调一次, 结果回传 window.__noriPresenceRes(JSON)。
+     *
+     * 为什么走原生而不是 WebView fetch:
+     * - `WebAssets.ALLOWED_SUBRESOURCE_DOMAINS` 只放行 appassets + pinme.dev,
+     *   加一个计数服务域等于扩大**所有页面**可访问的域;
+     * - 原生这条通道 (`ioExecutor` + HttpURLConnection + postToJs) 已经是余额查询/下载
+     *   在用的成熟路径, 还能把超时压到 5s。
+     *
+     * 当前后端是 Supabase 的 PostgREST RPC (2026-10-23 起): 地址形如
+     * `https://<ref>.supabase.co/rest/v1/rpc/presence_heartbeat`,
+     * 需要 `apikey` header (publishable key, 公开值). 旧 Cloudflare 后端不需要 key, 传空串即可.
+     *
+     * 上报内容只有随机安装 ID + 版本号; 不含任何设备标识或聊天数据。
+     * 服务端地址与 key 由 JS 侧传入 (留空时 JS 根本不会调这里)。
+     */
+    @android.webkit.JavascriptInterface
+    fun presencePing(url: String, id: String, version: String, apiKey: String) {
+        ioExecutor.execute {
+            val out = runCatching {
+                val u = URL(url)
+                require(u.protocol == "https") { "在线人数服务必须使用 HTTPS" }
+                require(id.length in 16..64 && id.all { it.isLetterOrDigit() || it == '-' || it == '_' }) {
+                    "安装 ID 非法"
+                }
+                require(version.isNotEmpty() && version.length <= 32 && '\n' !in version && '\r' !in version) {
+                    "版本号非法"
+                }
+                require(apiKey.length <= 256 && '\n' !in apiKey && '\r' !in apiKey) { "API key 非法" }
+                // 只发 p_id/p_v: PostgREST RPC 要求 body 字段和 SQL 函数参数一一对应；
+                // 参数不能叫 id（会和表列 id 冲突，42702 ambiguous）
+                val body = JSONObject()
+                    .put("p_id", id)
+                    .put("p_v", version)
+                    .toString()
+                val headers = mutableMapOf("Accept" to "application/json")
+                if (apiKey.isNotBlank()) headers["apikey"] = apiKey
+                // 心跳必须快，但跨境/弱网首连（DNS + TLS）可能超过 5s：
+                // 给 8s，配合 JS 侧 20s 兜底；失败后 15s 就会重试。
+                val conn = open(
+                    url,
+                    "POST",
+                    "",
+                    "application/json",
+                    body,
+                    headers,
+                ) {
+                    it.connectTimeout = 8_000
+                    it.readTimeout = 8_000
+                }
+                val json = JSONObject(conn.readBody())
+                JSONObject()
+                    .put("ok", true)
+                    .put("online", json.optInt("online", 0))
+                    .put("today", json.optInt("today", 0))
+                    .put("ts", json.optLong("ts", System.currentTimeMillis()))
+                    .toString()
+            }.getOrElse { e ->
+                JSONObject()
+                    .put("ok", false)
+                    .put("message", e.message ?: "在线人数心跳失败")
+                    .toString()
+            }
+            postToJs("__noriPresenceRes", out)
         }
     }
 
@@ -1776,8 +1844,95 @@ class ChatBridge(private val appContext: Context) {
             .toString())
     }
 
+    /** Diary backups have their own callback and size limit; never alter the persona file. */
+    @android.webkit.JavascriptInterface
+    fun pickDiaryBackup() {
+        mainHandler.post {
+            runCatching {
+                val act = appContext as? Activity ?: throw IllegalStateException("请在主界面恢复日记")
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain", "application/octet-stream"))
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                act.startActivityForResult(intent, REQ_PICK_DIARY)
+            }.onFailure {
+                postToJs("__noriDiaryPickedRes", JSONObject().put("ok", false).put("message", it.message ?: "无法打开备份选择器").toString())
+            }
+        }
+    }
+
+    private fun handleDiaryPickResult(resultCode: Int, data: Intent?) {
+        val uri = data?.data
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            postToJs("__noriDiaryPickedRes", JSONObject().put("ok", false).put("message", "未选择文件").toString())
+            return
+        }
+        ioExecutor.execute {
+            val response = runCatching {
+                val bytes = ByteArrayOutputStream()
+                cr.openInputStream(uri)?.use { input ->
+                    val chunk = ByteArray(16 * 1024)
+                    while (true) {
+                        val count = input.read(chunk)
+                        if (count < 0) break
+                        if (bytes.size() + count > 10_000_000) throw IllegalArgumentException("备份过大，请选择10MB以内的日记备份")
+                        bytes.write(chunk, 0, count)
+                    }
+                } ?: throw IllegalStateException("无法读取备份")
+                val text = Charsets.UTF_8.newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes.toByteArray())).toString().removePrefix("\uFEFF")
+                JSONObject().put("ok", true).put("content", text)
+            }.getOrElse { JSONObject().put("ok", false).put("message", it.message ?: "备份读取失败") }
+            postToJs("__noriDiaryPickedRes", response.toString())
+        }
+    }
+
+    /** Save a user-previewed local canvas as a real PNG in the public Downloads directory. */
+    @android.webkit.JavascriptInterface
+    fun saveDiaryImage(name: String, dataUrl: String): String = synchronized(FILE_LOCK) {
+        runCatching {
+            if (!name.matches(Regex("nori-diary-[0-9-]+\\.png")) || !dataUrl.startsWith("data:image/png;base64,") || dataUrl.length > 12_000_000) return@synchronized "err:invalid"
+            val bytes = Base64.decode(dataUrl.substringAfter(','), Base64.DEFAULT)
+            val pngHeader = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+            if (bytes.size < 8 || !bytes.copyOfRange(0, 8).contentEquals(pngHeader)) return@synchronized "err:invalid"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, ownRelativePath())
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val uri = cr.insert(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values)
+                    ?: return@synchronized "err:insert"
+                try {
+                    cr.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IllegalStateException("无法写入图片")
+                    if (cr.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null) < 1) throw IllegalStateException("图片未能完成保存")
+                } catch (e: Exception) {
+                    cr.delete(uri, null, null)
+                    throw e
+                }
+            } else {
+                if (!isStorageReady()) return@synchronized "err:perm"
+                val dir = legacyDir().apply { mkdirs() }
+                val target = File(dir, name)
+                if (target.exists()) return@synchronized "err:exists"
+                val tmp = File(dir, "$name.tmp")
+                FileOutputStream(tmp).use { it.write(bytes); it.fd.sync() }
+                if (!tmp.renameTo(target)) { tmp.delete(); return@synchronized "err:rename" }
+            }
+            "ok"
+        }.getOrElse { "err:${it.message}" }
+    }
+
     /** MainActivity.onActivityResult 转发到这里 */
     fun handlePickResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_PICK_DIARY) {
+            handleDiaryPickResult(resultCode, data)
+            return
+        }
         // 文本人设那条要**先**分流: 下面那句是「不是音频就返回」, 放在它后面永远轮不到
         if (requestCode == REQ_PICK_PERSONA) {
             handlePersonaPickResult(resultCode, data)
@@ -2385,6 +2540,7 @@ class ChatBridge(private val appContext: Context) {
         private const val REQ_CAPTURE_IMAGE = 2003
         /** 选文本人设的请求码 (0x9A72 = 39538, 与上面的音频选择器离得够远, 不会撞) */
         private const val REQ_PICK_PERSONA = 0x9A72
+        private const val REQ_PICK_DIARY = 0x9A73
         private const val BGM_URL = "https://add5ddd5.pinme.dev"
         /** 音效下载源: 5 个原版 m4a 就在根目录 (文件名写错也回 200, 见上面校验) */
         private const val SFX_BASE = "https://59f06f75.pinme.dev"

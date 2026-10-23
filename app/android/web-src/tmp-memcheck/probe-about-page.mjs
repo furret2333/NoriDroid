@@ -61,11 +61,23 @@ const gradleVersion = (() => {
 	} catch { return "" }
 })()
 
-/* 假桥: 只加 openExternal（记录被打开的外链），其余沿用 harness 注入的那套 */
+/* 假桥: 只加 openExternal（记录被打开的外链）+ 在线人数心跳（返回固定值），
+   其余沿用 harness 注入的那套。在线人数默认未配置（PRESENCE_URL 为空），
+   所以这里用 window.__noriPresenceUrl 运行时覆盖 + __noriPresenceRefresh 触发一次。 */
 const FAKE = `(() => {
 	window.__opened = [];
 	const nc = window.NoriChat || (window.NoriChat = {});
 	nc.openExternal = function (url) { window.__opened.push(url) };
+	window.__noriPresenceUrl = "https://presence.probe.test";
+	window.__noriPresenceFetch = false;   // 探针强制走假原生桥，别去真的 fetch probe.test
+	nc.presencePing = function (url, id, version, key) {
+		window.__noriPresenceGot = {url: url, id: id, version: version, key: key};
+		setTimeout(function () {
+			window.__noriPresenceRes && window.__noriPresenceRes(JSON.stringify({
+				ok: true, online: 128, today: 4567, ts: Date.now(),
+			}));
+		}, 20);
+	};
 	return true;
 })()`
 
@@ -94,6 +106,9 @@ try {
 	await evalJs(`localStorage.setItem("intro_seen_v1","1"); localStorage.setItem("storage_asked","1")`)
 	await evalJs(`document.querySelector(".intro-mask")?.remove()`)
 	await evalJs(FAKE)
+	/* 在线人数（2026-10-21）: 注入地址后补一次心跳，让关于页有数可显示 */
+	await evalJs(`window.__noriPresenceRefresh && window.__noriPresenceRefresh()`)
+	await sleep(700)
 
 	/* ================= ① 设置面板里的入口 ================= */
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
@@ -109,14 +124,45 @@ try {
 			hasEntry: !!btn, entryText: btn ? btn.textContent.replace(/\\s+/g, " ").trim() : "",
 			inSettingsRow: !!row, rowIndex: row ? rows.indexOf(row) : -1,
 			firstRow: rows[0] ? rows[0].textContent.replace(/\\s+/g, " ").trim().slice(0, 60) : "",
-			aboutAlready: !!document.querySelector(".about-page")}
+			aboutAlready: !!document.querySelector(".about-page"),
+			rowsText: rows.map(r => (r.innerText || r.textContent || "").trim()).join(" | "),
+			presenceText: (() => { const n = sheet.querySelector(".settings-bottom-actions .settings-presence"); return n ? n.textContent.replace(/\\s+/g, " ").trim() : "" })(),
+			presenceHint: (() => { const n = sheet.querySelector(".settings-bottom-actions .settings-presence-hint"); return n ? n.textContent.trim() : "" })()}
 	})()`)
 	console.log(`   设置面板: ${JSON.stringify(entry)}`)
 	check("① 设置面板里有「关于 / 隐私 / 开源许可」入口按钮", entry.ok === true && entry.hasEntry === true, JSON.stringify(entry))
 	check("② 入口位于新版设置页底部操作区", entry.inSettingsRow === true, JSON.stringify(entry))
-	check("③ **顶部第一块 .settings-row 仍是人设行**（这次不许动人设区）",
-		/人设文案/.test(entry.firstRow || ""), JSON.stringify(entry.firstRow))
+	check("③ 基础设置里「人设文案」行仍在（这次不许动人设区）",
+		/人设文案/.test(entry.rowsText || ""), JSON.stringify(entry.rowsText || "").slice(0, 200))
 	check("④ 打开设置时关于页还没渲染（是点出来的，不是一直挂在 DOM 里）", entry.aboutAlready === false, JSON.stringify(entry))
+	check("④-d 设置一级页直接显示在线人数（开源许可入口下方）",
+		/此刻在线/.test(entry.presenceText || "") && /128 位同好/.test(entry.presenceText || ""),
+		JSON.stringify({text: entry.presenceText, hint: entry.presenceHint}))
+
+	/* 在线人数（2026-10-21）: 开关在「进阶设置 → 更多工具」里；未配置计数服务时整块不出现，
+	   探针通过 window.__noriPresenceUrl + __noriPresenceRefresh 把地址注进去后再验。 */
+	await evalJs(`(() => {
+		const tab = [...document.querySelectorAll(".settings-tabs button")].find(b => /进阶/.test(b.textContent));
+		tab && tab.click();
+		const det = [...document.querySelectorAll(".settings-section")].find(d => /更多工具/.test(d.querySelector("summary")?.textContent || ""));
+		if (det) det.open = true;
+		return true;
+	})()`)
+	await sleep(350)
+	const presenceRow = await evalJs(`(() => {
+		const lab = [...document.querySelectorAll(".settings-row label")].find(l => /显示在线人数/.test(l.textContent));
+		return {ok: !!lab, hint: lab ? (lab.closest(".settings-row").querySelector(".hint")?.textContent || "") : ""}
+	})()`)
+	check("④-b 设置「更多工具」里有在线人数开关 + 隐私口径说明",
+		presenceRow.ok === true && /匿名心跳/.test(presenceRow.hint), JSON.stringify(presenceRow))
+	const presenceGot = await evalJs(`window.__noriPresenceGot || null`)
+	check("④-c 心跳打到 /v1/heartbeat（不是服务根地址），版本号/32 位安装 ID/apikey 正确",
+		!!presenceGot && presenceGot.url === "https://presence.probe.test/v1/heartbeat" &&
+			presenceGot.version === gradleVersion && /^[a-f0-9]{32}$/.test(String(presenceGot.id || "")) &&
+			typeof presenceGot.key === "string" && presenceGot.key.length > 10,
+		JSON.stringify(presenceGot))
+	await evalJs(`[...document.querySelectorAll(".settings-tabs button")].find(b => /基础/.test(b.textContent))?.click()`)
+	await sleep(300)
 
 	/* ================= ② 点开 → 现有 sheet 面板机制里可见 ================= */
 	await evalJs(`(() => { const b = [...document.querySelectorAll(".sheet .sheet-body button")].find(x => /关于/.test(x.textContent)); b && b.click(); return !!b })()`)
@@ -165,6 +211,10 @@ try {
 	miss("⑪ 含 GPL-3.0", /GPL-3\.0/)
 	miss("⑫ 含「本项目为修改版」声明", /修改版/)
 	miss("⑬ 含本项目仓库链接文本", /github\.com\/furret2333\/NoriDroid/)
+
+	/* 在线人数（2026-10-23 用户要求）: 已从关于页移到设置一级页，关于页不应再重复显示 */
+	check("⑬-b 关于页不再重复显示在线人数（已移到设置一级页）", !/此刻在线/.test(txt), txt.slice(0, 120))
+	miss("⑬-c 隐私说明含「在线人数 —— 匿名心跳」口径", /在线人数[\s\S]{0,80}匿名心跳/)
 
 	/* 隐私说明 */
 	miss("⑭ 含「卸载会丢数据」警告", /卸载/)

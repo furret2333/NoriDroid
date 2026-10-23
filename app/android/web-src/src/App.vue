@@ -423,7 +423,7 @@
 
 		<transition name="sheet">
 			<div v-if="panel && panel !== 'touch' && panel !== 'tts'" class="sheet-mask" @click.self="panel = ''">
-				<div class="sheet">
+				<div class="sheet" :class="{'diary-sheet': panel === 'diary'}">
 					<div class="sheet-head" :class="{'settings-sheet-head': panel === 'settings'}">
 						<span class="sheet-title">{{ panelTitle(panel) }}</span>
 						<div v-if="panel === 'settings'" class="settings-bgm-player" :class="{ 'is-playing': bgmCanSkip }">
@@ -471,50 +471,7 @@
 						</template>
 
 						
-						<!-- Nori 心情日记 (按日历天数查看, 可删除) -->
-						<template v-else-if="panel === 'diary'">
-							<div class="diary-head">
-								<span class="hint">Nori 每天把和你的互动写成日记。今天还没写的话，明天打开就能看到</span>
-								<div class="diary-head-btns">
-									<button class="mini ripple" @click="doRefreshDiary" :disabled="diaryBusy">{{ diaryBusy ? "正在写…" : "立即写今天" }}</button>
-									<button class="mini ripple" @click="doExportDiary">导出日记</button>
-								</div>
-							</div>
-							<div class="diary-cal">
-								<div class="diary-cal-head">
-									<button class="mini ripple" @click="calMove(-1)">‹</button>
-									<span class="diary-cal-title">{{ calYear }} 年 {{ calMonth + 1 }} 月</span>
-									<button class="mini ripple" @click="calMove(1)">›</button>
-								</div>
-								<div class="cal-week">
-									<span v-for="w in CAL_WEEKDAYS" :key="w">{{ w }}</span>
-								</div>
-								<div class="cal-grid">
-									<template v-for="(cell, i) in calGrid" :key="i">
-										<div v-if="!cell" class="cal-cell blank"></div>
-										<div v-else class="cal-cell" :class="{has: !!diaryByDate[cell], sel: cell === calSelDate, today: cell === todayStr}" @click="calSelDate = cell">
-											<span class="cal-day-num">{{ Number(cell.slice(8)) }}</span>
-											<span v-if="diaryByDate[cell]" class="cal-dot" :class="'mood-' + moodKey(diaryByDate[cell].mood)"></span>
-										</div>
-									</template>
-								</div>
-							</div>
-							<div class="diary-detail">
-								<div v-if="!diaryByDate[calSelDate]" class="hint">
-									这一天没有日记{{ calSelDate === todayStr ? "（聊过天明天打开就会写）" : "" }}
-								</div>
-								<div v-else class="diary-item">
-									<div class="diary-date">
-										<span class="diary-mood" :class="'mood-' + moodKey(diaryByDate[calSelDate].mood)">{{ diaryByDate[calSelDate].mood }}</span>
-										<span>{{ calSelDate }}</span>
-										<span v-if="diaryByDate[calSelDate].msgCount > 0" class="diary-count">聊了 {{ diaryByDate[calSelDate].msgCount }} 句</span>
-										<button class="mini ripple diary-del" @click="doDeleteDiary(calSelDate)">删除这天</button>
-									</div>
-									<div class="diary-content">{{ diaryByDate[calSelDate].content }}</div>
-								</div>
-							</div>
-							<div v-if="!Object.keys(diaryByDate).length" class="empty">还没有日记。多和 Nori 聊聊，明天她就会写啦</div>
-						</template>
+						<DiaryPanel v-else-if="panel === 'diary'" :config="cfg" :chat-busy="chatStreaming || touchStreaming" @notify="triggerBubble($event)" />
 
 						
 						<!-- 记忆库 (二级菜单: 目标 / 长期记忆 / 历史总结 三份内容都收在这里) -->
@@ -1272,6 +1229,11 @@
 								<div class="hint">{{ uiFontHint }}</div>
 								<div class="hint">缺字（GB2312 之外的生僻字）会自动回落系统字体；两个字体都随包，无需联网下载</div>
 							</div>
+							<!-- 在线人数（2026-10-21）: 默认开；关掉后一个请求都不发，关于页也不显示人数 -->
+							<div v-if="presenceReady" class="settings-row">
+								<div class="row-inline"><label>显示在线人数（匿名心跳）</label><input type="checkbox" v-model="cfg.presenceEnabled" @change="onPresenceToggle" /></div>
+								<div class="hint">匿名心跳：每 5 分钟上报一次随机安装 ID 与应用版本号，仅用于「此刻在线 / 今日来过」计数；不含设备标识与聊天内容。关闭后不再发送任何请求。</div>
+							</div>
 									</div>
 								</details>
 								</template>
@@ -1282,6 +1244,14 @@
 										<span><b>开源许可 / 关于 / 隐私</b><small>NoriDroid · v{{ APP_VERSION }}</small></span>
 										<span aria-hidden="true">→</span>
 									</button>
+									<!-- 在线人数（2026-10-23 用户要求）: 放在设置一级页、开源许可入口下方，不用点进关于页。
+									     只有配置了计数服务时才显示；未配置时整块不出现。 -->
+									<div v-if="presenceReady" class="settings-presence">
+										<span class="about-presence-dot" :class="presenceToneClass" aria-hidden="true"></span>
+										此刻在线 <b>{{ presenceCount }}</b><template v-if="presenceToday"> · {{ presenceToday }}</template>
+									</div>
+									<div v-if="presenceReady" class="settings-presence-hint">{{ presenceStatus }}</div>
+									<button v-if="presenceReady && presenceState && !presenceState.ok" class="mini ripple settings-presence-retry" @click="onPresenceRetry">立即重试</button>
 								</div>
 							</div>
 						</template>
@@ -1306,8 +1276,9 @@
 										<li>TTS 朗读 —— 把要朗读的文本发给你在设置里选的语音服务（Fish Audio / 千问）</li>
 										<li>一键克隆 —— 联网下载参考音频，并把它上传给千问做音色克隆</li>
 										<li>设置里的「下载音效」—— 从网络下载音效文件</li>
+										<li v-if="presenceReady">在线人数 —— 匿名心跳：只上传<b>随机安装 ID + 应用版本号</b>（10 分钟窗口去重、今日按北京时间切日），不含设备标识、聊天内容或任何个人数据；服务端只存哈希，IP 仅用于内存限流、不落库也不打日志；可在设置里关闭</li>
 									</ul>
-									<p class="about-p">除此之外不采集、不上传任何数据：没有统计、没有广告、没有崩溃上报 SDK；API Key 只存在本机设置里。</p>
+									<p class="about-p">除此之外不采集、不上传任何数据：没有第三方统计、没有广告、没有崩溃上报 SDK；API Key 只存在本机设置里。</p>
 									<p class="about-p">数据存在哪：</p>
 									<ul class="about-ul">
 										<li>聊天记录 / 记忆 / 日记 → <b>公共下载目录</b> <code>Download/NoriDroid/</code>（走系统媒体库写入，别的应用也看得到）</li>
@@ -1462,6 +1433,7 @@ import {
 } from "./services/live2d/touch"
 import {TouchDetector, toModelPoint, modelLayout} from "./services/live2d/touchDetection"
 import TouchManager from "./components/TouchManager.vue"
+import {createRenderPauseState} from "./services/renderPause"
 import {
 	loadSettings,
 	saveSettingsRaw,
@@ -1573,13 +1545,29 @@ import {COSY_MODELS, COSY_NO_VOICE_ERROR, cosyVoiceModelError, pickVoiceFile, cr
 // 「模型授权验证」答题门（2026-10-01 一键克隆 / 2026-10-02 也守「下载模型」）: 题目/答案/判卷都在那个纯模块里, 便于单测
 import {CLONE_GATE_QUESTION, CLONE_GATE_HINT, MODEL_GATE_HINT, PERSONA_GATE_HINT, checkCloneAnswer} from "./services/tts/clone-gate"
 import {parseMarkerDelta, type ParsedMarkers} from "./services/chat/markers"
+import {stripInternalPromptMetadata} from "./services/chat/replyMetadata"
+// 在线人数（2026-10-21）: 匿名心跳 + 纯逻辑文案；服务端见 services/presence/
+import {
+	startPresence,
+	stopPresence,
+	refreshPresence,
+	presenceOnVisible,
+	subscribePresence,
+	presenceConfigured,
+	presenceCountText,
+	presenceTodayText,
+	presenceStatusText,
+	presenceTone,
+	type PresenceState,
+} from "./services/presence"
 // 界面可选字体（2026-10-15）: system / 霞鹜文楷 / 站酷快乐体；纯逻辑在 services/ui-font.ts
 import {UI_FONT_OPTIONS, applyUiFont, normalizeUiFont, uiFontPreviewFamily, type UiFontChoice} from "./services/ui-font"
 /* 两个字体的 OFL 许可**全文**（2026-10-16）: OFL 1.1 要求再分发字体时附带许可，
  * 所以这里以原文打进包、在「关于 / 开源许可」页里可展开查看（不是只给个仓库路径）。 */
 import oflWenKaiText from "./assets/fonts/OFL-LXGWWenKai.txt?raw"
 import oflKuaiLeText from "./assets/fonts/OFL-ZCOOLKuaiLe.txt?raw"
-import {listDiary, ensureDiary, writeTodayDiary, deleteDiaryEntry, bufferDiarySource, type DiaryEntry} from "./services/nori-diary"
+import {listDiary, ensureDiary, bufferDiarySource} from "./services/nori-diary"
+import DiaryPanel from "./components/DiaryPanel.vue"
 // 专注统计: 纯逻辑 (可单测) —— 汇总计算、热力图网格、以及"要不要跟 Nori 提"的判定都在那里
 import {
 	summarize as pomoSummarize,
@@ -1790,7 +1778,7 @@ const hideThumb = (e: Event) => { (e.currentTarget as HTMLElement).style.visibil
  * 版本号：与 app/android/app/build.gradle 的 versionName 保持一致（前端随 APK 一起发版）。
  * ⚠ 别拿 web-src/package.json 的 version（脚手架留下的 0.1.0）当版本号 —— 那不是用户看到的版本。
  * 上游声明与许可清单同步自仓库根的 THIRD-PARTY.md（App 里只放要点 + 指向它）。 */
-const APP_VERSION = "2.4.0"
+const APP_VERSION = "2.5.0"
 const UPSTREAM_REPO_URL = "https://github.com/erhiolab/DeepEr"
 const LIVE2D_EULA_URL = "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
 /** 通用外链打开：与 openRepo / openSteamWishlist 同款（优先原生 openExternal，桥不支持时退回 window.open）。
@@ -2979,7 +2967,7 @@ const openPanel = (p: P) => {
 		refreshMemFromDisk()
 		if (p === "memories") { memSearch.value = ""; memFilter.value = "" }
 	}
-	if (p === "diary") refreshDiaryView()
+	if (p === "diary") scheduleDiary()
 	panel.value = panel.value === p ? "" : p
 }
 
@@ -3498,7 +3486,68 @@ const cfg = reactive({
 	floatEnabled: false,
 	floatBubbleW: 82,
 	floatRenderScale: 2,
+	/** 在线人数（2026-10-21）: 匿名心跳开关，默认开；关掉后不发任何请求 */
+	presenceEnabled: true,
 })
+
+/* ---------------- 在线人数（2026-10-21，匿名心跳） ----------------
+ * 逻辑全在 services/presence.ts（可单测）；这里只做数据绑定、设置开关和生命周期接线。
+ * 未部署计数服务（PRESENCE_URL 为空）时整块 UI 不出现，也不发请求。 */
+const presenceState = ref<PresenceState | null>(null)
+const presenceReady = ref(false)
+const presenceNow = ref(Date.now())
+let presenceUnsub: (() => void) | null = null
+let presenceTickTimer = 0
+
+const presenceCount = computed(() =>
+	cfg.presenceEnabled ? presenceCountText(presenceState.value, presenceNow.value) : "已关闭",
+)
+const presenceToday = computed(() =>
+	cfg.presenceEnabled ? presenceTodayText(presenceState.value, presenceNow.value) : "",
+)
+const presenceStatus = computed(() =>
+	cfg.presenceEnabled
+		? presenceStatusText(presenceState.value, presenceNow.value, presenceReady.value)
+		: "已在设置里关闭，不发送任何心跳",
+)
+const presenceToneClass = computed(() => presenceTone(presenceState.value, presenceNow.value))
+
+/** 首次接线 / 运行时地址被注入后补接线（探针会用 window.__noriPresenceUrl 覆盖地址）。 */
+const ensurePresenceWiring = (): void => {
+	presenceReady.value = presenceConfigured()
+	if (!presenceReady.value) return
+	if (!presenceUnsub) presenceUnsub = subscribePresence((s) => { presenceState.value = s })
+	if (!presenceTickTimer) {
+		presenceTickTimer = window.setInterval(() => { presenceNow.value = Date.now() }, 60_000)
+	}
+}
+
+/** 设置里的开关：立刻生效 + 落盘。 */
+const onPresenceToggle = (): void => {
+	ensurePresenceWiring()
+	if (cfg.presenceEnabled) {
+		startPresence(APP_VERSION)
+	} else {
+		stopPresence()
+		presenceState.value = null
+	}
+	persistSettings()
+}
+
+/** 手动重试（连不上时点一下，不用等 15s/60s 退避）。 */
+const onPresenceRetry = (): void => {
+	ensurePresenceWiring()
+	if (presenceReady.value) refreshPresence(APP_VERSION)
+}
+
+/* 探针/调试钩子（本仓库既有 __nori* 约定）:
+ * 先设 window.__noriPresenceUrl，再调 window.__noriPresenceRefresh() 立即补一次心跳。
+ * 生产环境没有副作用（只是多挂一个函数）。 */
+;(window as unknown as {__noriPresenceRefresh?: () => void}).__noriPresenceRefresh = () => {
+	ensurePresenceWiring()
+	if (presenceReady.value) refreshPresence(APP_VERSION)
+}
+
 
 
 const chatFontPX = computed(() => `${14 * (Number(cfg.bubbleScale) || 1)}px`)
@@ -3592,7 +3641,7 @@ const doRequestAllFiles = () => {
  * ②文件在, 但 MediaStore 行不属于本应用(有「所有文件访问权限」时能直读回来) ③直读被系统挡住。
  */
 const doStorageProbe = () => {
-	const names = ["chat.json", "memory.json", "settings.json", "diary.json"]
+	const names = ["chat.json", "memory.json", "settings.json", "nori-diary.json", "nori-diary.json.bak", "nori-diary-src.json"]
 	const lines: string[] = []
 	let access = allFilesAccess.value
 	for (const n of names) {
@@ -4094,9 +4143,8 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 				// 开启「自动裁剪」时: 只裁**已经进过摘要的那段前缀** (P5: safeTrimDrop 保证
 				// 不会把还没总结的消息删掉 —— 删掉就永远进不了记忆了), 近端窗口照旧保留。
 				const dropN = summarized && cfg.trimHistory ? safeTrimDrop(messages.value.length) : 0
-				if (dropN > 0) {
-					// 裁剪前把将被裁掉的消息备份进日记源缓冲 (FE-M5): 日记素材不随裁剪消失
-					bufferDiarySource(messages.value.slice(0, dropN))
+				if (dropN > 0 && bufferDiarySource(messages.value.slice(0, dropN))) {
+					// 日记素材保存成功后才能裁剪；失败时保留原对话。
 					// 占位符仍每次都新建, 但聊天存储侧会去重 (filterChatMsgs 只留第一条 /
 					// mergeChatLists 对占位符查重) —— 所以它不会在磁盘上越积越多。
 					// 不要在这里"复用旧占位符": 它的 ts 低于已设的 cutoff, 重载时照样会被丢掉。
@@ -4136,19 +4184,6 @@ const splitReplies = (reply: string): string[] => {
  * - 中文省略号 (…… 或 ······) → 合并为单个 "…"
  * 单个字符永远不会被断行拆开.
  */
-
-// 时间标签只服务于请求上下文；模型偶尔会原样复述，显示层必须彻底隐藏。
-const stripInternalPromptMetadata = (content: string): string => content
-	.replace(/^\s*(?:【(?:消息发送时间|消息发送时间未记录|当前时间)】|】)\s*[^\n]*(?:\n|$)/gim, (line) => {
-		return /(?:消息发送时间|当前时间|\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\d{1,2}:\d{2})/.test(line) ? "" : line
-	})
-	.replace(/^\s*(?:当前时间\s*[:：]\s*)?\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[（(]\s*UTC\s*[+-]\s*\d{2}:?\d{2}\s*[）)])?\s*$/gim, "")
-	// 兼容旧版本留下的带时区时间行，以及半角/全角括号和不规则空格。
-	.replace(/^\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\d{1,2}:\d{2}(?::\d{2})?\s*[（(]\s*UTC\s*[+-]\s*\d{2}:?\d{2}\s*[）)]\s*$/gim, "")
-	// 模型有时会把内部时间提示拆成独立的时区尾巴；仅清理整行时区，避免误伤正文。
-	.replace(/^\s*(?:[【\[（(]\s*)?UTC\s*[+-]\s*\d{2}:?\d{2}\s*(?:[】\]）)])?\s*$/gim, "")
-	// 流式输出可能先清掉完整时间行，再把最后一个括号单独补回来；孤立括号没有正文语义。
-	.replace(/^\s*(?:\(|\)|\[|\]|（|）|【|】)\s*$/gim, "")
 
 const bubbleText = (content: string): string =>
 	stripInternalPromptMetadata(content)
@@ -4736,139 +4771,38 @@ const doExportAll = () => {
 	}
 }
 
-const doExportDiary = () => {
-	try {
-		const name = exportFileName()
-		const ok = writeFile(name, buildExportMd(false))
-		triggerBubble(ok ? `已导出 ${name}` : "导出失败")
-	} catch {
-		triggerBubble("导出失败")
-	}
+/* ---------------- 日记：空闲时最多补一篇，聊天开始即停止 ---------------- */
+const openDiary = () => openPanel("diary")
+let diaryIdleTimer: ReturnType<typeof setTimeout> | null = null
+let diaryAutoAbort: AbortController | null = null
+const stopAutoDiary = () => {
+	if (diaryIdleTimer) clearTimeout(diaryIdleTimer)
+	diaryIdleTimer = null
+	diaryAutoAbort?.abort()
 }
-
-/* ---------------- Nori 心情日记 (按日历天数查看) ---------------- */
-const CAL_WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"]
-const diaryEntries = ref<DiaryEntry[]>(listDiary())
-const diaryBusy = ref(false)
-/** 日历当前显示的年/月 (month: 0-11) 与选中的一天 */
-const calYear = ref(new Date().getFullYear())
-const calMonth = ref(new Date().getMonth())
-const calSelDate = ref("")
-const todayStr = ref(localDay(new Date()))
-
-/** date → 当天日记 (一天一篇) */
-const diaryByDate = computed<Record<string, DiaryEntry>>(() => {
-	const map: Record<string, DiaryEntry> = {}
-	for (const e of diaryEntries.value) map[e.date] = e
-	return map
-})
-
-/** 当月日历格子 (null = 占位空格, 否则 YYYY-MM-DD; 周日开头) */
-const calGrid = computed<(string | null)[]>(() => {
-	const first = new Date(calYear.value, calMonth.value, 1)
-	const offset = first.getDay()
-	const days = new Date(calYear.value, calMonth.value + 1, 0).getDate()
-	const cells: (string | null)[] = []
-	for (let i = 0; i < offset; i++) cells.push(null)
-	for (let d = 1; d <= days; d++) {
-		cells.push(`${calYear.value}-${pad2(calMonth.value + 1)}-${pad2(d)}`)
-	}
-	return cells
-})
-
-const calMove = (step: number) => {
-	let m = calMonth.value + step
-	let y = calYear.value
-	if (m < 0) { m = 11; y -= 1 }
-	else if (m > 11) { m = 0; y += 1 }
-	calYear.value = y
-	calMonth.value = m
+const scheduleDiary = () => {
+	if (diaryIdleTimer) clearTimeout(diaryIdleTimer)
+	diaryIdleTimer = setTimeout(async () => {
+		diaryIdleTimer = null
+		if (document.hidden || window.__noriAppPaused || chatStreaming.value || touchStreaming.value || diaryAutoAbort || !cfg.apiKey.trim() || !cfg.model.trim()) return
+		const ac = new AbortController()
+		diaryAutoAbort = ac
+		try {
+			await ensureDiary(async (system, material) => {
+				const r = await sendChat(cfg.baseUrl, cfg.apiKey, cfg.model, [
+					{role: "system", content: system, ts: Date.now()},
+					{role: "user", content: material ?? "", ts: Date.now()},
+				], false, {signal: ac.signal})
+				if (!r.ok) throw new Error(r.message || "日记生成失败，请稍后重试")
+				return r.content ?? ""
+			}, ac.signal)
+			window.dispatchEvent(new Event("nori-diary-updated"))
+		} finally { if (diaryAutoAbort === ac) diaryAutoAbort = null }
+	}, 1800)
 }
-
-/** 日历跳到某一天 (写今天/补写昨天后定位到对应天) */
-const jumpCalTo = (date: string) => {
-	const parts = date.split("-")
-	const y = Number(parts[0])
-	const m = Number(parts[1])
-	if (!y || !m) return
-	calYear.value = y
-	calMonth.value = m - 1
-	calSelDate.value = date
-}
-
-/** 情绪 → CSS class key */
-const moodKey = (mood: string): string => {
-	if (mood === "开心" || mood === "兴奋") return "happy"
-	if (mood === "难过") return "sad"
-	if (mood === "孤单") return "lonely"
-	return "calm"
-}
-
-const refreshDiaryView = () => {
-	diaryEntries.value = listDiary()
-	todayStr.value = localDay(new Date())
-	// 只在"还没选过任何一天"时默认到今天 (翻历史月份时刷新不跳回)
-	if (!calSelDate.value) {
-		calSelDate.value = todayStr.value
-		const d = new Date()
-		calYear.value = d.getFullYear()
-		calMonth.value = d.getMonth()
-	}
-}
-
-/** 删除某一天的日记 */
-const doDeleteDiary = (date: string) => {
-	if (!window.confirm(`删除 ${date} 的日记？删了就没有了`)) return
-	deleteDiaryEntry(date)
-	refreshDiaryView()
-	triggerBubble("已删除")
-}
-
-/** 写日记的 LLM 调用 (复用主对话配置) */
-const diaryLlmCall = async (prompt: string): Promise<string> => {
-	if (!cfg.apiKey.trim() || !cfg.model.trim()) return ""
-	const r = await sendChat(cfg.baseUrl, cfg.apiKey, cfg.model, [
-		{role: "system", content: prompt} as ChatMsg,
-	])
-	return r.ok ? (r.content ?? "") : ""
-}
-
-/** 打开日记面板时刷新 + 惰性补写昨天 (与手动写互斥, diaryBusy 防并发) */
-const openDiary = () => {
-	openPanel("diary")
-	refreshDiaryView()
-	if (diaryBusy.value) return // 正在写 → 跳过, 避免两个 LLM 调用抢回调
-	// 后台补写 (不阻塞打开); 补写成功 (如补了昨天/今天) → 日历跳到那天
-	if (cfg.apiKey.trim() && cfg.model.trim()) {
-		diaryBusy.value = true
-		void ensureDiary(diaryLlmCall)
-			.then((date) => { if (date) jumpCalTo(date) })
-			.finally(() => { diaryBusy.value = false; refreshDiaryView() })
-	}
-}
-
-/** 手动"立即写今天" */
-const doRefreshDiary = async () => {
-	if (diaryBusy.value) return
-	diaryBusy.value = true
-	try {
-		if (!cfg.apiKey.trim() || !cfg.model.trim()) {
-			triggerBubble("请先在设置里配置 API Key 和模型")
-			return
-		}
-		const r = await writeTodayDiary(diaryLlmCall)
-		refreshDiaryView()
-		if (r === "ok") jumpCalTo(todayStr.value)
-		triggerBubble(
-			r === "ok" ? "今天的日记写好啦"
-				: r === "empty" ? "今天还没有对话，等聊过再写吧"
-					: "日记保存失败：存储不可写（请检查存储权限）",
-			r === "failed" ? 4000 : 2000,
-		)
-	} finally {
-		diaryBusy.value = false
-	}
-}
+watch([chatStreaming, touchStreaming], ([chat, touch]) => { if (chat || touch) stopAutoDiary() })
+onMounted(scheduleDiary)
+onBeforeUnmount(stopAutoDiary)
 
 const doClearMemory = () => {
 	if (!window.confirm("确定清空全部长期记忆和历史摘要吗？")) return
@@ -6317,6 +6251,8 @@ const persistSettings = (): string => {
 		floatEnabled: !!cfg.floatEnabled,
 		floatBubbleW: Number(cfg.floatBubbleW) || 82,
 		floatRenderScale: normalizeRenderScale(cfg.floatRenderScale, nativeDpr.value),
+		// 在线人数开关（2026-10-21）: 必须进这份"逐字段"清单，否则关掉后重启又变回开
+		presenceEnabled: cfg.presenceEnabled !== false,
 	})
 	if (raw !== "ok") console.error("[settings] 写盘失败:", raw)
 	return raw
@@ -6436,6 +6372,7 @@ const onResize = () => {
 }
 
 const refreshStorage = () => {
+	if (!document.hidden) { window.dispatchEvent(new Event("nori-diary-updated")); scheduleDiary() }
 	storageReady.value = isStorageReady()
 	// 「所有文件访问权限」可能是在系统设置里刚授予的 —— 每次回前台都刷新一次,
 	// 用户授权返回后设置页的「已授权 ✓」会立刻变绿, 不用重开面板。
@@ -6465,20 +6402,28 @@ const setStageRenderPaused = (paused: boolean): void => {
 	} catch { /* 忽略 */ }
 }
 
+const renderPause = createRenderPauseState(setStageRenderPaused)
+const onNativeVisibility = () => {
+	renderPause.setNativePaused(window.__noriAppPaused === true)
+	onVisibility()
+}
+
 const onVisibility = () => {
-	if (!document.hidden) refreshFloatPermission()
+	const paused = renderPause.setHidden(document.hidden)
+	if (!paused) refreshFloatPermission()
 	refreshStorage()
 	// 切后台: 立即落盘防抖中的聊天记录, 避免丢最后一次写入
-	if (document.hidden) {
+	if (paused) {
+		stopAutoDiary()
 		pomoUpdateDisplay()
 		pomoRefreshDate()
 		flushChatPersist()
 		void flushMemoryPersist()
 		stopTTS()
 		pauseBgm()
-		setStageRenderPaused(true)
 	} else {
-		setStageRenderPaused(false)
+		// 在线人数（2026-10-21）: 回前台补一次心跳（距上次 > 60s 才发）
+		if (cfg.presenceEnabled) presenceOnVisible(APP_VERSION)
 		if (health.value.lastPersistError) refreshMemFromDisk()
 		if (!bgmHeld()) resumeBgm()
 		if (!chatStreaming.value && !touchStreaming.value) {
@@ -6502,7 +6447,8 @@ onMounted(async () => {
 	document.addEventListener("pointercancel", onStagePointerUp)
 	
 	window.addEventListener("focus", refreshStorage)
-	window.addEventListener("nori-app-resume", refreshFloatPermission)
+	window.addEventListener("nori-app-pause", onNativeVisibility)
+	window.addEventListener("nori-app-resume", onNativeVisibility)
 	document.addEventListener("visibilitychange", onVisibility)
 	// TTS 合成失败提示 (不打断对话)
 	setTtsErrorHandler((msg) => triggerBubble(`语音合成失败：${msg}`))
@@ -6575,9 +6521,14 @@ onMounted(async () => {
 	cfg.floatEnabled = !!s.floatEnabled
 	cfg.floatBubbleW = Number(s.floatBubbleW) || 82
 	cfg.floatRenderScale = normalizeRenderScale(s.floatRenderScale, nativeDpr.value)
+	// 在线人数（2026-10-21）: 老设置文件没这个字段 ⇒ 默认开
+	cfg.presenceEnabled = s.presenceEnabled !== false
 	// 同步原生悬浮窗开关标记 (退出判断用, 不依赖 settings.json 读写时序)
 	try { window.NoriChat?.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 忽略 */ }
 	refreshFloatPermission()
+	// 在线人数（2026-10-21）: 只有配置了计数服务才接线/发心跳；未配置时零请求
+	ensurePresenceWiring()
+	if (presenceReady.value && cfg.presenceEnabled) startPresence(APP_VERSION)
 	// 应用内朗读音量 (按设置初始化; 之后滑块可实时调整)
 	setTtsVolume(Number(cfg.ttsVolume))
 	// 背景音乐: 注册资源状态回调后恢复播放 (缺失时自动下载; 自动播放被拦时服务内挂手势重试)
@@ -6611,6 +6562,9 @@ onMounted(async () => {
 	// 数据海动态背景 (设置可关; rAF 在隐藏时天然停摆)
 	habitRecord("open")
 	if (cfg.dataseaBg && dataseaCanvas.value) initDataseaBg(dataseaCanvas.value)
+	renderPause.setNativePaused(window.__noriAppPaused === true)
+	// Background initialization may have started after an earlier native pause event.
+	setStageRenderPaused(renderPause.setHidden(document.hidden))
 	// Ambient 主动搭话: 安静几分钟后轻轻说一句 (语料本地, 零 token)
 	startAmbient({
 		speak: (line) => {
@@ -6661,7 +6615,7 @@ onMounted(async () => {
 	messages.value = cleanedChat
 	if (cleanedChat.length !== loadedChat.length || cleanedChat.some((m, i) => m !== loadedChat[i])) persistChat(cleanedChat)
 	refreshMemView()
-	refreshDiaryView()
+	window.dispatchEvent(new Event("nori-diary-updated"))
 	// 自定义人设的那行状态 (有导入过就显示「自定义 · N 字」, 否则内置)
 	refreshPersonaState()
 	if (cfg.apiKey.trim()) refreshModels()
@@ -6707,8 +6661,13 @@ onBeforeUnmount(async () => {
 	document.removeEventListener("pointerup", onStagePointerUp)
 	document.removeEventListener("pointercancel", onStagePointerUp)
 	window.removeEventListener("focus", refreshStorage)
-	window.removeEventListener("nori-app-resume", refreshFloatPermission)
+	window.removeEventListener("nori-app-pause", onNativeVisibility)
+	window.removeEventListener("nori-app-resume", onNativeVisibility)
 	document.removeEventListener("visibilitychange", onVisibility)
+	// 在线人数（2026-10-21）: 停心跳 + 清 60s 刷新计时器
+	stopPresence()
+	if (presenceUnsub) { presenceUnsub(); presenceUnsub = null }
+	if (presenceTickTimer) { clearInterval(presenceTickTimer); presenceTickTimer = 0 }
 	if (touchBubbleTimer) clearTimeout(touchBubbleTimer)
 	if (voiceSaveTimer) clearTimeout(voiceSaveTimer)
 	// 页面销毁前: 落盘防抖中的聊天记录, 避免丢最后一条
@@ -8261,6 +8220,26 @@ onBeforeUnmount(async () => {
 .settings-license-link b { color: var(--accent); font-size: 12px; }
 .settings-license-link small { color: var(--fg-dim); font-size: 10px; }
 .settings-license-link > span:last-child { flex: 0 0 auto; color: var(--accent); font-size: 17px; }
+/* 在线人数（2026-10-23）: 设置一级页底部、开源许可入口下方 */
+.settings-presence {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 4px 2px 0;
+	font-size: 12px;
+	color: var(--fg-2);
+	b { color: var(--fg); font-variant-numeric: tabular-nums; }
+}
+.settings-presence-hint {
+	padding: 0 2px;
+	font-size: 10.5px;
+	line-height: 1.5;
+	text-align: center;
+	color: var(--fg-dim);
+	word-break: break-all;
+}
+.settings-presence-retry { align-self: center; }
 
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .mc {
@@ -8532,71 +8511,9 @@ onBeforeUnmount(async () => {
 	button { flex-shrink: 0; }
 }
 
-/* 日记日历视图 */
-.diary-head-btns { display: flex; gap: 6px; }
-.diary-cal {
-	background: rgba(15, 23, 42, 0.45);
-	border: 1px solid var(--line-soft);
-	border-radius: var(--ui-radius-ctl);
-	padding: 8px;
-	margin-bottom: 10px;
-	.diary-cal-head {
-		display: flex; align-items: center; justify-content: space-between;
-		margin-bottom: 6px;
-		.diary-cal-title { font-size: 13px; font-weight: 600; color: var(--fg); }
-	}
-	.cal-week {
-		display: grid; grid-template-columns: repeat(7, 1fr);
-		span { text-align: center; font-size: 10px; color: var(--fg-dim); padding: 2px 0; }
-	}
-	.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-	.cal-cell {
-		position: relative;
-		aspect-ratio: 1;
-		display: flex; align-items: center; justify-content: center;
-		border-radius: var(--ui-radius-card);
-		font-size: 12px; color: var(--fg-2);
-		&.blank { background: transparent; }
-		&.has { cursor: pointer; }
-		&.today .cal-day-num { color: var(--accent); font-weight: 700; }
-		&.sel { background: rgba(125, 211, 252, 0.22); outline: 1px solid rgba(125, 211, 252, 0.7); color: #fff; }
-		.cal-dot {
-			position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
-			width: 5px; height: 5px; border-radius: 50%;
-			&.mood-happy { background: #fde047; }
-			&.mood-calm { background: var(--fg-3); }
-			&.mood-lonely { background: #93c5fd; }
-			&.mood-sad { background: #a5b4fc; }
-		}
-	}
-}
-.diary-detail { .diary-item { margin-bottom: 0; } }
-.diary-del { margin-left: auto; }
-.diary-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-.diary-item {
-	background: rgba(30, 41, 59, 0.65);
-	border: 1px solid var(--line);
-	border-radius: var(--ui-radius-ctl);
-	padding: 10px 12px;
-	margin-bottom: 10px;
-}
-.diary-date {
-	display: flex; align-items: center; gap: 8px;
-	font-size: 11px; color: var(--fg-3);
-}
-.diary-mood {
-	font-size: 11px; padding: 1px 8px; border-radius: var(--ui-radius-pill);
-	&.mood-happy { background: rgba(250, 204, 21, 0.2); color: #fde047; }
-	&.mood-calm { background: var(--line); color: var(--fg-2); }
-	&.mood-lonely { background: rgba(96, 165, 250, 0.2); color: #93c5fd; }
-	&.mood-sad { background: var(--line-strong); color: #a5b4fc; }
-}
-.diary-count { margin-left: auto; font-size: 11px; color: var(--fg-dim); }
-.diary-content {
-	margin-top: 6px;
-	font-size: 14px; color: var(--fg); line-height: 1.7;
-	white-space: pre-wrap;
-}
+.sheet.diary-sheet { max-width: 620px; max-height: 88vh; margin-inline: auto; }
+.sheet.diary-sheet .sheet-body { padding-top: 4px; }
+@media (max-width: 430px) { .sheet.diary-sheet { padding: 16px 15px 20px; } }
 /* ---------------- 新手引导 ----------------
  * 2026-10-01 重做（用户：「内容不变，AI 味太大」）。原来的长相是通用弹窗三件套：
  * 40px 大 emoji + 居中标题 + 圆点分页 + 整宽渐变按钮，正文还套了个告警框 —— 换成**她递来的一张便签**：
@@ -8943,6 +8860,18 @@ onBeforeUnmount(async () => {
 	vertical-align: baseline;
 }
 .about-a-block { display: block; margin-top: 2px; font-size: 12px; }
+
+/* 在线人数（2026-10-21）: 「版本」块下的一行状态 + 一个状态点（live/stale/off） */
+.about-presence { display: flex; align-items: center; gap: 6px; }
+.about-presence b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.about-presence-dot {
+	width: 7px; height: 7px; border-radius: 50%;
+	background: #64748b; flex: none;
+	&.live { background: #34d399; box-shadow: 0 0 6px rgba(52, 211, 153, 0.7); }
+	&.stale { background: #fbbf24; }
+	&.off { background: #64748b; }
+}
+.about-presence-hint { font-size: 12px; color: var(--fg-dim); }
 
 /* 由布局状态区分横竖屏，键盘缩短视口时不切换横屏样式。 */
 .stage-root:not(.portrait) {

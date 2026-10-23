@@ -119,7 +119,9 @@ var DEFAULT_SETTINGS = {
   lookSens: 0.2,
   floatEnabled: false,
   floatBubbleW: 82,
-  floatRenderScale: 2
+  floatRenderScale: 2,
+  /** 在线人数（匿名心跳）默认开：关掉后关于页不显示人数，也不发任何请求 */
+  presenceEnabled: true
 };
 var bridge = () => {
   if (!window.NoriChat) throw new Error("NoriChat \u672A\u6CE8\u5165");

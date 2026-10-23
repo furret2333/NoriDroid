@@ -29,6 +29,7 @@ const ONLY = val("--only")
 
 /** 套件表: kind = unit(纯 Node) / probe(探针) / probe-h(需要 harness) / probe-eval(评估用) / e2e(需要 harness) */
 const SUITES = [
+	{name: "run-render-lifecycle-tests", kind: "unit"},
 	{name: "run-tests", kind: "unit"},
 	{name: "run-memory-lifecycle-tests", kind: "unit"},
 	{name: "probe-recall-summary-quality", kind: "probe", args: ["--strict"]},
@@ -39,6 +40,7 @@ const SUITES = [
 	{name: "run-marker-tests", kind: "unit"},
 	{name: "run-tts-tests", kind: "unit"},
 	{name: "run-chat-tests", kind: "unit"},
+	{name: "run-presence-tests", kind: "unit"},       // 在线人数: 匿名心跳纯逻辑 + 调度状态机 (2026-10-21)
 	{name: "verify-habit-peak", kind: "unit"},        // B1: habitProfile().peakHour 必须落在真实高峰桶 (修前恒为 -1)
 	{name: "verify-floatservice-fgs", kind: "unit"},  // B3: 悬浮窗服务的前台服务契约 (manifest 类型/权限 + startForeground 先于 addView + 通知剪影图标)
 	{name: "probe-trim-skip", kind: "probe"},

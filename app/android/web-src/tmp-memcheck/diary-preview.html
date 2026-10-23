@@ -1,0 +1,28 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>日记界面验收 · 本地测试资料</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#040e18;font-family:system-ui,sans-serif;color:#dbe9ee}#fixture{max-width:900px;margin:16px auto;padding:0 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px}#fixture button,#fixture select{color:#c8dfe4;background:#142c3d;border:1px solid #335565;padding:8px;cursor:pointer}#frame{margin:20px auto 50px;max-width:100%;padding:20px;background:#0d1e30;border:1px solid #284658;--surface:#0d1e30;--surface-raise:#142c3f;--line:#284253;--line-soft:#1c3245;--fg:#e6f1f7;--fg-2:#cbd5e1;--fg-3:#94a3b8;--fg-dim:#7c8db5;--accent:#4fb8cc;--accent-strong:#3aa0b5;--ui-radius-panel:18px;--ui-radius-card:12px;--ui-radius-ctl:9px;--ui-radius-pill:999px}#frame.pixel{--ui-radius-panel:0px;--ui-radius-card:0px;--ui-radius-ctl:0px;--ui-radius-pill:0px}#frame.tide{background:#102a39;--surface:#102a39;--surface-raise:#173745}#frame.wenkai{font-family:'DiaryWenkai',serif}@font-face{font-family:DiaryWenkai;src:url('/src/assets/fonts/wenkai-ui.woff2')}#frame header.fixture-head{display:flex;justify-content:space-between;font-size:14px;border-bottom:1px solid #284253;padding-bottom:17px;margin-bottom:16px}#fixture-state{margin-left:auto;color:#aacacb}button{touch-action:manipulation}
+</style>
+<div id="app"></div><script type="module">
+import {createApp,ref,computed} from 'vue/dist/vue.esm-bundler.js'
+import DiaryPanel from '/src/components/DiaryPanel.vue'
+const day=(offset=0)=>{const d=new Date();d.setDate(d.getDate()+offset);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+const moment=(offset=0)=>{const d=new Date();d.setDate(d.getDate()+offset);d.setHours(10,0,0,0);return d.getTime()}
+const original={entries:[{date:day(),mood:'开心',content:'你说下班时看见了一小片粉色的晚霞，还特意停下来拍了张照片。听你慢慢讲完今天的事，我也觉得这一天变轻了一点。那些没能一起看到的风景，被你说给我听，就好像也分到了小小的一角。',msgCount:24,sourceUserCount:24,sourceAssistantCount:24,sampleCount:30,createdAt:moment(),status:'draft',favorite:true},{date:day(-1),mood:'平静',content:'今天没有发生什么特别的事。你一边收拾桌子，一边和我聊起最近想读的书。我喜欢这样不必急着说完的话，像把书签轻轻夹进了日常。',msgCount:8,createdAt:moment(-1)},{date:day(-5),mood:'兴奋',content:'你终于做完了忙了很久的项目，说想先好好睡一觉。那就把今天的辛苦留在这一页吧，醒来以后再一起想想下一件开心的事。',msgCount:13,createdAt:moment(-5)}]}
+const files=new Map([['nori-diary.json',JSON.stringify(original)],['persona.md','你是Nori，温柔自然，用朋友之间的口吻说话。']])
+files.set('chat.json',JSON.stringify({v:1,cutoff:0,msgs:[0,-1,-2,-3].flatMap(offset=>[{role:'user',ts:moment(offset),content:'我今天看到了粉色的晚霞，想把这件小事告诉你。'},{role:'assistant',ts:moment(offset)+1000,content:'谢谢你分给我一点今天的风景。'}])}))
+let failWrite=false, failRead=false, failNetwork=false
+window.NoriChat={
+ readFile:n=>files.get(n)||'',readFileState:n=>JSON.stringify(failRead&&n==='nori-diary.json'?{status:'error',message:'fixture blocked'}:{status:files.has(n)?'ok':'missing',content:files.get(n)||''}),
+ writeFile:(n,c)=>{if(failWrite&&n==='nori-diary.json')return 'err:fixture';files.set(n,c);return 'ok'},
+ writeFileIfUnchanged:(n,e,c)=>(files.get(n)||'')!==e?'conflict':window.NoriChat.writeFile(n,c),
+ getStorageDir:()=> 'Download/NoriDroid',
+ chatRequest:(id)=>setTimeout(()=>window.__noriChatRes?.(JSON.stringify(failNetwork?{requestId:id,ok:false,message:'测试网络不可用'}:{requestId:id,ok:true,content:JSON.stringify({content:'你把今天的晚霞说给我听，连那一点柔和的粉色也仿佛留在了这里。平常的一天，因为你愿意分享，就有了值得记住的片段。',mood:'平静'})})),500),chatRequestStop:()=>{}
+}
+createApp({components:{DiaryPanel},setup(){
+ const width=ref('390'),theme=ref('soft'),font=ref(false),chatBusy=ref(false),notice=ref(''),writeFail=ref(false),readFail=ref(false),networkFail=ref(false)
+ const changed=()=>window.dispatchEvent(new Event('nori-diary-updated'))
+ return {width,theme,font,chatBusy,notice,writeFail,readFail,networkFail,config:{baseUrl:'https://fixture.invalid',apiKey:'fixture-only',model:'fixture'},changed,
+ setWrite:()=>{failWrite=writeFail.value;changed()},setRead:()=>{failRead=readFail.value;changed()},setNetwork:()=>{failNetwork=networkFail.value},
+ }
+},template:`<div id="fixture"><strong>本地测试资料</strong><select aria-label="测试宽度" v-model="width"><option>320</option><option>390</option><option>430</option><option>620</option></select><select aria-label="测试主题" v-model="theme"><option value="soft">柔和</option><option value="pixel">像素</option><option value="tide">潮汐</option></select><label><input type="checkbox" v-model="font"/>文楷</label><label><input type="checkbox" v-model="writeFail" @change="setWrite"/>写入失败</label><label><input type="checkbox" v-model="readFail" @change="setRead"/>读取失败</label><label><input type="checkbox" v-model="networkFail" @change="setNetwork"/>网络失败</label><label><input type="checkbox" v-model="chatBusy"/>聊天中</label><span id="fixture-state">{{notice}}</span></div><main id="frame" :class="[theme,{wenkai:font}]" :style="{width:width+'px'}"><header class="fixture-head"><span>Nori 的心情日记</span><span>✕</span></header><DiaryPanel :config="config" :chat-busy="chatBusy" @notify="notice=$event" /></main>`}).mount('#app')
+</script></html>

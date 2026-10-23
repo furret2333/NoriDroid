@@ -1,4 +1,4 @@
-// src/services/bgm.ts
+// ../src/services/bgm.ts
 var BGM_TRACKS = [
   { id: "bgm_memory", name: "\u8BB0\u5FC6", file: "bgm_memory.mp3" },
   { id: "bgm1", name: "\u6570\u636E\u6D77", file: "bgm1.m4a" },

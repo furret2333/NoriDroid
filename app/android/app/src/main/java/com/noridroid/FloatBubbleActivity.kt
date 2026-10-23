@@ -44,6 +44,9 @@ class FloatBubbleActivity : Activity() {
     @Volatile private var locked = false
     private var modelHostToken: android.os.IBinder? = null
     private var modelHostActive = false
+    private var closeRequested = false
+    private var closeCompleted = false
+    private val closeTimeout = Runnable { completeClose() }
 
     // 手势状态 (原生处理, rawX/rawY 屏幕绝对坐标不受窗口移动影响)
     private var dragStartX = 0f
@@ -430,9 +433,27 @@ class FloatBubbleActivity : Activity() {
         finish()
     }
 
+    override fun finish() {
+        if (closeRequested) return
+        closeRequested = true
+        val token = modelHostToken
+        if (token == null || Build.VERSION.SDK_INT < 34) { completeClose(); return }
+        // Copy before onStop: retaining an Activity child window beyond that point is unsafe.
+        window.decorView.postDelayed(closeTimeout, 600)
+        FloatService.prepareChatWindowClose(token) { completeClose() }
+    }
+
+    private fun completeClose() {
+        if (closeCompleted || isDestroyed) return
+        closeCompleted = true
+        window.decorView.removeCallbacks(closeTimeout)
+        super.finish()
+    }
+
     override fun onDestroy() {
+        window.decorView.removeCallbacks(closeTimeout)
         releaseModelWindow()
-        try { webView?.destroy() } catch (_: Exception) { /* 忽略 */ }
+        try { webView?.let { destroyNoriWebView(it) } } catch (_: Exception) { /* 忽略 */ }
         webView = null
         super.onDestroy()
     }

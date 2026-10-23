@@ -134,6 +134,12 @@ export interface Settings {
 	floatBubbleW: number
 	/** 悬浮窗: Live2D 渲染分辨率 (x, 0.5~3.0, 同主 App 渲染分辨率) */
 	floatRenderScale: number
+	/**
+	 * 显示在线人数（2026-10-21）: 主界面前台时每 5 分钟发一次**匿名心跳**
+	 * （随机安装 ID + 版本号 → `NoriChat.presencePing`），服务端 10 分钟窗口去重计数。
+	 * 默认开；关掉后一个请求都不发，关于页也不显示人数。见 services/presence.ts。
+	 */
+	presenceEnabled: boolean
 }
 
 /**
@@ -222,6 +228,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	floatEnabled: false,
 	floatBubbleW: 82,
 	floatRenderScale: 2,
+	/** 在线人数（匿名心跳）默认开：关掉后关于页不显示人数，也不发任何请求 */
+	presenceEnabled: true,
 }
 
 export interface ChatMsg {
@@ -302,6 +310,8 @@ interface NoriChat {
 	closeFloatBubble: () => void
 	/** 悬浮窗: 设置渲染分辨率 (x) */
 	setFloatRenderScale: (s: number) => void
+	/** 在线人数: 匿名心跳 (结果回调 window.__noriPresenceRes)；apiKey = Supabase publishable key（旧后端传空串） */
+	presencePing?: (url: string, id: string, version: string, apiKey: string) => void
 	/** Restore the desktop pet's saved position and size. */
 	resetFloatWindow?: () => void
 }
@@ -373,17 +383,28 @@ export const writeFile = (name: string, content: string): boolean => {
 }
 
 /** 原生锁内校验旧快照再写入；旧桥/测试桥保留兼容降级。 */
-export const compareAndWriteFile = (name: string, expected: string, content: string): "ok" | "conflict" | "error" => {
+export type FileWriteResult = {status: "ok" | "conflict" | "error"; reason?: string}
+export const compareAndWriteFileDetailed = (name: string, expected: string, content: string): FileWriteResult => {
 	try {
 		const nori = bridge()
 		if (nori.writeFileIfUnchanged) {
 			const result = nori.writeFileIfUnchanged(name, expected, content)
-			return result === "ok" ? "ok" : result === "conflict" ? "conflict" : "error"
+			if (result === "ok" || result === "conflict") return {status: result}
+			console.error(`[compareAndWriteFile] ${name}: ${result}`)
+			return {status: "error", reason: typeof result === "string" ? result : "err:bridge"}
 		}
-		if (readFile(name) !== expected) return "conflict"
-		return writeFile(name, content) ? "ok" : "error"
-	} catch { return "error" }
+		const state = readFileState(name)
+		if (state.status === "error") return {status: "error", reason: "err:read"}
+		if (state.content !== expected) return {status: "conflict"}
+		const raw = nori.writeFile(name, content)
+		return raw === "ok" ? {status: "ok"} : {status: "error", reason: raw}
+	} catch (e) {
+		console.error(`[compareAndWriteFile] ${name}:`, e)
+		return {status: "error", reason: "err:bridge"}
+	}
 }
+export const compareAndWriteFile = (name: string, expected: string, content: string): "ok" | "conflict" | "error" =>
+	compareAndWriteFileDetailed(name, expected, content).status
 
 /* ---------------- 自定义文案人设 (2026-10-01 用户要求) ----------------
  * 内置人设是 `nori-prompt.md`（打包进 APK、只读）；用户可以导入自己的提示词替代它。

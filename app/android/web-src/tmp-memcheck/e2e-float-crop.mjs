@@ -56,6 +56,7 @@ try {
   await send('Page.enable'); await send('Runtime.enable')
   await send('Page.addScriptToEvaluateOnNewDocument', {source: `(() => {
     window.__ft = {epoch: 0, reports: [], ack: true, applied: 0, starts: [], measures: 0};
+    window.__noriFloatNativePaused = localStorage.getItem('__testHostPaused') === 'true';
     let models, chat;
     Object.defineProperty(window, 'NoriBridge', {get: () => models, set: value => {
       models = value; value.listInstalled = () => JSON.stringify([{id: ${JSON.stringify(modelName)}, entryBase: ${JSON.stringify(modelName)}, revision: localStorage.getItem('__testModelRevision') || 'test-v1'}]);
@@ -72,7 +73,8 @@ try {
   })()`})
   await send('Emulation.setDeviceMetricsOverride', {width: 180, height: 236, deviceScaleFactor: 2.75, mobile: true})
   await send('Page.navigate', {url: 'http://127.0.0.1:8123/assets/web/float.html?shim=1'})
-  await waitFor('window.__noriL2dDraws > 2 && window.__noriVisibleBounds && window.__ft.last')
+  // Geometry starts after asynchronous capability loading; the initial publication is a safe fallback.
+  await waitFor('window.__noriL2dDraws > 2 && window.__noriVisibleBounds && window.__ft.last?.feet < window.__ft.last?.height')
   check('model loaded with post-render geometry hook', await evaluate('!!window.__noriAfterL2dDraw && document.querySelectorAll("canvas").length === 1'))
   check('frame cap and isolated floating renderer retained', await evaluate('Math.abs(window.__noriL2dMinInterval - 14.6667) < 0.01 && !window.__noriBeforeModelUpdate && !window.__noriDataseaMinInterval'))
   check('warmup uses complete canvas but already reports actual body feet', await evaluate('!__ft.last.precise && __ft.last.crop[3] === __ft.last.height && __ft.last.feet < __ft.last.height'))
@@ -163,6 +165,13 @@ try {
   await evaluate('window.__noriSetPaused(true); __ft.pauseDraws = window.__noriL2dDraws; __ft.pauseMeasures = __ft.measures')
   await delay(600)
   check('paused floating renderer performs no drawing or mesh measurements', await evaluate('__ft.pauseDraws === window.__noriL2dDraws && __ft.pauseMeasures === __ft.measures'))
+  await evaluate('document.dispatchEvent(new Event("visibilitychange"))')
+  await delay(350)
+  check('a visible event cannot undo native host pause during reattachment', await evaluate('__ft.pauseDraws === window.__noriL2dDraws && window.__noriL2dPaused'))
+  await evaluate('Object.defineProperty(document, "hidden", {configurable: true, value: true}); document.dispatchEvent(new Event("visibilitychange")); window.__noriSetPaused(false)')
+  await delay(350)
+  check('host resume cannot draw while the document is hidden', await evaluate('__ft.pauseDraws === window.__noriL2dDraws && window.__noriL2dPaused'))
+  await evaluate('Object.defineProperty(document, "hidden", {configurable: true, value: false}); document.dispatchEvent(new Event("visibilitychange"))')
   await evaluate('window.__noriSetPaused(false)')
   await waitFor('window.__noriL2dDraws > __ft.pauseDraws')
   await evaluate("document.querySelector('canvas').dispatchEvent(new Event('webglcontextlost', {cancelable: true})); __ft.lostMeasures = __ft.measures")
@@ -183,6 +192,15 @@ try {
   await send('Page.reload')
   await waitFor(`performance.timeOrigin !== ${cachedDocument} && window.__noriL2dDraws > 2 && window.__ft?.last?.feet < window.__ft?.last?.height`)
   check('model revision change starts fresh calibration', await evaluate('!__ft.last.precise && __ft.last.crop[2] === __ft.last.width'))
+  const activeDocument = await evaluate('performance.timeOrigin')
+  await evaluate("localStorage.setItem('__testHostPaused', 'true')")
+  await send('Page.reload')
+  await waitFor(`performance.timeOrigin !== ${activeDocument} && window.__noriRefresh && document.querySelector('canvas')`)
+  await delay(500)
+  check('host pause delivered before model loading remains effective after mount', await evaluate('!window.__noriL2dDraws && window.__noriL2dPaused && __ft.epoch === 1'))
+  await evaluate("localStorage.removeItem('__testHostPaused'); window.__noriSetPaused(false)")
+  await waitFor('window.__noriL2dDraws > 2 && window.__ft.last')
+  check('a paused startup resumes using the same model instance', await evaluate('__ft.epoch === 1 && document.querySelectorAll("canvas").length === 1'))
   check('no uncaught page errors', errors.length === 0)
   writeFileSync(join(tmpdir(), `nori-float-crop-e2e-${modelName}.json`), JSON.stringify({model: modelName, passed, artifacts, errors}, null, 2))
   console.log(`${passed}/${passed} passed (${modelName})`)

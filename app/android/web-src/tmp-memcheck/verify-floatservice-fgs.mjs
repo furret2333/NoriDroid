@@ -185,8 +185,8 @@ for (const [label, fn, action] of [
 }
 {
 	const b = bodyOf(main, "private fun setFloatPaused(")
-	check(!!b && b.includes("ACTION_SET_PAUSED") && /startService\(/.test(b) && !/startForegroundService/.test(b),
-		"⑤ MainActivity.setFloatPaused 用普通 startService 发送 ACTION_SET_PAUSED")
+	check(!!b && b.includes("FloatService.ACTION_SET_PAUSED") && /startService\(/.test(b) && !/startForegroundService\(/.test(b),
+		"⑤ MainActivity.setFloatPaused 用普通 startService 发送暂停请求，空服务由 stopSelf 收走")
 }
 
 // ---- ⑥ 通知 id 不冲突 ----

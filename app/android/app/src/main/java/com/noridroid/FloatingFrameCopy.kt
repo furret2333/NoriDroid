@@ -8,7 +8,7 @@ import android.view.PixelCopy
 import android.view.View
 import java.util.concurrent.Executor
 
-/** One local window copy per chat opening; no screen capture or continuous readback. */
+/** One local window copy per explicit chat handoff; no continuous readback. */
 fun copyFloatingFrame(view: View, handler: Handler, result: (Bitmap?) -> Unit) {
     if (Build.VERSION.SDK_INT < 34 || !view.isAttachedToWindow || view.width <= 0 || view.height <= 0 ||
         view.width.toLong() * view.height > 4_000_000) {

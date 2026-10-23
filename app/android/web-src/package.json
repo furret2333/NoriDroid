@@ -9,6 +9,7 @@
 		"build": "vue-tsc --noEmit && vite build",
 		"preview": "vite preview",
 		"test": "node tmp-memcheck/run-tests.mjs",
+		"test:diary": "node scripts/test-diary.mjs",
 		"postinstall": "node scripts/patch-live2d.mjs",
 		"sync:models": "powershell -ExecutionPolicy Bypass -File scripts/sync-models.ps1"
 	},

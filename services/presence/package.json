@@ -1,0 +1,11 @@
+{
+	"name": "noridroid-presence",
+	"private": true,
+	"type": "module",
+	"description": "NoriDroid 在线人数匿名心跳计数（Cloudflare Worker + Durable Object）",
+	"scripts": {
+		"test": "node --test test/logic.test.mjs",
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy"
+	}
+}

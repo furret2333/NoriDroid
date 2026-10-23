@@ -191,6 +191,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                notifyPagePaused(!isResumed)
                 errorView.visibility = View.GONE
             }
         }
@@ -270,6 +271,7 @@ class MainActivity : AppCompatActivity() {
             "onPause",
             "gen=$generation changingConfig=${isChangingConfigurations} finishing=${isFinishing}"
         )
+        notifyPagePaused(true)
         webView.onPause()
         // 应用离开前台: 悬浮窗马上要留在桌面上了 → 先让它**恢复**渲染 (与 onResume 里的暂停成对)
         setFloatPaused(false)
@@ -306,16 +308,11 @@ class MainActivity : AppCompatActivity() {
         pauseGeneration += 1   // 作废 onPause 排的延迟体: 回到前台不该再启悬浮窗
         val generation = pauseGeneration
         LifecycleLog.record(this, "onResume", "changingConfig=${isChangingConfigurations}")
-        webView.onResume()
-        webView.evaluateJavascript("window.dispatchEvent(new Event('nori-app-resume'))", null)
-        setupImmersive()
-        // 主 App 回到前台: **立刻**让悬浮窗停画, 再去 hide 它。
-        //
-        // 为什么不能只靠下面的 stopService: 它是延迟 400ms 执行的, 而主 WebView 的渲染循环
-        // 在 onResume 这一刻就恢复了 —— 这 400ms 里两个 Live2D 实例同时渲染。
-        // 实测 (headless Edge, 两个渲染器并存): 主界面 29fps → 9.5fps; 停掉悬浮窗渲染立刻回到 32fps。
-        // 见 tmp-memcheck/probe-main-fps.mjs。
+        // Request the overlay pause before restoring the main WebView.
         setFloatPaused(true)
+        webView.onResume()
+        notifyPagePaused(false)
+        setupImmersive()
         // 主 App 回到前台时隐藏悬浮窗 (延迟一下, 避免退出时 onResume 误杀刚启动的 Service)
         try {
             webView.postDelayed({
@@ -326,7 +323,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 通知悬浮窗暂停/恢复渲染 (没有任何悬浮窗在显示时服务会自己收走, 见 FloatService.ACTION_SET_PAUSED)。
+     * Request overlay pause/resume asynchronously; page visibility remains independently gated.
      * 失败一律吞掉: 悬浮窗只是"锦上添花", 绝不能因为它影响主 App 的前后台切换。
      */
     private fun setFloatPaused(paused: Boolean) {
@@ -340,6 +337,12 @@ class MainActivity : AppCompatActivity() {
             // 保持"不影响主 App 前后台切换"的语义, 但不再完全静默
             Log.w(TAG, "setFloatPaused($paused) failed", e)
         }
+    }
+
+    private fun notifyPagePaused(paused: Boolean) {
+        val event = if (paused) "nori-app-pause" else "nori-app-resume"
+        webView.evaluateJavascript(
+            "window.__noriAppPaused = $paused; window.dispatchEvent(new Event('$event'))", null)
     }
 
     /**
@@ -363,8 +366,7 @@ class MainActivity : AppCompatActivity() {
             "onDestroy",
             "changingConfig=$changing finishing=$isFinishing"
         )
-        webView.stopLoading()
-        webView.destroy()
+        destroyNoriWebView(webView)
         // 退出应用时: 若开启了悬浮窗且有权, 启动悬浮窗服务 (Nori 留在屏幕)。
         // 配置重建不算退出 → 该分支不启 (avoid 换配置时桌面突然冒出 Nori)。
         if (!changing && isFinishing) {

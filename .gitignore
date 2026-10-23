@@ -44,3 +44,6 @@ keystore.properties
 /App.vue
 tmp-patch-report.txt
 .scope-logs/
+
+# ---- 在线人数计数服务（services/presence）本地状态 ----
+services/presence/.wrangler/

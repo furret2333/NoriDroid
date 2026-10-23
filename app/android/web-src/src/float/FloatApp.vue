@@ -17,6 +17,7 @@ import {
 } from "../services/live2d/markerRules"
 import {scheduleReturnToNeutral, cancelReturnToNeutral} from "../services/live2d/motionReturn"
 import {loadSettings} from "../services/chat"
+import {createRenderPauseState} from "../services/renderPause"
 
 const l2d = createLive2D()
 const status = ref("")
@@ -47,8 +48,20 @@ declare global {
 	}
 }
 
-/** 页面自己变成 hidden (WebView 被切走/息屏) 时兜底暂停 —— 与原生指令同一个入口 */
-const onVis = (): void => { window.__noriSetPaused?.(document.hidden) }
+/** A reattachment's visible event cannot cancel the foreground Activity's pause. */
+const pauseState = createRenderPauseState((paused) => {
+	renderPaused = paused
+	if (paused) {
+		geometry?.pause()
+		performanceRevision++
+		cancelReturnToNeutral()
+		if (idleTimer) clearTimeout(idleTimer)
+		idleTimer = null
+	}
+	l2d.pauseRender(paused)
+	if (!paused) scheduleIdle()
+})
+const onVis = (): void => { pauseState.setHidden(document.hidden) }
 
 /** 刷新能力列表 (模型挂载后读取一次) */
 const refreshCapabilities = async (spec: {directory: string; fileBase: string}) => {
@@ -105,8 +118,14 @@ const onWinResize = (): void => {
 }
 
 onMounted(async () => {
+	// Register before the first await, including the installed-model scan.
+	window.__noriSetPaused = (paused: boolean) => { pauseState.setNativePaused(paused) }
+	document.addEventListener("visibilitychange", onVis)
+	pauseState.setNativePaused(window.__noriFloatNativePaused === true)
+	onVis()
 	try {
 		const installed = await listInstalled()
+		if (disposed) return
 		if (!installed.length) {
 			status.value = "没有已安装的模型"
 			return
@@ -136,6 +155,7 @@ onMounted(async () => {
 		let mountingSince = 0
 		const MOUNT_GUARD_MS = 15000
 		const mountModel = async () => {
+			if (disposed) return
 			if (mountingSince && Date.now() - mountingSince < MOUNT_GUARD_MS) return
 			mountingSince = Date.now()
 			try {
@@ -146,7 +166,10 @@ onMounted(async () => {
 				geometry = installFloatingGeometry(cropModelKey)
 				delete window.__noriVisibleBounds
 				await l2d.destroy()
+				if (disposed) return
 				await l2d.mount(spec, {canvasWidth: "100%", canvasHeight: "100%", host: null})
+				if (disposed) { await l2d.destroy(); return }
+				l2d.pauseRender(renderPaused)
 				try { l2d.playMotionByIndex("Idle", 0) } catch { /* 忽略 */ }
 				try { l2d.setRenderScale(floatRenderScale) } catch { /* 忽略 */ }
 				// WebGL 上下文丢失时 preventDefault 保持可恢复 (surface 重建常见)
@@ -160,12 +183,15 @@ onMounted(async () => {
 					cv?.addEventListener("webglcontextrestored", () => { mountModel() })
 				} catch { /* 忽略 */ }
 				await refreshCapabilities(spec)
+				if (disposed) return
 				geometry?.start()
-				scheduleIdle()
+				l2d.pauseRender(renderPaused)
+				if (!renderPaused) scheduleIdle()
 			} catch { /* 忽略 */ } finally { mountingSince = 0 }
 		}
 
 		await mountModel()
+		if (disposed) return
 		// 渲染分辨率: 读主 App 设置 + 支持原生实时推送
 		try {
 			const st = loadSettings()
@@ -178,31 +204,6 @@ onMounted(async () => {
 			floatRenderScale = normalizeRenderScale(s, floatRenderScale)
 			l2d.setRenderScale(floatRenderScale)
 		}
-		/**
-		 * 暂停 / 恢复渲染 —— 由原生侧的**主 App 前后台**驱动（FloatService.ACTION_SET_PAUSED）。
-		 *
-		 * 为什么悬浮窗需要这个: 它是一个独立 WebView，主 App 回前台时它并不会自动"不可见",
-		 * 而是继续按自己的帧率画 —— 两个 Live2D 实例抢 GPU/CPU，主界面帧率实测从 29 掉到 9.5
-		 * （tmp-memcheck/probe-main-fps.mjs）。原生那边 `stopService` 是延迟 400ms 才执行的，
-		 * 这中间只能靠"不画"来省；而且只要服务因为别的原因活着（气泡在前台等），
-		 * 没有这个开关就会一直白烧电。
-		 *
-		 * 暂停只是不画（模型、画布、手势命中都不动），恢复是即时的。
-		 */
-		window.__noriSetPaused = (p: boolean) => {
-			renderPaused = !!p
-			geometry?.pause()
-			try {
-				if (p) {
-					cancelReturnToNeutral()
-					if (idleTimer) clearTimeout(idleTimer)
-					idleTimer = null
-				}
-				l2d.pauseRender(!!p)
-				if (!p) scheduleIdle()
-			} catch { /* 忽略 */ }
-		}
-		/** 兜底: 页面自己变成 hidden (WebView 被切走/息屏) 时也停 —— 监听在下面与 resize 一起挂 */
 		// 原生改完悬浮窗 flags 后调用: 重挂模型救回画面 (Nori 约 1 秒后重新出现)
 		window.__noriRefresh = () => { mountModel() }
 		// 聊天气泡驱动 Nori 表演: 表情/动作标记 → 播放对应模型动作 (与主 App 同规则)
@@ -235,7 +236,6 @@ onMounted(async () => {
 		// 窗口尺寸变化 (捏合拉大/缩小悬浮窗) → 重新上报脚底+模型区域
 		// 具名函数: 原先用匿名箭头, onBeforeUnmount 无法解绑, 每次挂载累积一个监听器
 		window.addEventListener("resize", onWinResize)
-		document.addEventListener("visibilitychange", onVis)
 		onVis()   // 页面一开始就是 hidden 的情况 (WebView 还没显示) 也要对齐一次
 	} catch (e: any) {
 		status.value = `失败: ${e?.message ?? String(e)}`
@@ -244,6 +244,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
 	disposed = true
+	l2d.pauseRender(true)
 	geometry?.stop()
 	performanceRevision++
 	clearTimeout(geometrySoon)
@@ -252,6 +253,13 @@ onBeforeUnmount(() => {
 	cancelReturnToNeutral()
 	window.removeEventListener("resize", onWinResize)
 	document.removeEventListener("visibilitychange", onVis)
+	delete window.__noriSetPaused
+	delete window.__noriRefresh
+	delete window.__noriSetRenderScale
+	delete window.__noriPlayMarker
+	delete window.__noriPlayByText
+	delete window.__noriTouchActive
+	void l2d.destroy()
 })
 </script>
 
