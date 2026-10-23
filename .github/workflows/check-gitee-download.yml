@@ -1,0 +1,84 @@
+# 发版后的「Gitee 下载文件」检查器（只检查，不上传）
+#
+# 为什么改成检查器：
+#   这原来是「自动同步到 Gitee」的工作流，但**从 GitHub 美国 runner 往 Gitee 传大文件会卡死**
+#   （5.4MB 还行，9.7MB 起必挂：10-20 卡 6 分钟被取消、10-23 卡满 12 分钟超时），
+#   每次发版都失败、白耗时间。上传已改为本机脚本 `scripts/publish-gitee.mjs`（国内→Gitee，几秒）。
+#
+# 本工作流现在只做一件事：发布 Release 后，检查官网下载链接指向的 Gitee raw 文件是否存在、
+# MIME 是否正确。不写入任何东西，也不需要 GITEE_TOKEN。
+# 若检查失败，说明你还没在本机跑发布脚本——按提示执行即可。
+#
+# 触发：公开仓库发布 Release 时自动跑；也可手动 workflow_dispatch。
+
+name: Check Gitee download file
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to check (e.g. 2.5.0); empty = latest release"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.repository == 'furret2333/NoriDroid'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      GITEE_OWNER: HuiQwQ
+      GITEE_REPO: nori-droid
+
+    steps:
+      - name: Resolve tag and APK asset name
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag || '' }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          NAME="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.assets[].name' | grep -i '\.apk$' | head -n1)"
+          if [ -z "$NAME" ]; then
+            echo "::error:: release ${TAG} has no .apk asset"
+            exit 1
+          fi
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}  apk=${NAME}"
+
+      - name: Check the Gitee raw URL the website links to
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          NAME: ${{ steps.meta.outputs.name }}
+        run: |
+          set -euo pipefail
+          URL="https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}/raw/master/dl/${NAME}"
+          echo "checking: ${URL}"
+
+          CODE="$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 60 "$URL" || true)"
+          echo "http=${CODE}"
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error:: 官网下载链接暂时不可用（HTTP ${CODE}）。请在本机运行： node scripts/publish-gitee.mjs ${TAG}"
+            exit 1
+          fi
+
+          CT="$(curl -s -I -L --max-time 60 "$URL" | tr -d '\r' | awk 'tolower($1)=="content-type:"{v=$2} END{print v}')"
+          echo "content-type: ${CT}"
+          case "$CT" in
+            *zip*) echo "::error:: Gitee 直接把 apk 当成 zip 返回了，浏览器会当成压缩包"; exit 1 ;;
+            "") echo "::error:: 读不到 content-type"; exit 1 ;;
+          esac
+
+          echo "OK: 官网下载链接可用，且不会被当成压缩包"
