@@ -296,7 +296,7 @@ for (const [label, key] of needCss) {
 	// 写死单个子域时换源会再踩一次同样的坑。
 	// 2026-10-23 起额外放行本项目 Supabase host（在线人数 fetch 备用通道），所以用包含判断而不是等值。
 	const hasDomain = /ALLOWED_SUBRESOURCE_DOMAINS\s*=\s*setOf\([^)]*"pinme\.dev"/.test(wa)
-	const hasSupabase = wa.includes("xztoatqtnlehfauywosa.supabase.co")
+	const hasSupabase = wa.includes("noridroid-presence-d8csu101fba36.api.tcloudbasegateway.com")
 	const hasApi = wa.includes("fun isAllowedSubresource(")
 	const hasSuffix = wa.includes("endsWith(\".$it\")")
 	const usesIt = ma.includes("WebAssets.isAllowedSubresource(url)")
@@ -368,16 +368,28 @@ for (const [label, key] of needCss) {
 	const hasJs = String(js || "").includes("presencePing")
 	// 2026-10-22 补：光有方法名不够 —— 曾经因为请求打到根路径（缺 /v1/heartbeat）而全绿
 	const hasPath = String(js || "").includes("/v1/heartbeat")
-	// 2026-10-23 起主后端是 Supabase RPC，产物里必须有函数名（否则就是没打进包）
+	// 2026-10-23 起主后端是 CloudBase PostgreSQL RPC
 	const hasRpc = String(js || "").includes("presence_heartbeat")
+	const hasCloudBase = String(js || "").includes("noridroid-presence-d8csu101fba36.api.tcloudbasegateway.com")
+	const hasBearer = String(js || "").includes("Bearer ")
+	const hasKey = String(js || "").includes("eyJhbGci")
+	const hasNativeBearer = ktSrc.includes('headers["Authorization"] = "Bearer $apiKey"')
 	console.log(`${hasNative ? "PASS" : "FAIL"}  原生里有在线人数心跳桥方法（presencePing）`)
 	console.log(`${hasJs ? "PASS" : "FAIL"}  前端产物里接上了在线人数心跳（presencePing）`)
 	console.log(`${hasPath ? "PASS" : "FAIL"}  前端产物里带 /v1/heartbeat 路径（旧后端兼容）`)
-	console.log(`${hasRpc ? "PASS" : "FAIL"}  前端产物里带 Supabase RPC 函数名（presence_heartbeat）`)
+	console.log(`${hasRpc ? "PASS" : "FAIL"}  前端产物里带 RPC 函数名（presence_heartbeat）`)
+	console.log(`${hasCloudBase ? "PASS" : "FAIL"}  前端产物里带 CloudBase 网关地址`)
+	console.log(`${hasBearer ? "PASS" : "FAIL"}  前端产物里用 Authorization: Bearer`)
+	console.log(`${hasKey ? "PASS" : "FAIL"}  前端产物里带 Publishable Key`)
+	console.log(`${hasNativeBearer ? "PASS" : "FAIL"}  原生桥也发 Authorization: Bearer`)
 	if (!hasNative) bad += 1
 	if (!hasJs) bad += 1
 	if (!hasPath) bad += 1
 	if (!hasRpc) bad += 1
+	if (!hasCloudBase) bad += 1
+	if (!hasBearer) bad += 1
+	if (!hasKey) bad += 1
+	if (!hasNativeBearer) bad += 1
 }
 
 console.log(bad ? `\n${bad} 项未通过` : "\n全部通过: APK 内的前端就是本轮构建")

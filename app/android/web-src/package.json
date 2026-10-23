@@ -10,6 +10,7 @@
 		"preview": "vite preview",
 		"test": "node tmp-memcheck/run-tests.mjs",
 		"test:diary": "node scripts/test-diary.mjs",
+		"test:pomodoro": "node scripts/test-pomodoro.mjs",
 		"postinstall": "node scripts/patch-live2d.mjs",
 		"sync:models": "powershell -ExecutionPolicy Bypass -File scripts/sync-models.ps1"
 	},

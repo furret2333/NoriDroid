@@ -28,6 +28,7 @@
     <!-- 鐣寗閽? 瀹屾垚绯荤粺閫氱煡 (API33+ 杩愯鏃惰姹? + 杩涚▼琚潃鏃剁殑鍑嗙偣鍏滃簳闂归挓 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- FloatService is now a FOREGROUND service (2026-10-03, fixes B3).
          Why: as a plain background service it (a) failed silently when background
@@ -95,7 +96,12 @@
         <!-- 鐣寗閽熷厹搴曢椆閽? 杩涚▼琚潃鏃惰ˉ鍙戝畬鎴愰€氱煡 -->
         <receiver
             android:name=".PomodoroAlarmReceiver"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 鎮诞绐楄亰澶╂皵娉?(鍗婇€忔槑灏忕獥鍙? 鎵胯浇杈撳叆妗? -->
         <activity

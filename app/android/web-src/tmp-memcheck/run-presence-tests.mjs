@@ -138,6 +138,15 @@ check("⑦-h 未配置时状态说明", P.presenceStatusText(null, now0, false) 
 		P.heartbeatUrl() ===
 			"https://xztoatqtnlehfauywosa.supabase.co/rest/v1/rpc/presence_heartbeat",
 		P.heartbeatUrl())
+	globalThis.window = {
+		__noriPresenceUrl:
+			"https://noridroid-presence-d8csu101fba36.api.tcloudbasegateway.com/v1/rdb/rest/rpc/presence_heartbeat",
+	}
+	check("⑧-h CloudBase RPC 地址原样使用（不追加 /v1/heartbeat）",
+		P.heartbeatUrl() ===
+			"https://noridroid-presence-d8csu101fba36.api.tcloudbasegateway.com/v1/rdb/rest/rpc/presence_heartbeat",
+		P.heartbeatUrl())
+
 	globalThis.window = {__noriPresenceUrl: "http://insecure.test"}
 	check("⑧-c 覆盖成非 https 仍视为未配置", P.presenceConfigured() === false)
 	globalThis.window = saved

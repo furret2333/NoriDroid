@@ -40,9 +40,9 @@ object WebAssets {
     private val ALLOWED_SUBRESOURCE_DOMAINS = setOf(
         "pinme.dev",
         // 2026-10-23: 在线人数心跳优先走 WebView fetch（Chromium 网络栈）；
-        // 原生 HttpURLConnection 到 Supabase 会 connection reset，浏览器却正常。
-        // 只放行本项目这一个 Supabase host，不加整段 supabase.co。
-        "xztoatqtnlehfauywosa.supabase.co",
+        // 当前后端是 CloudBase（腾讯云开发）PostgreSQL 的 PostgREST RPC。
+        // 只放行本项目这一个 CloudBase API 网关 host，不加整段域名。
+        "noridroid-presence-d8csu101fba36.api.tcloudbasegateway.com",
     )
 
     /** 主机是否属于上面那份域名（精确匹配或子域） */

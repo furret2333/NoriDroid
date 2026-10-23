@@ -10,6 +10,8 @@
 
 /** 每日专注记录 (与 pomo.json 的 days[k] 同构) */
 export interface PomoDayStat {
+    switched?: number
+    stopped?: number
 	/** 净专注分钟数 (含中断前已专注的部分) */
 	focusMin: number
 	/** 完整跑完的番茄数 */
@@ -54,8 +56,7 @@ export interface PomoStatsFile {
 	lastEventSeq?: number
 }
 
-/** 保留上限: 10 年。这是**防御性**上限而非业务保留期 ——
- *  用户要的是永久保留, 这条只是防止文件被异常写坏后无限膨胀。 */
+/** 旧版兼容常量；不再据此删除有效历史。 */
 export const KEEP_DAYS = 3650
 
 /** 本地日期键 YYYY-MM-DD */
@@ -96,7 +97,7 @@ export const addToStore = (stats: PomoStatsFile, delta: Partial<PomoTotal>): voi
 }
 
 /**
- * 迁移/自愈: 补上 total / best 字段 (旧 pomo.json 没有), 并按 KEEP_DAYS 裁掉过老明细。
+ * 迁移/自愈: 补上 total / best 字段；有效明细不按日期删除。
  * @returns 是否有改动 (有则调用方需要落盘)
  */
 export const migrateStats = (stats: PomoStatsFile, now: Date = new Date()): boolean => {
@@ -119,11 +120,7 @@ export const migrateStats = (stats: PomoStatsFile, now: Date = new Date()): bool
 		stats.best = {dayMin, streak: bestStreak(stats.days)}
 		changed = true
 	}
-	// ③ 防御性裁剪 (永久保留 = 只删 10 年以前的)
-	const cutoff = dayKey(new Date(now.getTime() - KEEP_DAYS * 86400000))
-	for (const k of Object.keys(stats.days)) {
-		if (k < cutoff) { delete stats.days[k]; changed = true }
-	}
+	// 有效历史日记录长期保留；数据大小限制与格式校验由读取/导入入口负责。
 	return changed
 }
 

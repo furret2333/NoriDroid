@@ -16,16 +16,18 @@
  * 部署后把地址填到下面的 `PRESENCE_URL`，或探针里用 `window.__noriPresenceUrl` 覆盖。
  */
 
-/** 计数服务地址（完整端点）。留空 = 功能未启用（关于页不显示在线人数，也不发任何请求）。
- *  2026-10-23：Cloudflare（workers.dev + 自定义域名）在国内被阻断，改用 Supabase 免费版的
- *  Postgres RPC（schema 见 services/presence-supabase/schema.sql）。
- *  换服务端只改这一行。 */
+/** 计数服务地址（完整端点）。留空 = 功能未启用（设置页不显示在线人数，也不发任何请求）。
+ *  2026-10-23：Cloudflare（workers.dev + 自定义域名）被阻断、Supabase 在你网络大量 reset，
+ *  最终改用 CloudBase（腾讯云开发）PostgreSQL 的 PostgREST RPC：
+ *  `POST https://<envId>.api.tcloudbasegateway.com/v1/rdb/rest/rpc/presence_heartbeat`
+ *  schema 见 services/presence-cloudbase/schema.sql。换服务端只改这一行。 */
 export const PRESENCE_URL =
-	"https://xztoatqtnlehfauywosa.supabase.co/rest/v1/rpc/presence_heartbeat"
+	"https://noridroid-presence-d8csu101fba36.api.tcloudbasegateway.com/v1/rdb/rest/rpc/presence_heartbeat"
 
-/** Supabase 的 publishable key（公开值，会打进客户端；只用于 apikey header）。
- *  换后端/换项目时和 PRESENCE_URL 一起改。 */
-export const PRESENCE_KEY = "sb_publishable_5DOhaCD0oQUeGFHK9Bcbyg_NMR7gHjj"
+/** CloudBase 的 Publishable Key（公开值，会打进客户端；用 `Authorization: Bearer <key>` 发送）。
+ *  换环境时和 PRESENCE_URL 一起改。 */
+export const PRESENCE_KEY =
+	"eyJhbGciOiJSUzI1NiIsImtpZCI6IjBiZDg4YjFiLTI4NGItNDc1Ni05OTk1LThhMTA4YWFjMWU3ZSJ9.eyJpc3MiOiJodHRwczovL25vcmlkcm9pZC1wcmVzZW5jZS1kOGNzdTEwMWZiYTM2LmFwLXNoYW5naGFpLnRjYi1hcGkudGVuY2VudGNsb3VkYXBpLmNvbSIsInN1YiI6ImFub24iLCJhdWQiOiJub3JpZHJvaWQtcHJlc2VuY2UtZDhjc3UxMDFmYmEzNiIsImV4cCI6NDA5NjQ0NzU1NSwiaWF0IjoxNzkyNzY0MzU1LCJub25jZSI6IjlFV1ptcHpEUXVHZ0o4MHBDQVNVWUEiLCJhdF9oYXNoIjoiOUVXWm1wekRRdUdnSjgwcENBU1VZQSIsIm5hbWUiOiJBbm9ueW1vdXMiLCJzY29wZSI6ImFub255bW91cyIsInByb2plY3RfaWQiOiJub3JpZHJvaWQtcHJlc2VuY2UtZDhjc3UxMDFmYmEzNiIsIm1ldGEiOnsicGxhdGZvcm0iOiJQdWJsaXNoYWJsZUtleSJ9LCJyb2xlIjoiYW5vbiIsImlzX2Fub255bW91cyI6dHJ1ZSwiYXBwX21ldGFkYXRhIjp7InByb3ZpZGVyIjoiYW5vbnltb3VzIiwicHJvdmlkZXJzIjpbImFub255bW91cyJdfSwidXNlcl9tZXRhZGF0YSI6eyJuYW1lIjoiQW5vbnltb3VzIn0sInVzZXJfdHlwZSI6IiIsImNsaWVudF90eXBlIjoiY2xpZW50X3VzZXIiLCJpc19zeXN0ZW1fYWRtaW4iOmZhbHNlfQ.U986oSRU97q3XUovFXrI_UW82JvS7hq0Jfc0aNjWv9p2S4IbD9BtHun2diQeG4n0xC1k8__KWqZnltlO9U1ZOZL7zLVTrLcAb0JMXJF6SM_oyhTe9ZnchOTvywgFyhWZujjzW00tN3z3xif4hsutq8qI6rll63UYj_flpnXu1svDsHkFIwYae25WrW2Og55ZHt9N1pT6QsggdtZbup-cPCUfNDpghfc96balT_rF6qSWtxabJ1pBIQXUOBoY8SqWyntC-SoMAEVPwSaRqeGQ0GLfUndpscTBDbqurC_3ZyUZfFeMbiXm1ng5XyCS_DPsZc6W3_gUqXyu88PRtUcB0Q"
 
 /** 心跳间隔：5 分钟（服务端窗口 10 分钟，留一次容错） */
 export const HEARTBEAT_MS = 5 * 60_000
@@ -67,16 +69,17 @@ export const runtimePresenceUrl = (): string => {
 }
 
 /**
- * 心跳端点：兼容三种填法 ——
- *   - Supabase RPC 完整地址 `…/rest/v1/rpc/presence_heartbeat`（当前使用）
+ * 心跳端点：兼容几种填法 ——
+ *   - CloudBase RPC 完整地址 `…/v1/rdb/rest/rpc/presence_heartbeat`（当前使用）
+ *   - Supabase RPC `…/rest/v1/rpc/presence_heartbeat`（历史）
  *   - 服务根地址 `https://xxx.workers.dev`（旧 Cloudflare 后端）
  *   - 完整端点 `https://xxx.workers.dev/v1/heartbeat`
- * Supabase RPC 地址原样返回；其余统一补成 `/v1/heartbeat`。空地址返回空串。
+ * RPC 地址原样返回；其余统一补成 `/v1/heartbeat`。空地址返回空串。
  */
 export const heartbeatUrl = (): string => {
 	const raw = runtimePresenceUrl().replace(/\/+$/, "")
 	if (!raw) return ""
-	if (/\/rest\/v1\/rpc\/[A-Za-z0-9_]+$/.test(raw)) return raw
+	if (/\/(?:rdb\/rest|rest\/v1)\/rpc\/[A-Za-z0-9_]+$/.test(raw)) return raw
 	const base = raw.replace(/\/v1\/heartbeat$/, "")
 	return `${base}/v1/heartbeat`
 }
@@ -404,13 +407,15 @@ const sendViaFetch = async (url: string, id: string, version: string): Promise<s
 	const ctl = typeof AbortController !== "undefined" ? new AbortController() : null
 	const timer = ctl ? window.setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS) : 0
 	try {
+		const headers: Record<string, string> = {
+			"content-type": "application/json",
+			accept: "application/json",
+		}
+		// 旧 Worker 后端没有 key：不要发空的 `Bearer `，避免没必要的预检
+		if (PRESENCE_KEY) headers.authorization = `Bearer ${PRESENCE_KEY}`
 		const res = await fetch(url, {
 			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				accept: "application/json",
-				apikey: PRESENCE_KEY,
-			},
+			headers,
 			body: JSON.stringify({p_id: id, p_v: version}),
 			cache: "no-store",
 			signal: ctl?.signal,

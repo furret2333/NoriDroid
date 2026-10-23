@@ -10,6 +10,13 @@ import android.content.Intent
  */
 class PomodoroAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        runCatching { PomodoroEngine.completeIfDue(context) }
+        runCatching {
+            when(intent.action) {
+                "com.noridroid.POMO_CONTROL" -> PomodoroEngine.notificationAction(context,
+                    intent.getStringExtra("session") ?: "", intent.getLongExtra("revision", -1), intent.getStringExtra("command") ?: "")
+                Intent.ACTION_BOOT_COMPLETED, "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" -> PomodoroEngine.recover(context)
+                else -> PomodoroEngine.completeIfDue(context)
+            }
+        }.onFailure { android.util.Log.e("Pomodoro", "提醒恢复失败", it) }
     }
 }

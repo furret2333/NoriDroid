@@ -939,18 +939,18 @@ const diskMemories = () => { try { return JSON.parse(files.get("memory.json") ||
 		check("T21: 字段齐备时 changed=false", changed === false)
 	}
 
-	/* --- ③ 保留期: 永久 (不再删 30 天前), 只裁 10 年外 --- */
+	/* --- ③ 保留期: 有效历史不按日期裁剪 --- */
 	{
 		const keep = {v: 1, days: {
 			[key(60)]: day({focusMin: 10}),      // 60 天前: 旧逻辑会删, 现在必须保留
 			[key(300)]: day({focusMin: 10}),     // 300 天前
-			[key(4000)]: day({focusMin: 10}),    // 超过 10 年: 防御性裁掉
+			[key(4000)]: day({focusMin: 10}),    // 超过 10 年仍保留
 		}}
 		ps.migrateStats(keep, NOW)
 		const ks = Object.keys(keep.days)
 		check("T21: 60 天前的记录被保留 (永久保留)", ks.includes(key(60)), JSON.stringify(ks))
 		check("T21: 300 天前的记录被保留", ks.includes(key(300)), JSON.stringify(ks))
-		check("T21: 超过 10 年的记录被裁掉 (防御上限)", !ks.includes(key(4000)), JSON.stringify(ks))
+		check("T21: 超过 10 年的有效记录仍保留", ks.includes(key(4000)), JSON.stringify(ks))
 	}
 
 	/* --- ④ addToStore: 按增量累加 (传全量会重复累加, 这是实测踩过的坑) --- */

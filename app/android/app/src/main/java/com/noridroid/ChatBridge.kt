@@ -70,6 +70,95 @@ class ChatBridge(private val appContext: Context) {
     fun pomoStartCountUp(): String = PomodoroEngine.startCountUp(appContext)
 
     @android.webkit.JavascriptInterface
+    fun pomoStartPlan(options: String): String = pomoResult { PomodoroEngine.startPlan(appContext, JSONObject(options)) }
+
+    @android.webkit.JavascriptInterface
+    fun pomoStartFree(goal: String): String = pomoResult { PomodoroEngine.startCountUp(appContext, goal) }
+
+    private fun pomoResult(block: () -> String): String = runCatching { block() }
+        .getOrElse { JSONObject().put("ok", false).put("message", it.message ?: "操作失败，请重试").toString() }
+
+    @android.webkit.JavascriptInterface
+    fun pomoDashboard(): String = pomoResult {
+        val seed = readFile("pomo.json")
+        val old = File(legacyDir(), "pomo.json")
+        val canInspect = if (Build.VERSION.SDK_INT >= 30) hasAllFilesAccess() else isStorageReady()
+        val view = PomodoroEngine.dashboard(appContext, seed, canInspect && (!old.exists() || old.length() == 0L))
+        val raw = view.getJSONObject("stats").toString()
+        val imported = view.getJSONObject("stats").optBoolean("legacyImported")
+        val result = if (!imported) "等待存储访问权限" else if (raw == seed) "ok" else writeFile("pomo.json", raw)
+        val prefs = appContext.getSharedPreferences("pomo_sync", Context.MODE_PRIVATE)
+        if (result == "ok" && (raw != seed || prefs.getLong("at", 0) == 0L)) prefs.edit().putLong("at", System.currentTimeMillis()).apply()
+        view.put("syncStatus", if (result == "ok") "ok" else "pending").put("syncMessage", if(result == "ok") "" else result)
+            .put("syncedAt", prefs.getLong("at", 0)).toString()
+    }
+
+    @android.webkit.JavascriptInterface
+    fun pomoReminderSettings(kind: String) { mainHandler.post { runCatching { PomodoroEngine.openReminderSettings(appContext, kind) } } }
+
+    @android.webkit.JavascriptInterface
+    fun pomoResolveReboot(include: Boolean): String = pomoResult { PomodoroEngine.resolveReboot(appContext, include) }
+
+    @android.webkit.JavascriptInterface
+    fun pomoOpenedFromNotification(): Boolean = (appContext as? Activity)?.intent?.let {
+        val open = it.getBooleanExtra("nori_pomo", false)
+        it.removeExtra("nori_pomo")
+        open
+    } ?: false
+
+    @android.webkit.JavascriptInterface
+    fun pomoRestoreBackup(content: String): String = pomoResult {
+        require(content.length <= 10_000_000) { "备份超过 10MB" }
+        // 公共恢复前副本同样要求写成功；失败不替换任何记录。
+        require(JSONObject(PomodoroEngine.state(appContext)).getString("phase") == "idle") { "请先结束计时" }
+        val old = syncPomoStats()
+        require(old.isNotBlank()) { "当前账本无法读取，暂不能恢复" }
+        val backup = JSONObject().put("kind", "nori-pomodoro").put("version", 1)
+            .put("exportedAt", System.currentTimeMillis()).put("stats", JSONObject(old))
+        require(writeFile("pomo-before-restore.json", backup.toString()) == "ok") { "恢复前副本保存失败，请检查存储权限" }
+        PomodoroEngine.restore(appContext, content)
+        pomoDashboard()
+    }
+
+    @android.webkit.JavascriptInterface
+    fun pickPomoBackup() {
+        mainHandler.post {
+            runCatching {
+                val act = appContext as? Activity ?: error("请在主界面恢复记录")
+                act.startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("*/*")
+                    .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain", "application/octet-stream"))
+                    .addCategory(Intent.CATEGORY_OPENABLE), REQ_PICK_POMO)
+            }.onFailure { postToJs("__noriPomoPickedRes", JSONObject().put("ok", false).put("message", it.message).toString()) }
+        }
+    }
+
+    private fun handlePomoPickResult(resultCode: Int, data: Intent?) {
+        if (resultCode != Activity.RESULT_OK || data?.data == null) {
+            postToJs("__noriPomoPickedRes", JSONObject().put("ok", false).put("cancelled", true).toString()); return
+        }
+        ioExecutor.execute {
+            val result = runCatching {
+                val bytes = ByteArrayOutputStream()
+                cr.openInputStream(data.data!!)?.use { input ->
+                    val chunk = ByteArray(16384)
+                    while (true) {
+                        val n = input.read(chunk); if (n < 0) break
+                        require(bytes.size() + n <= 10_000_000) { "备份超过 10MB" }
+                        bytes.write(chunk, 0, n)
+                    }
+                } ?: error("无法读取备份")
+                val raw = Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes.toByteArray())).toString().removePrefix("\uFEFF")
+                val envelope = JSONObject(raw)
+                require(envelope.optString("kind") == "nori-pomodoro" && envelope.optInt("version") == 1) { "请选择番茄钟 JSON 备份" }
+                PomodoroLedger.validate(envelope.getJSONObject("stats"))
+                JSONObject().put("ok", true).put("content", raw)
+            }.getOrElse { JSONObject().put("ok", false).put("message", it.message ?: "备份读取失败") }
+            postToJs("__noriPomoPickedRes", result.toString())
+        }
+    }
+
+    @android.webkit.JavascriptInterface
     fun pomoPause(): String = PomodoroEngine.pause(appContext)
 
     @android.webkit.JavascriptInterface
@@ -78,6 +167,9 @@ class ChatBridge(private val appContext: Context) {
     /** 放弃/结束: 返回带 endedPhase + elapsedMs 的状态 */
     @android.webkit.JavascriptInterface
     fun pomoStop(): String = PomodoroEngine.stop(appContext)
+
+    @android.webkit.JavascriptInterface
+    fun pomoStopSession(session: String): String = pomoResult { PomodoroEngine.stop(appContext, session) }
 
     @android.webkit.JavascriptInterface
     fun pomoState(): String = PomodoroEngine.state(appContext)
@@ -98,7 +190,7 @@ class ChatBridge(private val appContext: Context) {
         // 权限尚未授予时，空读取不能证明旧文件不存在；避免把公共旧副本覆盖成新空表。
         if (JSONObject(raw).optBoolean("legacyImported")) writeFile("pomo.json", raw)
         raw
-    }.getOrElse { "" }
+    }.getOrElse { JSONObject().put("ok", false).put("message", it.message ?: "统计读取失败").toString() }
 
     @android.webkit.JavascriptInterface
     fun pomoSetNotify(enabled: Boolean) = PomodoroEngine.setNotify(appContext, enabled)
@@ -817,9 +909,9 @@ class ChatBridge(private val appContext: Context) {
      * - 原生这条通道 (`ioExecutor` + HttpURLConnection + postToJs) 已经是余额查询/下载
      *   在用的成熟路径, 还能把超时压到 5s。
      *
-     * 当前后端是 Supabase 的 PostgREST RPC (2026-10-23 起): 地址形如
-     * `https://<ref>.supabase.co/rest/v1/rpc/presence_heartbeat`,
-     * 需要 `apikey` header (publishable key, 公开值). 旧 Cloudflare 后端不需要 key, 传空串即可.
+     * 当前后端是 CloudBase（腾讯云开发）PostgreSQL 的 PostgREST RPC (2026-10-23 起):
+     * 地址形如 `https://<envId>.api.tcloudbasegateway.com/v1/rdb/rest/rpc/presence_heartbeat`,
+     * 需要 `Authorization: Bearer <Publishable Key>`。旧 Cloudflare 后端不需要 key, 传空串即可.
      *
      * 上报内容只有随机安装 ID + 版本号; 不含任何设备标识或聊天数据。
      * 服务端地址与 key 由 JS 侧传入 (留空时 JS 根本不会调这里)。
@@ -836,7 +928,7 @@ class ChatBridge(private val appContext: Context) {
                 require(version.isNotEmpty() && version.length <= 32 && '\n' !in version && '\r' !in version) {
                     "版本号非法"
                 }
-                require(apiKey.length <= 256 && '\n' !in apiKey && '\r' !in apiKey) { "API key 非法" }
+                require(apiKey.length <= 4096 && '\n' !in apiKey && '\r' !in apiKey) { "API key 非法" }
                 // 只发 p_id/p_v: PostgREST RPC 要求 body 字段和 SQL 函数参数一一对应；
                 // 参数不能叫 id（会和表列 id 冲突，42702 ambiguous）
                 val body = JSONObject()
@@ -844,7 +936,7 @@ class ChatBridge(private val appContext: Context) {
                     .put("p_v", version)
                     .toString()
                 val headers = mutableMapOf("Accept" to "application/json")
-                if (apiKey.isNotBlank()) headers["apikey"] = apiKey
+                if (apiKey.isNotBlank()) headers["Authorization"] = "Bearer $apiKey"
                 // 心跳必须快，但跨境/弱网首连（DNS + TLS）可能超过 5s：
                 // 给 8s，配合 JS 侧 20s 兜底；失败后 15s 就会重试。
                 val conn = open(
@@ -1929,6 +2021,7 @@ class ChatBridge(private val appContext: Context) {
 
     /** MainActivity.onActivityResult 转发到这里 */
     fun handlePickResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_PICK_POMO) { handlePomoPickResult(resultCode, data); return }
         if (requestCode == REQ_PICK_DIARY) {
             handleDiaryPickResult(resultCode, data)
             return
@@ -2541,6 +2634,7 @@ class ChatBridge(private val appContext: Context) {
         /** 选文本人设的请求码 (0x9A72 = 39538, 与上面的音频选择器离得够远, 不会撞) */
         private const val REQ_PICK_PERSONA = 0x9A72
         private const val REQ_PICK_DIARY = 0x9A73
+        private const val REQ_PICK_POMO = 0x9A74
         private const val BGM_URL = "https://add5ddd5.pinme.dev"
         /** 音效下载源: 5 个原版 m4a 就在根目录 (文件名写错也回 200, 见上面校验) */
         private const val SFX_BASE = "https://59f06f75.pinme.dev"

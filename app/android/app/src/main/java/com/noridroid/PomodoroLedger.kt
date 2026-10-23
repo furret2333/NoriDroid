@@ -55,8 +55,7 @@ internal object PomodoroLedger {
             stats.put("total", t)
         }
         var watermark = stats.optLong("lastEventSeq", 0)
-        for (i in 0 until events.length()) {
-            val e = events.getJSONObject(i)
+        for (e in (0 until events.length()).map { events.getJSONObject(it) }.sortedBy { it.getLong("seq") }) {
             val seq = e.getLong("seq")
             if (seq <= watermark) continue
             val phase = e.getString("phase")
@@ -82,7 +81,11 @@ internal object PomodoroLedger {
                         d.put("completedFocusMin", knownMin + e.getLong("elapsedMs") / 60000.0)
                         d.put("done", d.optInt("done") + 1)
                         total.put("done", total.optInt("done") + 1)
-                    } else d.put("abort", d.optInt("abort") + 1)
+                    } else {
+                        d.put("abort", d.optInt("abort") + 1)
+                        val reasonKey = if (e.getString("reason") == "switch") "switched" else "stopped"
+                        d.put(reasonKey, d.optInt(reasonKey) + 1)
+                    }
                 }
             }
             watermark = seq
@@ -113,4 +116,27 @@ internal object PomodoroLedger {
     }
 
     private fun newDay() = JSONObject().put("focusMin", 0).put("countUpMin", 0).put("done", 0).put("abort", 0)
+
+    /** 不接受不支持版本、负数、无穷数或无效日期，失败不触碰账本。 */
+    fun validate(input: JSONObject): JSONObject {
+        require(input.optInt("v", 1) in 1..2) { "不支持的记录版本" }
+        val days = input.getJSONObject("days")
+        require(days.length() <= 100000) { "记录数量超过限制" }
+        val format = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { isLenient = false }
+        for (date in days.keys()) {
+            require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(date) && format.format(format.parse(date)!!) == date) { "记录日期无效" }
+            val day = days.getJSONObject(date)
+            for (key in listOf("focusMin", "countUpMin", "done", "abort", "focusMs", "countUpMs", "completedCount", "completedFocusMin", "switched", "stopped")) {
+                if (!day.has(key)) continue
+                val n = day.getDouble(key)
+                require(n.isFinite() && n >= 0 && n <= 1e15) { "记录数值无效：$key" }
+                if (key in listOf("done", "abort", "completedCount", "switched", "stopped", "focusMs", "countUpMs"))
+                    require(n == kotlin.math.floor(n)) { "记录计数必须为整数" }
+            }
+        }
+        for (field in listOf("total", "best", "celebrated")) input.optJSONObject(field)?.let { obj ->
+            for (key in obj.keys()) require(obj.getDouble(key).let { it.isFinite() && it >= 0 && it <= 1e15 }) { "汇总数据无效" }
+        }
+        return input
+    }
 }

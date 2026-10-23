@@ -7,6 +7,7 @@
 import {normalizeCloneVoices, type CosyCloneVoice} from "../tts/cosy-models"
 import {normalizeRenderScale} from "../live2d/renderScale"
 import {formatLocalTime, isValidTimestamp} from "../time"
+import type {PomoConfig} from "../pomodoro"
 // 界面字体 (system / wenkai / kuaile): 纯逻辑放零依赖模块, 这里只借它的归一化
 import {normalizeUiFont, type UiFontChoice} from "../ui-font"
 export {normalizeCloneVoices, type CosyCloneVoice}
@@ -16,6 +17,7 @@ export {normalizeCloneVoices, type CosyCloneVoice}
    Nori 的人格完全来自用户导入的 `persona.md`；没有导入时就没有人格提示词（不会用任何内置文本兜底）。 */
 
 export interface Settings {
+    pomo?: PomoConfig
 	apiKey: string
 	baseUrl: string
 	model: string

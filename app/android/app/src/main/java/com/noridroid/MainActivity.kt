@@ -200,6 +200,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("nori_pomo", false)) webView.evaluateJavascript("window.dispatchEvent(new Event('nori-open-pomo'))", null)
+    }
+
     private fun loadPage() {
         runCatching {
             assets.open("web/index.html").close()

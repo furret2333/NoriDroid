@@ -1,21 +1,15 @@
 # 把 GitHub Release 里的 APK 同步到 Gitee（国内下载加速通道）
 #
-# 为什么需要：官网下载主按钮指向 Gitee。若 Gitee 上没有对应版本的文件，国内访客点下载会 404。
+# 官网下载主按钮指向 Gitee 仓库 `dl/<文件名>` 的 raw 文件（返回 application/octet-stream）。
+# ⚠ Gitee 的「发行版附件」返回 Content-Type: application/zip，浏览器会把 apk 当压缩包，
+#   所以**不能**用它做下载链接；它只作为 releases 页面的可浏览资产，属于可选步骤。
 #
-# ⚠ 两条通道并存，用途不同：
-#   1) Gitee 发行版附件 —— 给人浏览 releases 页面用。但它返回 Content-Type: application/zip，
-#      浏览器/下载器会把 apk 当成压缩包，所以**不能**作为官网下载链接。
-#   2) Gitee 仓库 dl/<文件名> 的 raw 文件 —— 返回 application/octet-stream、文件名正确，
-#      国内实测约 2.5 MB/s。官网主下载按钮用的就是这条。
+# 步骤顺序有意为之：**关键路径（raw 副本）放在最前面**，
+#   可选的发行版附件上传放在最后并允许失败/限时——它在 2026-10-20 曾把 9.7MB 的包上传卡死，
+#   导致整条工作流被取消、官网下载 404。
 #
-# 触发：公开仓库发布 Release 时自动跑；也可手动 workflow_dispatch 补同步。
+# 触发：公开仓库发布 Release 时自动跑；也可手动 workflow_dispatch 补同步（幂等）。
 # 权限：只读（contents: read）——不提交任何代码；只读 Release 资产 + 调 Gitee。
-#
-# 前置配置（一次性）：
-#   在 Gitee「设置 → 私人令牌」生成令牌（勾 projects），加到公开仓库 furret2333/NoriDroid 的
-#   Settings → Secrets and variables → Actions → New repository secret，名字必须是 GITEE_TOKEN。
-#
-# 说明：本文件同时存在于归档仓库，靠下面的 if 只在公开仓库运行（不耗私有仓库 Actions 分钟）。
 
 name: Sync Release to Gitee
 
@@ -25,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to sync (e.g. 2.3.0); empty = latest release"
+        description: "Tag to sync (e.g. 2.4.0); empty = latest release"
         required: false
         default: ""
 
@@ -40,7 +34,7 @@ jobs:
   sync:
     if: github.repository == 'furret2333/NoriDroid'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     env:
       GITEE_OWNER: HuiQwQ
@@ -72,12 +66,13 @@ jobs:
           APK="$(ls dist/*.apk | head -n1)"
           echo "APK=${APK}" >> "$GITHUB_ENV"
           echo "APK_SHA=$(sha256sum "$APK" | awk '{print $1}')" >> "$GITHUB_ENV"
-          echo "local apk: ${APK}"
+          echo "local apk: ${APK} (sha256 ${APK_SHA})"
 
-      - name: Sync release attachment to Gitee
+      # ===== 关键路径：官网下载链接指向这里，必须最先完成 =====
+      - name: Publish raw copy in the Gitee repo (this is what the website links to)
+        timeout-minutes: 12
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          TAG: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
@@ -89,50 +84,6 @@ jobs:
             exit 1
           fi
 
-          API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"
-          NAME="$(basename "$APK")"
-
-          # 1) find release by tag
-          REL_ID="$(curl -sS "$API/releases/tags/${TAG}" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("id") or "")' 2>/dev/null || true)"
-
-          # 2) create it when missing
-          if [ -z "$REL_ID" ]; then
-            echo "release ${TAG} not found on Gitee, creating..."
-            REL_ID="$(curl -sS -X POST "$API/releases" \
-              -d "access_token=${GITEE_TOKEN}" \
-              --data-urlencode "tag_name=${TAG}" \
-              --data-urlencode "name=NoriDroid ${TAG}" \
-              --data-urlencode "body=Synced automatically from the GitHub release: NoriDroid ${TAG}" \
-              --data-urlencode "target_commitish=master" \
-              --data-urlencode "prerelease=false" \
-              | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("id") or "")' 2>/dev/null || true)"
-          fi
-
-          if [ -z "$REL_ID" ]; then
-            echo "::error:: could not find or create the Gitee release ${TAG}"
-            exit 1
-          fi
-          echo "gitee release id = ${REL_ID}"
-
-          # 3) skip when the asset is already attached (idempotent)
-          HAVE="$(curl -sS "$API/releases/${REL_ID}/attach_files" | python3 -c 'import sys,json;print("\n".join(a.get("name","") for a in json.load(sys.stdin)))' 2>/dev/null || true)"
-          if printf '%s\n' "$HAVE" | grep -Fxq "$NAME"; then
-            echo "${NAME} already attached on Gitee, nothing to do"
-            exit 0
-          fi
-
-          # 4) upload the asset
-          echo "uploading ${NAME} ..."
-          curl -sS -X POST "$API/releases/${REL_ID}/attach_files" \
-            -F "access_token=${GITEE_TOKEN}" \
-            -F "file=@${APK}" \
-            | python3 -c 'import sys,json;d=json.load(sys.stdin);print("uploaded:", d.get("browser_download_url") if isinstance(d,dict) else d)'
-
-      - name: Publish raw copy in the Gitee repo (this is what the website links to)
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          set -euo pipefail
           NAME="$(basename "$APK")"
           printf 'https://%s:%s@gitee.com\n' "${GITEE_OWNER}" "${GITEE_TOKEN}" > "$HOME/.git-credentials"
           chmod 600 "$HOME/.git-credentials"
@@ -145,7 +96,7 @@ jobs:
           cd gitee-repo
           mkdir -p dl
 
-          # 只保留最近的 2 个 apk，避免仓库无限膨胀（历史仍会累积，但工作区很小）
+          # 只保留最近的 2 个 apk，避免工作区无限膨胀（git 历史仍会累积）
           if ls dl/*.apk >/dev/null 2>&1; then
             ls -1t dl/*.apk | tail -n +3 | while read -r old; do git rm -q --ignore-unmatch "$old"; done
           fi
@@ -163,6 +114,7 @@ jobs:
           echo "raw url: https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}/raw/master/dl/${NAME}"
 
       - name: Verify the raw URL the website uses
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           NAME="$(basename "$APK")"
@@ -192,6 +144,49 @@ jobs:
             exit 1
           fi
           echo "OK: raw copy matches the GitHub release asset and is not served as a zip"
+
+      # ===== 可选路径：给人浏览 Gitee releases 页面用。失败/超时都不影响官网下载 =====
+      - name: Sync release attachment to Gitee (optional, never blocks the site)
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"
+          NAME="$(basename "$APK")"
+
+          REL_ID="$(curl -sS "$API/releases/tags/${TAG}" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("id") or "")' 2>/dev/null || true)"
+          if [ -z "$REL_ID" ]; then
+            echo "release ${TAG} not found on Gitee, creating..."
+            REL_ID="$(curl -sS -X POST "$API/releases" \
+              -d "access_token=${GITEE_TOKEN}" \
+              --data-urlencode "tag_name=${TAG}" \
+              --data-urlencode "name=NoriDroid ${TAG}" \
+              --data-urlencode "body=Synced automatically from the GitHub release: NoriDroid ${TAG}" \
+              --data-urlencode "target_commitish=master" \
+              --data-urlencode "prerelease=false" \
+              | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("id") or "")' 2>/dev/null || true)"
+          fi
+          if [ -z "$REL_ID" ]; then
+            echo "::warning:: could not find or create the Gitee release ${TAG} (harmless: the site uses the raw copy)"
+            exit 0
+          fi
+          echo "gitee release id = ${REL_ID}"
+
+          HAVE="$(curl -sS "$API/releases/${REL_ID}/attach_files" | python3 -c 'import sys,json;print("\n".join(a.get("name","") for a in json.load(sys.stdin)))' 2>/dev/null || true)"
+          if printf '%s\n' "$HAVE" | grep -Fxq "$NAME"; then
+            echo "${NAME} already attached on Gitee, nothing to do"
+            exit 0
+          fi
+
+          # 大文件上传可能很慢甚至卡住；限时 + continue-on-error，卡住也只影响这一步
+          echo "uploading ${NAME} (this step is optional) ..."
+          curl -sS --max-time 240 --connect-timeout 20 -X POST "$API/releases/${REL_ID}/attach_files" \
+            -F "access_token=${GITEE_TOKEN}" \
+            -F "file=@${APK}" \
+            | python3 -c 'import sys,json;d=json.load(sys.stdin);print("uploaded:", d.get("browser_download_url") if isinstance(d,dict) else d)'
 
       - name: Shred credentials file
         if: always()

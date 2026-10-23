@@ -22,22 +22,22 @@
 		<div v-if="hitDebug && hitZoneText" class="hit-debug">命中：{{ hitZoneText }}<span v-if="petDebugText"> ｜ {{ petDebugText }}</span></div>
 
 		<!-- 番茄钟悬浮窗 (拖拽移动 / 右下角缩放 / 可折叠; 组件根截断 pointer 事件, 不惊动摸头与双指手势) -->
-		<div v-if="pomoWidgetOn && pomo.phase !== 'idle'" class="pomo-widget" :class="{mini: pomoMini}" :style="{left: pomoPos.x + 'px', top: pomoPos.y + 'px', width: pomoPos.w + 'px'}" @pointerdown.stop>
+		<div v-if="pomoWidgetOn && pomo.phase !== 'idle' && panel !== 'pomo' && panel !== 'pomoStats'" ref="pomoWidgetEl" class="pomo-widget" :class="{mini: pomoMini}" :style="{left: pomoPos.x + 'px', top: pomoPos.y + 'px', width: pomoMini ? 'auto' : pomoPos.w + 'px'}" @pointerdown.stop>
 			<template v-if="!pomoMini">
 				<div class="pw-head" @pointerdown="onPomoDragDown" @pointermove="onPomoDragMove" @pointerup="onPomoDragUp" @pointercancel="onPomoDragUp">
 					<span class="pw-tomato">🍅</span><span>{{ pomoPhaseText }}</span>
-					<button class="pw-mini-btn" title="收起" @click="pomoMini = true; pomoPosSave()">—</button>
+					<button class="pw-mini-btn" title="收起" aria-label="收起计时挂件" @pointerdown.stop @click="pomoMini = true; pomoPosSave()">—</button>
 				</div>
 				<div class="pw-time">{{ pomoFmt }}</div>
-				<div v-if="pomo.phase !== 'countUp'" class="pw-bar"><i :style="{width: pomoPct + '%'}"></i></div>
+				<div v-if="pomo.phase !== 'countUp'" class="pw-bar"><i :style="{transform: 'scaleX(' + pomoPct / 100 + ')'}"></i></div>
 				<div class="pw-btns">
-					<button @click="pomoPauseBtn">{{ pomo.paused ? '继续' : '暂停' }}</button>
-					<button class="warn" @click="pomoStopBtn">{{ pomo.phase === 'break' ? '跳过' : pomo.phase === 'countUp' ? '停止并保存' : '放弃' }}</button>
+					<button :disabled="pomoBusy || pomo.rebootPending" @click="pomoAction('pause')">{{ pomo.paused ? '继续' : '暂停' }}</button>
+					<button class="warn" @click="pomoWidgetStop">{{ pomo.phase === 'break' ? '结束休息' : '结束并保存' }}</button>
 				</div>
 				<i class="pw-grip" @pointerdown="onPomoRzDown" @pointermove="onPomoRzMove" @pointerup="onPomoRzUp" @pointercancel="onPomoRzUp"></i>
 			</template>
 			<template v-else>
-				<button class="pw-pill" @click="pomoMini = false; pomoPosSave()">🍅 {{ pomoFmt }}</button>
+                <div class="pw-mini-group"><span class="pw-mini-drag" title="拖动" @pointerdown="onPomoDragDown" @pointermove="onPomoDragMove" @pointerup="onPomoDragUp" @pointercancel="onPomoDragUp">⠿</span><button class="pw-pill" :aria-label="pomoPhaseText + '，展开计时挂件'" @click="pomoMini = false; pomoPosSave()"><small>{{ pomoPhaseText }}</small>{{ pomoFmt }}</button><button class="pw-mini-control" :disabled="pomoBusy || pomo.rebootPending" :aria-label="pomo.paused ? '继续计时' : '暂停计时'" @click="pomoAction('pause')">{{ pomo.paused ? '▶' : 'Ⅱ' }}</button></div>
 			</template>
 		</div>
 
@@ -423,7 +423,7 @@
 
 		<transition name="sheet">
 			<div v-if="panel && panel !== 'touch' && panel !== 'tts'" class="sheet-mask" @click.self="panel = ''">
-				<div class="sheet" :class="{'diary-sheet': panel === 'diary'}">
+				<div class="sheet" :class="{'diary-sheet': panel === 'diary', 'focus-sheet': panel === 'pomo' || panel === 'pomoStats'}">
 					<div class="sheet-head" :class="{'settings-sheet-head': panel === 'settings'}">
 						<span class="sheet-title">{{ panelTitle(panel) }}</span>
 						<div v-if="panel === 'settings'" class="settings-bgm-player" :class="{ 'is-playing': bgmCanSkip }">
@@ -672,88 +672,22 @@
 
 						
 						<template v-else-if="panel === 'pomo'">
-							<div class="settings-row">
-								<label>专注 / 休息（分钟）</label>
-								<div class="pomo-pair">
-									<input type="number" min="5" max="120" v-model.number="pomoCfg.focusMin" @change="pomoCfg.focusMin = Math.min(120, Math.max(5, Math.round(pomoCfg.focusMin) || 25))" />
-									<span class="pomo-slash">/</span>
-									<input type="number" min="1" max="30" v-model.number="pomoCfg.breakMin" @change="pomoCfg.breakMin = Math.min(30, Math.max(1, Math.round(pomoCfg.breakMin) || 5))" />
-								</div>
-							</div>
-							<div class="settings-row">
-								<label>预设</label>
-								<div class="pomo-chips">
-									<button v-for="p in POMO_PRESETS" :key="p.label" class="pomo-chip" :class="{on: pomoCfg.focusMin === p.focus && pomoCfg.breakMin === p.break}" @click="pomoCfg.focusMin = p.focus; pomoCfg.breakMin = p.break">{{ p.label }}</button>
-								</div>
-							</div>
-							<div class="settings-row">
-								<div class="row-inline">
-									<label>专注完成自动开始休息</label>
-									<input type="checkbox" v-model="pomoCfg.autoBreak" />
-								</div>
-							</div>
-							<div class="settings-row">
-								<div class="row-inline">
-									<label>完成时发系统通知</label>
-									<input type="checkbox" v-model="pomoCfg.notify" @change="pomoOnNotifyChange" />
-								</div>
-							</div>
-							<div class="settings-row">
-								<div class="row-inline">
-									<label>放弃后安静保持（分钟）</label>
-									<select v-model.number="pomoCfg.sulkMin">
-										<option :value="0">手动恢复</option>
-										<option :value="5">5</option>
-										<option :value="10">10</option>
-										<option :value="15">15</option>
-									</select>
-								</div>
-								<div class="hint">开始专注即安静（不主动搭话、BGM 暂停，朗读与按键音保留）。放弃后继续保持这么久再自动恢复；坚持跑完则整个番茄周期结束就立即恢复。期间你手动动过静音开关，就由你接管。</div>
-							</div>
-							<div class="settings-row">
-								<label>今日专注</label>
-								<span class="pomo-today">{{ pomoTodayText }}</span>
-								<!-- 完成率/平均每段: 数据本来就有 (done/abort/focusMin), 只是没展示。
-								     不放进 Nori 的台词里 —— 那是"自我批评"类数据, 适合给你自己看 -->
-								<div class="pomo-sub" v-if="pomoSummary.todayRate >= 0 || pomoSummary.todayAvgMin > 0">
-									<span v-if="pomoSummary.todayRate >= 0">完成率 {{ Math.round(pomoSummary.todayRate * 100) }}%</span>
-									<span v-if="pomoSummary.todayAvgMin > 0">平均完成段 {{ pomoSummary.todayAvgMin }} 分钟</span>
-								</div>
-							</div>
-							<div class="settings-row">
-								<label>近 {{ pomoRange }} 天</label>
-								<span class="pomo-today">
-									{{ pomoRangeSummary.rangeMin }} 分钟 · 完成 {{ pomoRangeSummary.rangeDone }}
-									<span v-if="pomoRangeSummary.rangeBest > 0"> · 最佳 {{ pomoRangeSummary.rangeBest }} 分钟</span>
-									<span v-if="pomoRangeSummary.streak > 1"> · 连续 {{ pomoRangeSummary.streak }} 天 🔥</span>
-								</span>
-							</div>
-							<!-- 范围切换: 7 / 30 / 365 天。柱旁"全部"按钮进入独立统计页 (热力图 + 点选某天) -->
-							<div class="pomo-range">
-								<button
-									v-for="r in ([7, 30, 365] as const)" :key="r"
-									class="pomo-rbtn" :class="{on: pomoRange === r}"
-									@click="pomoRange = r"
-								>{{ r === 7 ? "7 天" : r === 30 ? "30 天" : "全年" }}</button>
-								<button class="pomo-rbtn all" @click="openPomoStats">全部 ›</button>
-							</div>
-							<div class="pomo-bars" :class="{'dense': pomoRange > 30}">
-								<div v-for="d in pomoRangeBars" :key="d.day" class="pb-col">
-									<i :style="{height: d.h + '%'}" :title="d.min + ' 分钟'"></i>
-									<!-- 柱顶常显分钟数 (原先只有 hover 才看得到, 手机上等于看不到);
-									     30/365 天档太密, 只在有值时显示且字号更小 -->
-									<b class="pb-val" v-if="d.min > 0 && pomoRange <= 30">{{ d.min }}</b>
-									<span>{{ d.label }}</span>
-								</div>
-							</div>
-							<div class="pomo-act">
-								<button class="pomo-go" @click="pomoGoBtn">{{ pomoGoLabel }}</button>
-								<button class="pomo-go alt" @click="pomoCountUpBtn">{{ pomo.phase === 'countUp' ? '停止正向' : pomo.phase === 'idle' ? '正向计时' : '保存并转正向' }}</button>
-							</div>
-							<div class="hint">离开界面仍会计时，重新打开会补齐统计。到点通知受上方开关与系统权限控制，后台提醒可能受系统省电策略影响。计时及休息期间 Nori 不主动搭话。</div>
-						</template>
+                            <PomodoroPanel :config="pomoCfg" :phase="pomo.phase" :paused="pomo.paused" :time="pomoFmt" :percent="pomoPct" :phase-text="pomoPhaseText"
+                                :end-text="pomoEndText" :goal="pomo.goal || ''" :session-id="pomo.sessionId || ''" :rounds="pomo.rounds || 0" :long-every="pomo.longEvery || pomoCfg.longEvery" :cycle-enabled="pomo.phase === 'idle' ? pomoCfg.cycleEnabled : !!pomo.cycleEnabled"
+                                :saved-min="pomoSummary.todayMin" :live-min="pomoLiveMin" :done="pomoSummary.todayDone" :streak="pomoSummary.streak" :ready="pomoStatsReady" :busy="pomoBusy"
+                                :error="pomoError || pomoConfigError" :message="pomoMessage" :sync-text="pomoSyncText" :reminder-text="pomoReminderText" :reminder-action="pomoReminderAction"
+                                :quiet-held="pomoQuietHeld" :reboot-pending="!!pomo.rebootPending" :bars="pomoWeekBars" :restore-preview="pomoRestorePreview" :confirm-stop="pomoConfirmEnd"
+                                @action="pomoAction" @reminder="pomoReminderSettings" @export="pomoExport" />
+                        </template>
 						<template v-else-if="panel === 'pomoStats'">
-							<!-- 独立统计页: 一年热力图 (点格子看某天) + 终身累计 + 月度汇总 -->
+							<div class="pomo-stats-toolbar"><button class="mini" @click="panel = 'pomo'">‹ 返回计时</button><span>{{ pomoStatsReady ? '每一段努力，都算数' : '记录暂不可用' }}</span></div>
+                            <div v-if="pomoError" class="hint">{{ pomoError }} <button class="mini" @click="pomoRefresh()">重试</button></div>
+                            <template v-if="pomoStatsReady">
+                            <div class="pomo-range"><button v-for="r in ([7,30,365] as const)" :key="r" class="pomo-rbtn" :class="{on: pomoRange === r}" @click="pomoRange = r">{{ r === 365 ? '近一年' : `近 ${r} 天` }}</button></div>
+                            <div class="pomo-range-overview"><b>{{ pomoRangeSummary.rangeMin }}<small> 分钟</small></b><span>完成 {{ pomoRangeSummary.rangeDone }} 个 · 单日最佳 {{ pomoRangeSummary.rangeBest }} 分钟</span></div>
+                            <div v-if="pomoRange <= 30" class="pomo-bars pomo-selectable-bars" :class="{dense: pomoRange === 30}"><button v-for="d in pomoRangeBars" :key="d.day" class="pb-col" :aria-label="`${d.day}，${d.min} 分钟`" @click="pomoSelectDate(d.day)"><i :style="{height: d.h + '%'}"></i><span>{{ d.label }}</span></button></div>
+                            <div v-if="pomoSummary.todayRate >= 0" class="pomo-sub">今日倒计时完成率 {{ Math.round(pomoSummary.todayRate * 100) }}%<span v-if="pomoSummary.todayAvgMin > 0">平均完成段 {{ pomoSummary.todayAvgMin }} 分钟</span></div>
+                            <!-- 独立统计页: 一年热力图 (点格子看某天) + 终身累计 + 月度汇总 -->
 							<div class="settings-row">
 								<label>近一年</label>
 								<!-- 52 列 × 11px ≈ 572px, 比面板(约 260px)宽 → 必须放可横滚容器里,
@@ -771,7 +705,8 @@
 									<span class="mh-label">多</span>
 								</div>
 								<div class="hint" v-if="!pomoSelectedDay">点任意格子查看那一天的专注情况。</div>
-								<div class="pomo-daybox" v-else>
+								<label class="pomo-date-picker">选择日期<input type="date" :max="pomoDayKey(pomoDate)" @change="pomoSelectDate(($event.target as HTMLInputElement).value)" /></label>
+								<div class="pomo-daybox" v-if="pomoSelectedDay">
 									<b>{{ pomoSelectedDay.date }}</b>
 									<span>{{ pomoSelectedDay.min }} 分钟 · 完成 {{ pomoSelectedDay.done }} · 中断 {{ pomoSelectedDay.abort }}</span>
 								</div>
@@ -779,9 +714,9 @@
 							<div class="settings-row">
 								<label>累计</label>
 								<span class="pomo-today">
-									专注 {{ fmtTotalMin(pomoStats.total?.focusMin || 0) }}
+									总专注 {{ fmtTotalMin((pomoStats.total?.focusMin || 0) + (pomoStats.total?.countUpMin || 0)) }}
 									· 完成 {{ pomoStats.total?.done || 0 }} 个
-									<span v-if="(pomoStats.total?.countUpMin || 0) > 0"> · 正向 {{ fmtTotalMin(pomoStats.total?.countUpMin || 0) }}</span>
+									<span v-if="(pomoStats.total?.countUpMin || 0) > 0"> · 其中正向 {{ fmtTotalMin(pomoStats.total?.countUpMin || 0) }}</span>
 								</span>
 								<div class="pomo-sub">
 									<span>最好的一天 {{ Math.round(pomoStats.best?.dayMin || 0) }} 分钟</span>
@@ -793,12 +728,13 @@
 								<div class="pomo-months">
 									<div v-for="m in pomoMonths" :key="m.month" class="pm-row">
 										<span class="pm-name">{{ m.month.slice(2) }}</span>
-										<span class="pm-bar"><i :style="{width: Math.min(100, Math.round((m.min / (pomoMonths[0].min || 1)) * 100)) + '%'}"></i></span>
+										<span class="pm-bar"><i :style="{width: monthPercent(m.min, pomoMonths) + '%'}"></i></span>
 										<span class="pm-val">{{ m.min }} 分 · {{ m.done }} 个</span>
 									</div>
 								</div>
 							</div>
-							<div class="hint">专注记录永久保留（不再按 30 天滚动删除），超过 10 年的才会被裁掉。</div>
+							<div class="hint">有效专注记录长期保留。总专注包含倒计时与正向计时，不包含休息。</div>
+                            </template>
 						</template>
 						<template v-else-if="panel === 'settings'">
 							<div class="settings-shell">
@@ -1433,6 +1369,8 @@ import {
 } from "./services/live2d/touch"
 import {TouchDetector, toModelPoint, modelLayout} from "./services/live2d/touchDetection"
 import TouchManager from "./components/TouchManager.vue"
+import PomodoroPanel from "./components/PomodoroPanel.vue"
+import {DEFAULT_POMO, normalizePomo, projectLiveDays, monthPercent, parsePomoBackup, pomoCsv} from "./services/pomodoro"
 import {createRenderPauseState} from "./services/renderPause"
 import {
 	loadSettings,
@@ -1442,6 +1380,7 @@ import {
 	setChatTrimCutoff,
 	flushChatPersist,
 	writeFile,
+	readFileState,
 	fetchModels,
 	sendChat,
 	isStorageReady,
@@ -4990,7 +4929,7 @@ const bgmQuickStatus = computed(() => {
 })
 const bgmCanSkip = computed(() => cfg.bgmEnabled && bgmState.value === "ready" && !bgmQuietHold.value)
 /** ambient 总闸: 设置开关 × 安静模式 × 番茄钟专注 (唯一入口, 任何重评估都走这里) */
-const ambientAllowed = (): boolean => cfg.ambientEnabled && !quietActive() && !pomoFocus.value
+const ambientAllowed = (): boolean => cfg.ambientEnabled && !quietActive() && !pomoFocusMuteOn
 /** 番茄钟专注期静音是否生效 (声明在使用点之前: 供 bgmHeld 与 applyQuiet 判断) */
 let pomoFocusMuteOn = false
 /** 现在是否应当"保持安静"(不主动搭话 / BGM 不出声): 安静模式 或 番茄钟专注期静音 */
@@ -5019,9 +4958,17 @@ const onQuietToggle = (): void => {
  * 这里是遥控器 + 悬浮窗视图 + 联动: 播报(sfx/TTS)/每日统计(pomo.json)/放弃静音惩罚/ambient 抑制。
  * 时长以原生单调时钟快照为准；页面只展示，旧桥兼容 epoch 时间戳。 */
 type PomoPhase = "idle" | "focus" | "break" | "countUp"
-interface PomoStateT {phase: PomoPhase; paused: boolean; endAt: number; remainMs: number; focusMin: number; breakMin: number; autoBreak: boolean; startedAt: number; elapsedMs?: number; remainingMs?: number}
+interface PomoStateT {now?: number; days?: Record<string, number>; sessionId?: string; revision?: number; eventSeq?: number; goal?: string; rounds?: number; longEvery?: number; cycleEnabled?: boolean; isLongBreak?: boolean; rebootPending?: boolean; durationMs?: number; autoFocus?: boolean; phase: PomoPhase; paused: boolean; endAt: number; remainMs: number; focusMin: number; breakMin: number; autoBreak: boolean; startedAt: number; elapsedMs?: number; remainingMs?: number}
 interface PomoDay {focusMin: number; done: number; abort: number; countUpMin: number}
 interface PomoBridgeT {
+    pomoDashboard?: () => string
+    pomoStartPlan?: (options: string) => string
+    pomoStartFree?: (goal: string) => string
+    pomoReminderSettings?: (kind: string) => void
+    pomoResolveReboot?: (include: boolean) => string
+    pomoRestoreBackup?: (content: string) => string
+    pickPomoBackup?: () => void
+    pomoOpenedFromNotification?: () => boolean
 	readFile?: (n: string) => string
 	writeFile?: (n: string, c: string) => string
 	pomoStart?: (f: number, b: number, ab: boolean) => string
@@ -5029,6 +4976,7 @@ interface PomoBridgeT {
 	pomoPause?: () => string
 	pomoResume?: () => string
 	pomoStop?: () => string
+    pomoStopSession?: (session: string) => string
 	pomoState?: () => string
 	pomoRequestNotify?: () => void
 	pomoSetNotify?: (enabled: boolean) => void
@@ -5042,7 +4990,24 @@ const pomoWidgetOn = ref(false)
 const pomoMini = ref(false)
 const pomoFocus = ref(false)
 const pomoPos = ref({x: 16, y: 96, w: 260})
-const pomoCfg = reactive({autoBreak: true, notify: true, sulkMin: 10, focusMin: 25, breakMin: 5})
+const pomoCfg = reactive({...DEFAULT_POMO})
+const pomoStatsReady = ref(false)
+const pomoError = ref("")
+const pomoConfigError = ref("")
+const pomoMessage = ref("")
+const pomoBusy = ref(false)
+const pomoSyncedAt = ref(0)
+const pomoSyncPending = ref(false)
+const pomoReminder = ref<{permission: boolean; channel: boolean; controlChannel?: boolean; exact: boolean; scheduleError?: string} | null>(null)
+const pomoDisplayAt = ref(performance.now())
+const pomoQuietHeld = ref(false)
+let pomoSettingsReady = false
+let pomoConfigTimer = 0
+let pomoNeedsMigration = false
+let pomoSettingsReadable = true
+let pomoBackupContent = ""
+const pomoRestorePreview = ref("")
+const pomoConfirmEnd = ref(false)
 const POMO_PRESETS = [
 	{label: "25+5", focus: 25, break: 5},
 	{label: "52+17", focus: 52, break: 17},
@@ -5064,64 +5029,95 @@ const pomoDay = (): PomoDay => {
 	if (!pomoStats.days[k]) pomoStats.days[k] = {focusMin: 0, done: 0, abort: 0, countUpMin: 0}
 	return pomoStats.days[k]
 }
+const pomoApplyStats = (parsed: PomoStatsFile): void => {
+    if (!parsed || typeof parsed.days !== "object" || !parsed.days || Array.isArray(parsed.days)) throw new Error("专注记录格式异常")
+    Object.assign(pomoStats, {v: 2, days: {}, total: undefined, best: undefined, celebrated: {}, lastEventSeq: 0}, parsed)
+    pomoStatsReady.value = true
+}
+const pomoAcceptDashboard = (raw: string): void => {
+    const result = JSON.parse(raw)
+    if (result.ok === false) throw new Error(result.message || "记录读取失败")
+    if (!result.state || !result.stats) throw new Error("计时状态读取不完整")
+    if (!["idle", "focus", "break", "countUp"].includes(result.state.phase)) throw new Error("计时状态格式异常")
+    pomoApplyStats(result.stats)
+    pomoStateSet(JSON.stringify(result.state))
+    pomoSyncPending.value = result.syncStatus !== "ok"
+    pomoSyncedAt.value = Number(result.syncedAt) || 0
+    pomoReminder.value = result.reminder || null
+    pomoError.value = ""
+}
 const pomoStatsLoad = (): void => {
-	try {
-		const b = noriB()
-		const raw = b?.pomoStats ? b.pomoStats() : b?.readFile?.("pomo.json") || ""
-		const parsed = raw ? JSON.parse(raw) : null
-		// 原地替换内容 (不能 pomoStats = parsed: 它是 reactive, 换掉引用会丢掉响应性)
-		if (parsed && parsed.days) Object.assign(pomoStats, parsed)
-	} catch { /* 忽略 */ }
-	// 迁移: 补 total/best (旧文件没有), 并按 10 年防御上限裁剪。
-	// 注意这里**不再**按 30 天滚动删除 —— 用户要求永久保留往日数据。
-	if (!noriB()?.pomoStats && migrateStats(pomoStats)) pomoStatsSave()
+    try {
+        const b = noriB()
+        if (b?.pomoDashboard) { pomoAcceptDashboard(b.pomoDashboard()); return }
+        const raw = b?.pomoStats ? b.pomoStats() : b?.readFile?.("pomo.json") || ""
+        if (!raw) { if (!b?.pomoStats) { pomoStatsReady.value = true; return }; throw new Error("暂时无法读取记录") }
+        const parsed = JSON.parse(raw)
+        if (parsed.ok === false) throw new Error(parsed.message)
+        pomoApplyStats(parsed)
+        if (!b?.pomoStats && migrateStats(pomoStats)) pomoStatsSave()
+        pomoError.value = ""
+    } catch (e) { pomoError.value = `记录暂未更新：${(e as Error).message}。已保留上次显示。` }
 }
 const pomoStatsSave = (): void => {
-	try { noriB()?.writeFile?.("pomo.json", JSON.stringify(pomoStats)) } catch { /* 忽略 */ }
+    try { if (noriB()?.writeFile?.("pomo.json", JSON.stringify(pomoStats)) !== "ok") throw new Error("文件不可写") }
+    catch (e) { pomoError.value = `记录保存失败：${(e as Error).message}` }
 }
 const pomoCfgLoad = (): void => {
-	try {
-		const raw = localStorage.getItem("pomo_cfg")
-		if (raw) Object.assign(pomoCfg, JSON.parse(raw))
-		pomoCfg.focusMin = Math.min(120, Math.max(5, Number(pomoCfg.focusMin) || 25))
-		pomoCfg.breakMin = Math.min(30, Math.max(1, Number(pomoCfg.breakMin) || 5))
-		pomoCfg.sulkMin = Math.min(15, Math.max(0, Number(pomoCfg.sulkMin) || 0))
-	} catch { /* 忽略 */ }
+    try {
+        const file = readFileState("settings.json")
+        if (file.status === "error") { pomoSettingsReadable = false; throw new Error("设置暂不可读") }
+        const settings = file.status === "ok" ? JSON.parse(file.content) : {}
+        const legacy = localStorage.getItem("pomo_cfg")
+        Object.assign(pomoCfg, normalizePomo(settings.pomo || (legacy ? JSON.parse(legacy) : {})))
+        pomoNeedsMigration = !settings.pomo
+        pomoSettingsReadable = true
+        pomoConfigError.value = ""
+    } catch { pomoConfigError.value = "设置暂未恢复；读取恢复前不会自动覆盖旧设置。"; pomoSettingsReadable = false }
 }
 watch(pomoCfg, () => {
-	try { localStorage.setItem("pomo_cfg", JSON.stringify(pomoCfg)) } catch { /* 忽略 */ }
+    if (!pomoSettingsReady || !pomoSettingsReadable) return
+    if (pomoConfigTimer) clearTimeout(pomoConfigTimer)
+    pomoConfigTimer = window.setTimeout(() => {
+        Object.assign(pomoCfg, normalizePomo(pomoCfg))
+        const result = persistSettings()
+        pomoConfigError.value = result === "ok" ? "" : "专注设置未保存，请检查存储权限后重试。"
+        if (result === "ok") { pomoNeedsMigration = false; localStorage.removeItem("pomo_cfg") }
+        pomoSyncFocus()
+    }, 400)
 }, {deep: true})
 
 let pomoSnapshotAt = performance.now()
 
-const pomoStateSet = (json: string): void => {
+const pomoStateSet = (json: string): boolean => {
 	try {
 		const s = JSON.parse(json)
-		if (!s || !["idle", "focus", "break", "countUp"].includes(s.phase)) return
+		if (!s || !["idle", "focus", "break", "countUp"].includes(s.phase)) { pomoError.value = s?.message || "计时状态读取失败，请重试"; return false }
 		const finiteMs = (v: unknown): number => Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0
-		pomo.value = {phase: s.phase, paused: !!s.paused, endAt: finiteMs(s.endAt), remainMs: finiteMs(s.remainMs), focusMin: finiteMs(s.focusMin), breakMin: finiteMs(s.breakMin), autoBreak: !!s.autoBreak, startedAt: finiteMs(s.startedAt),
+		pomo.value = {now: finiteMs(s.now) || Date.now(), days: s.days || {}, sessionId: s.sessionId, revision: finiteMs(s.revision), eventSeq: finiteMs(s.eventSeq), goal: String(s.goal || ""), rounds: finiteMs(s.rounds), longEvery: finiteMs(s.longEvery), cycleEnabled: !!s.cycleEnabled, isLongBreak: !!s.isLongBreak, rebootPending: !!s.rebootPending, durationMs: finiteMs(s.durationMs), autoFocus: !!s.autoFocus, phase: s.phase, paused: !!s.paused, endAt: finiteMs(s.endAt), remainMs: finiteMs(s.remainMs), focusMin: finiteMs(s.focusMin), breakMin: finiteMs(s.breakMin), autoBreak: !!s.autoBreak, startedAt: finiteMs(s.startedAt),
 			...(s.elapsedMs !== undefined ? {elapsedMs: finiteMs(s.elapsedMs), remainingMs: finiteMs(s.remainingMs)} : {})}
 		pomoSnapshotAt = performance.now()
-	} catch { /* 忽略 */ }
+        pomoDisplayAt.value = pomoSnapshotAt
+        return true
+	} catch { pomoError.value = "计时状态读取失败，请重试"; return false }
 }
 const pomoSyncFocus = (): void => {
-	const f = pomo.value.phase !== "idle"
-	if (f !== pomoFocus.value) {
-		pomoFocus.value = f
-		// 专注开始 → 立即静音 (等价于在设置里打开"立即静音", 但带快照, 专注结束自动还原);
-		// 专注结束 → 还原进专注前的安静设置。
-		// 包括休息、暂停；整个周期结束后还原，用户手动接管优先。
-		if (f) pomoFocusMuteStart()
-		else pomoFocusMuteEnd()
-		setAmbientEnabled(ambientAllowed())
-	}
+    const active = pomo.value.phase !== "idle"
+    if (active && !pomoFocus.value) pomoFocusMuteStart()
+    else if (!active && pomoFocus.value) pomoFocusMuteEnd()
+    pomoFocus.value = active
+    if (active) pomoWidgetOn.value = true
+    pomoFocusMuteOn = !pomoQuietUser && (pomoSulk?.stage === "sulk" || active && (pomo.value.paused ? pomoCfg.quietPaused : pomo.value.phase === "break" ? pomoCfg.quietBreak : pomoCfg.quietFocus))
+    pomoQuietHeld.value = pomoFocusMuteOn
+    applyQuiet()
 }
 
 /** 原生推送入口 (PomodoroEngine.evaluateJavascript) */
 ;(window as unknown as {__noriPomoEvent?: (json: string) => void}).__noriPomoEvent = (json: string) => {
 	try {
 		const e = JSON.parse(json)
-		if (!e || e.type !== "end") return
+		if (e?.type === "state") { pomoRefresh(); return }
+        if (!e || e.type !== "end") return
 		if (e.seq && e.seq <= pomoLastAnnounced) { pomoRefresh(); return }
 		if (e.seq) pomoLastAnnounced = e.seq
 		const b = noriB()
@@ -5131,6 +5127,7 @@ const pomoSyncFocus = (): void => {
 		pomoUpdateDisplay()
 		// 已结束很久的后台事件只补账，避免重新打开时连续播报旧提示。
 		if (e.reason && e.reason !== "complete" || e.endedAt && Date.now() - e.endedAt > 15000) return
+		pomoMessage.value = e.phase === "focus" ? `本段 ${Math.round((e.elapsedMs || pomo.value.focusMin * 60000) / 60000)} 分钟已记录，做得很好。今天已积累 ${pomoSummary.value.todayMin} 分钟。` : "休息结束了，准备好再继续。"
 		if (e.phase === "focus") {
 			// 专注到点后进入休息 —— 仍在一个番茄周期内, 保持静音, 不在这里还原
 			if (!b?.pomoStats) {
@@ -5139,18 +5136,18 @@ const pomoSyncFocus = (): void => {
 				addToStore(pomoStats, {focusMin: pomo.value.focusMin, done: 1})
 				pomoStatsSave()
 			}
-			playSfxFile(POMO_SFX.complete)
-			if (isTtsReady(cfg)) { try { void speakTTS(cfg, "专注完成，做得很好。休息一下吧，我看着时间。") } catch { /* 忽略 */ } }
+			if (pomoCfg.feedback !== "silent") playSfxFile(POMO_SFX.complete)
+			if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, "专注完成，做得很好。休息一下吧，我看着时间。") } catch { /* 忽略 */ } }
 		} else {
 			// 休息结束 = 一个完整番茄跑完 → 还原进专注前的安静设置 (BGM 恢复)
-			playSfxFile(POMO_SFX.ret)
-			if (isTtsReady(cfg)) { try { void speakTTS(cfg, "休息够了？回来吧，我陪着你。") } catch { /* 忽略 */ } }
+			if (pomoCfg.feedback !== "silent") playSfxFile(POMO_SFX.ret)
+			if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, "休息够了？回来吧，我陪着你。") } catch { /* 忽略 */ } }
 		}
 	} catch { /* 忽略 */ }
 }
 let pomoLastAnnounced = 0
 
-/* 只在可见且运行时每秒同步原生，展示在单调时钟快照上推算。 */
+/* 可见且运行时每秒推进显示，原生仅低频校准及核对到点状态。 */
 const pomoFmt = ref("00:00")
 const pomoPct = ref(0)
 const pomoFmtOf = (sec: number): string => {
@@ -5161,6 +5158,7 @@ const pomoFmtOf = (sec: number): string => {
 	return core
 }
 const pomoTick = (): void => {
+    pomoDisplayAt.value = performance.now()
 	const s = pomo.value
 	if (s.phase === "idle") { pomoFmt.value = "00:00"; pomoPct.value = 0; return }
 	const now = Date.now()
@@ -5171,7 +5169,7 @@ const pomoTick = (): void => {
 		pomoPct.value = 0
 		return
 	}
-	const total = (s.phase === "focus" ? s.focusMin : s.breakMin) * 60
+	const total = s.durationMs ? s.durationMs / 1000 : (s.phase === "focus" ? s.focusMin : s.breakMin) * 60
 	const left = s.remainingMs !== undefined ? Math.max(0, Math.ceil((s.remainingMs - delta) / 1000))
 		: s.paused ? Math.ceil(s.remainMs / 1000) : Math.max(0, Math.ceil((s.endAt - now) / 1000))
 	pomoFmt.value = pomoFmtOf(left)
@@ -5181,17 +5179,24 @@ let pomoTickTimer = 0
 let pomoDateTimer = 0
 const pomoRefresh = (stats = true): void => {
 	const previousPhase = pomo.value.phase
-	try { const b = noriB(); if (b?.pomoState) pomoStateSet(b.pomoState()) } catch { /* 下次前台同步重试 */ }
+	try { const b = noriB(); if (b?.pomoState) pomoStateSet(b.pomoState()) } catch { pomoError.value = "计时状态暂未更新，请重试。" }
 	pomoSyncFocus()
 	// 原生完成回调即使未送达，轮询发现阶段变化时也立即同步账本。
 	if (stats || previousPhase !== pomo.value.phase) pomoStatsLoad()
+    pomoSyncFocus()
 	pomoUpdateDisplay()
 }
+let pomoLastCalibrated = performance.now()
 const pomoUpdateDisplay = (): void => {
-	pomoTick()
-	if (pomoTickTimer) { clearInterval(pomoTickTimer); pomoTickTimer = 0 }
-	if (!document.hidden && pomo.value.phase !== "idle" && !pomo.value.paused)
-		pomoTickTimer = window.setInterval(() => pomoRefresh(false), 1000)
+    pomoTick()
+    const running = !document.hidden && pomo.value.phase !== "idle" && !pomo.value.paused
+    if (!running && pomoTickTimer) { clearInterval(pomoTickTimer); pomoTickTimer = 0 }
+    if (running && !pomoTickTimer) pomoTickTimer = window.setInterval(() => {
+        pomoTick()
+        if (performance.now() - pomoLastCalibrated >= 10000 || pomo.value.phase !== "countUp" && pomoFmt.value === "00:00") {
+            pomoLastCalibrated = performance.now(); pomoRefresh(false)
+        }
+    }, 1000)
 }
 const pomoRefreshDate = (): void => {
 	pomoDate.value = new Date()
@@ -5204,95 +5209,63 @@ const pomoRefreshDate = (): void => {
 
 /* ---------------- 番茄钟静音：周期/放弃保持/用户接管 ---------------- */
 const FOCUS_MUTE_KEY = "pomo_focus_mute_snapshot"
-type QuietSnapshot = {mode: "off" | "auto" | "manual"; on: boolean}
-type PomoQuiet = QuietSnapshot & {stage: "cycle" | "sulk"; until: number; timer: number}
+type PomoQuiet = {v?: number; mode: string; on: boolean; stage: "cycle" | "sulk"; until: number; timer: number}
 let pomoSulk: PomoQuiet | null = null
 let pomoQuietUser = false
 const saveFocusMuteSnapshot = (): void => {
-	try {
-		const value = pomoQuietUser ? {stage: "user"} : pomoSulk
-		if (value) localStorage.setItem(FOCUS_MUTE_KEY, JSON.stringify({...value, timer: 0}))
-		else localStorage.removeItem(FOCUS_MUTE_KEY)
-	} catch { /* 忽略 */ }
+    try {
+        const value = pomoQuietUser ? {stage: "user", v: 2} : pomoSulk
+        if (value) localStorage.setItem(FOCUS_MUTE_KEY, JSON.stringify({...value, timer: 0}))
+        else localStorage.removeItem(FOCUS_MUTE_KEY)
+    } catch { /* 非权威的显示策略快照 */ }
 }
-const clearFocusMuteSnapshot = (): void => {
-	try { localStorage.removeItem(FOCUS_MUTE_KEY) } catch { /* 忽略 */ }
-}
-/** 开始/恢复整个周期，原安静设置只保存一次；放弃保持可无缝转入新周期。 */
+const clearFocusMuteSnapshot = (): void => { try { localStorage.removeItem(FOCUS_MUTE_KEY) } catch { /* ignore */ } }
 const pomoFocusMuteStart = (): void => {
-	if (pomoQuietUser || pomoFocusMuteOn) return
-	pomoFocusMuteOn = true
-	if (!pomoSulk) pomoSulk = {mode: cfg.quietMode as QuietSnapshot["mode"], on: cfg.quietOn, stage: "cycle", until: 0, timer: 0}
-	if (pomoSulk.timer) clearTimeout(pomoSulk.timer)
-	pomoSulk.stage = "cycle"; pomoSulk.until = 0; pomoSulk.timer = 0
-	saveFocusMuteSnapshot()
-	cfg.quietMode = "manual"; cfg.quietOn = true
-	applyQuiet()
-	persistSettings()
+    if (pomoQuietUser) return
+    if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
+    pomoSulk = {v: 2, mode: cfg.quietMode, on: cfg.quietOn, stage: "cycle", until: 0, timer: 0}
+    saveFocusMuteSnapshot()
 }
 const pomoFocusMuteEnd = (): void => {
-	pomoFocusMuteOn = false
-	if (pomoSulk?.stage === "cycle") pomoSulkRestore()
-	if (pomoQuietUser) { pomoQuietUser = false; clearFocusMuteSnapshot() }
-	applyQuiet()
+    if (pomoSulk?.stage === "cycle") pomoSulkRestore()
+    if (pomoQuietUser) { pomoQuietUser = false; clearFocusMuteSnapshot() }
 }
 const pomoSulkRestore = (): void => {
-	if (!pomoSulk) return
-	if (pomoSulk.timer) clearTimeout(pomoSulk.timer)
-	const snap = pomoSulk
-	pomoSulk = null
-	pomoFocusMuteOn = false
-	cfg.quietMode = snap.mode; cfg.quietOn = snap.on
-	clearFocusMuteSnapshot()
-	applyQuiet()
-	persistSettings()
+    if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
+    // 只还原旧版曾持久化改写过的全局设置；新版是临时覆盖策略。
+    if (pomoSulk && pomoSulk.v !== 2) { cfg.quietMode = pomoSulk.mode; cfg.quietOn = pomoSulk.on; persistSettings() }
+    pomoSulk = null; pomoFocusMuteOn = false; pomoQuietHeld.value = false
+    clearFocusMuteSnapshot(); applyQuiet()
 }
 const pomoArmSulk = (): void => {
-	if (!pomoSulk || pomoSulk.stage !== "sulk" || !pomoSulk.until) return
-	if (pomoSulk.timer) clearTimeout(pomoSulk.timer)
-	const left = pomoSulk.until - Date.now()
-	if (left <= 0) { pomoSulkRestore(); return }
-	pomoSulk.timer = window.setTimeout(pomoSulkRestore, left)
+    if (!pomoSulk || pomoSulk.stage !== "sulk" || !pomoSulk.until) return
+    if (pomoSulk.timer) clearTimeout(pomoSulk.timer)
+    const left = pomoSulk.until - Date.now()
+    if (left <= 0) { pomoSulkRestore(); return }
+    pomoSulk.timer = window.setTimeout(pomoSulkRestore, left)
 }
-/** 放弃时直接交接快照，不先恢复音乐；0 分钟表示等待用户手动恢复。 */
 const pomoSulkStart = (): void => {
-	pomoFocusMuteOn = false
-	if (pomoQuietUser) return
-	if (!pomoSulk) pomoSulk = {mode: cfg.quietMode as QuietSnapshot["mode"], on: cfg.quietOn, stage: "sulk", until: 0, timer: 0}
-	pomoSulk.stage = "sulk"
-	pomoSulk.until = pomoCfg.sulkMin > 0 ? Date.now() + pomoCfg.sulkMin * 60000 : 0
-	saveFocusMuteSnapshot()
-	cfg.quietMode = "manual"; cfg.quietOn = true
-	applyQuiet()
-	persistSettings()
-	pomoArmSulk()
+    if (pomoQuietUser || !pomoCfg.quietFocus) return
+    if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
+    pomoSulk = {v: 2, mode: cfg.quietMode, on: cfg.quietOn, stage: "sulk", until: pomoCfg.sulkMin > 0 ? Date.now() + pomoCfg.sulkMin * 60000 : 0, timer: 0}
+    saveFocusMuteSnapshot(); pomoArmSulk()
 }
-/** 用户手动修改静音后，以用户选择为准，重载也不重新覆盖。 */
 const pomoSulkCancelByUser = (): void => {
-	if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
-	pomoSulk = null
-	pomoFocusMuteOn = false
-	pomoQuietUser = pomo.value.phase !== "idle"
-	saveFocusMuteSnapshot()
+    if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
+    pomoSulk = null; pomoQuietUser = pomo.value.phase !== "idle"
+    pomoFocusMuteOn = false; pomoQuietHeld.value = false; saveFocusMuteSnapshot()
 }
-/** 在应用音乐设置前恢复，依据原生状态决定继续安静还是还原。 */
 const recoverFocusMuteIfNeeded = (): void => {
-	try {
-		const raw = localStorage.getItem(FOCUS_MUTE_KEY)
-		const snap = raw ? JSON.parse(raw) : null
-		if (snap?.stage === "user") pomoQuietUser = pomo.value.phase !== "idle"
-		else if (snap && ["off", "auto", "manual"].includes(snap.mode)) {
-			pomoSulk = {...snap, on: !!snap.on, stage: snap.stage === "sulk" ? "sulk" : "cycle", until: Number(snap.until) || 0, timer: 0}
-		}
-	} catch { clearFocusMuteSnapshot() }
-	pomoFocus.value = pomo.value.phase !== "idle"
-	if (pomoFocus.value) pomoFocusMuteStart()
-	else if (pomoSulk?.stage === "cycle") pomoSulkRestore()
-	else if (pomoSulk?.stage === "sulk") {
-		cfg.quietMode = "manual"; cfg.quietOn = true
-		pomoArmSulk()
-	} else clearFocusMuteSnapshot()
-	setAmbientEnabled(ambientAllowed())
+    try {
+        const raw = localStorage.getItem(FOCUS_MUTE_KEY), snap = raw ? JSON.parse(raw) : null
+        if (snap?.stage === "user") pomoQuietUser = pomo.value.phase !== "idle"
+        else if (snap && ["off", "auto", "manual"].includes(snap.mode)) {
+            if (snap.v !== 2) { cfg.quietMode = snap.mode; cfg.quietOn = !!snap.on; persistSettings() }
+            pomoSulk = {...snap, v: 2, stage: snap.stage === "sulk" ? "sulk" : "cycle", until: Number(snap.until) || 0, timer: 0}
+        }
+    } catch { clearFocusMuteSnapshot() }
+    if (pomo.value.phase === "idle" && pomoSulk?.stage === "cycle") pomoSulkRestore()
+    pomoArmSulk(); pomoSyncFocus()
 }
 
 /* 操作 */
@@ -5301,28 +5274,28 @@ const pomoStartImpl = (f: number, b: number): void => {
 	if (!b2?.pomoStart) return
 	pomoQuietUser = false
 	b2.pomoSetNotify?.(pomoCfg.notify)
-	pomoStateSet(b2.pomoStart(Math.min(120, Math.max(1, Math.round(f))), Math.min(30, Math.max(1, Math.round(b))), pomoCfg.autoBreak))
+	if (!pomoStateSet(b2.pomoStartPlan ? b2.pomoStartPlan(JSON.stringify(normalizePomo({...pomoCfg, focusMin: f, breakMin: b}))) : b2.pomoStart(Math.min(120, Math.max(5, Math.round(f))), Math.min(30, Math.max(1, Math.round(b))), pomoCfg.autoBreak))) return
 	pomoWidgetOn.value = true
-	pomoSyncFocus()
 	pomoFocusMuteStart()
+	pomoSyncFocus()
 	pomoStatsLoad()
 	pomoUpdateDisplay()
-	playSfxFile(POMO_SFX.start)
-	if (pomoCfg.notify) b2.pomoRequestNotify?.()
+	if (pomoCfg.feedback !== "silent") playSfxFile(POMO_SFX.start)
+	if (pomoCfg.notify && pomoReminder.value?.permission === false) pomoMessage.value = "计时已开始；系统通知未开启，可在循环与提醒中开启。"
 }
 const pomoCountUpImpl = (): void => {
 	const b = noriB()
 	if (!b?.pomoStartCountUp) return
 	pomoQuietUser = false
 	b.pomoSetNotify?.(pomoCfg.notify)
-	pomoStateSet(b.pomoStartCountUp())
+	if (!pomoStateSet(b.pomoStartFree ? b.pomoStartFree(pomoCfg.goal) : b.pomoStartCountUp())) return
 	pomoWidgetOn.value = true
-	pomoSyncFocus()
 	pomoFocusMuteStart()
+	pomoSyncFocus()
 	pomoStatsLoad()
 	pomoUpdateDisplay()
-	playSfxFile(POMO_SFX.start)
-	if (pomoCfg.notify) b.pomoRequestNotify?.()
+	if (pomoCfg.feedback !== "silent") playSfxFile(POMO_SFX.start)
+	if (pomoCfg.notify && pomoReminder.value?.permission === false) pomoMessage.value = "计时已开始；系统通知未开启，可在循环与提醒中开启。"
 }
 const pomoPauseBtn = (): void => {
 	const b = noriB()
@@ -5334,12 +5307,13 @@ const pomoPauseBtn = (): void => {
 	if (previousPhase !== pomo.value.phase) pomoStatsLoad()
 	pomoUpdateDisplay()
 }
-const pomoStopBtn = (): void => {
+const pomoStopBtn = (): number | undefined => {
 	const b = noriB()
 	if (!b?.pomoStop) return
 	let r: PomoStateT & {endedPhase?: PomoPhase; elapsedMs?: number}
-	try { r = JSON.parse(b.pomoStop()) } catch { return }
-	pomoStateSet(JSON.stringify(r))
+    const raw = b.pomoStopSession && pomo.value.sessionId ? b.pomoStopSession(pomo.value.sessionId) : b.pomoStop()
+    try { r = JSON.parse(raw) } catch { throw new Error("结束结果无法读取，请刷新当前计时") }
+    if (!pomoStateSet(JSON.stringify(r))) { pomoRefresh(); throw new Error("结束未确认，请检查当前计时状态") }
 	if (r.endedPhase === "focus") pomoSulkStart()
 	pomoSyncFocus()
 	pomoUpdateDisplay()
@@ -5352,8 +5326,8 @@ const pomoStopBtn = (): void => {
 			addToStore(pomoStats, {focusMin: elMin})
 			pomoStatsSave()
 		}
-		playSfxFile(POMO_SFX.abandon)
-		if (isTtsReady(cfg)) { try { void speakTTS(cfg, "……好吧。") } catch { /* 忽略 */ } }
+		if (pomoCfg.feedback === "character") playSfxFile(POMO_SFX.abandon)
+		if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, pomoCfg.feedback === "character" ? "……好吧。" : "这段时间已经记下了，需要时再继续。") } catch { /* 忽略 */ } }
 	} else if (r.endedPhase === "countUp") {
 		if (!b.pomoStats) {
 			const day = pomoDay()
@@ -5363,6 +5337,7 @@ const pomoStopBtn = (): void => {
 			pomoStatsSave()
 		}
 	}
+    return r.elapsedMs || 0
 }
 const pomoGoBtn = (): void => {
 	pomoRefresh()
@@ -5382,7 +5357,7 @@ const pomoOnNotifyChange = (): void => {
 /* 面板文案 */
 const pomoPhaseText = computed((): string => {
 	if (pomo.value.phase === "focus") return pomo.value.paused ? "已暂停 · 专注" : "专注中"
-	if (pomo.value.phase === "break") return pomo.value.paused ? "已暂停 · 休息" : "休息中"
+	if (pomo.value.phase === "break") return (pomo.value.paused ? "已暂停 · " : "") + (pomo.value.isLongBreak ? "长休息" : "休息中")
 	if (pomo.value.phase === "countUp") return pomo.value.paused ? "已暂停 · 正向计时" : "正向计时"
 	return "未开始"
 })
@@ -5419,7 +5394,7 @@ const pomoRangeBars = computed(() => {
 		const k = pomoDayKey(d)
 		const min = Math.round(dayMinutes(pomoStats.days[k]))
 		if (min > max) max = min
-		const showLabel = i === 0 || (labelStep > 1 && i % labelStep === 0)
+		const showLabel = n <= 7 || i === 0 || (labelStep > 1 && i % labelStep === 0)
 		out.push({
 			day: k,
 			label: showLabel ? (i === 0 ? "今" : (n > 30 ? `${d.getMonth() + 1}月` : String(d.getDate()))) : "",
@@ -5434,6 +5409,11 @@ const pomoRangeSummary = computed<PomoSummary>(() => pomoSummarize(pomoStats.day
 
 /* ---- 独立统计页: 热力图 + 点选某天 + 月度汇总 ---- */
 const pomoSelectedDay = ref<{date: string; min: number; done: number; abort: number} | null>(null)
+const pomoSelectDate = (date: string): void => {
+    if (!date) return
+    const day = pomoStats.days[date]
+    pomoSelectedDay.value = {date, min: Math.round(dayMinutes(day)), done: day?.done || 0, abort: day?.abort || 0}
+}
 const pomoHeat = computed<Heatmap>(() => buildHeatmap(pomoStats.days, 52, pomoDate.value))
 const pomoMonths = computed(() => monthlyRollup(pomoStats.days, 12, pomoDate.value))
 const pomoHeatCanvas = ref<HTMLCanvasElement | null>(null)
@@ -5442,7 +5422,6 @@ const pomoHeatCanvas = ref<HTMLCanvasElement | null>(null)
  *  避免和 Live2D(WebGL) / 数据海(2D canvas) 抢同一个 GPU。 */
 const CELL = 9
 const CELL_GAP = 2
-const HEAT_COLORS = ["rgba(148,163,184,0.10)", "rgba(103,183,255,0.35)", "rgba(103,183,255,0.55)", "rgba(103,183,255,0.78)", "rgba(103,183,255,1)"]
 const drawHeatmap = (): void => {
 	const cv = pomoHeatCanvas.value
 	if (!cv) return
@@ -5458,15 +5437,20 @@ const drawHeatmap = (): void => {
 	if (!ctx) return
 	ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 	ctx.clearRect(0, 0, w, hgt)
+	const theme = getComputedStyle(cv)
+	const accent = theme.getPropertyValue("--px-cyan").trim()
+	const empty = theme.getPropertyValue("--px-line").trim()
 	const step = CELL + CELL_GAP
 	for (let w2 = 0; w2 < hm.weeks; w2++) {
 		for (let row = 0; row < 7; row++) {
 			const c = hm.cells[w2 * 7 + row]
-			ctx.fillStyle = c ? HEAT_COLORS[c.level] : "transparent"
 			if (!c) continue
+			ctx.fillStyle = c.level === 0 ? empty : accent
+			ctx.globalAlpha = [1, 0.35, 0.55, 0.78, 1][c.level]
 			ctx.fillRect(w2 * step, row * step, CELL, CELL)
 		}
 	}
+	ctx.globalAlpha = 1
 }
 /** 点热力图 → 选中某天 (反算列/行) */
 const onHeatClick = (e: MouseEvent): void => {
@@ -5484,11 +5468,13 @@ const onHeatClick = (e: MouseEvent): void => {
 }
 /** 进入统计页时画一次 (面板打开后 canvas 才有尺寸) */
 const openPomoStats = (): void => {
+	pomoRefresh()
 	panel.value = "pomoStats"
 	void nextTick(() => drawHeatmap())
 }
 // 面板开着时数据变了 (如番茄完成/放弃) → 重绘热力图, 否则它停在旧状态
 watch([pomoHeat, () => panel.value], () => {
+	if (pomoSelectedDay.value) pomoSelectDate(pomoSelectedDay.value.date)
 	if (panel.value === "pomoStats") void nextTick(() => drawHeatmap())
 })
 /** 累计时长的人话格式 */
@@ -5523,7 +5509,91 @@ const markCelebrated = (key: string): void => {
 	} catch { /* 忽略 */ }
 }
 
+const pomoLiveMin = computed(() => {
+    const st = pomo.value
+    if (!["focus", "countUp"].includes(st.phase)) return 0
+    if (st.eventSeq !== undefined && st.eventSeq > (pomoStats.lastEventSeq || 0)) return 0
+    let delta = st.paused ? 0 : Math.max(0, pomoDisplayAt.value - pomoSnapshotAt)
+    if (st.phase === "focus") delta = Math.min(delta, st.remainingMs || 0)
+    const days = projectLiveDays(st.days || {}, st.now || Date.now(), delta)
+    // 旧桥没有分日快照，仅为当前版本兼容显示，正式桥始终使用分日数据。
+    return Math.floor((days[pomoDayKey(pomoDate.value)] || (!st.days || !Object.keys(st.days).length ? st.elapsedMs || 0 : 0)) / 60000)
+})
+const pomoEndText = computed(() => {
+    const st = pomo.value
+    if (st.paused) return st.rebootPending ? "等待确认离线时段" : "时间停在这里，准备好再继续"
+    if (st.phase === "idle") return ""
+    if (st.phase === "countUp") return "不赶时间，按自己的节奏来"
+    const remaining = Math.max(0, (st.remainingMs ?? st.remainMs) - (pomoDisplayAt.value - pomoSnapshotAt))
+    const date = new Date(Date.now() + remaining)
+    return `预计 ${date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} 结束${st.phase === "focus" && st.autoBreak ? " · 随后进入休息" : ""}`
+})
+const pomoWeekBars = computed(() => {
+    const out = Array.from({length: 7}, (_, i) => { const d = shiftDay(pomoDate.value, i - 6), day = pomoDayKey(d); return {day, label: i === 6 ? "今天" : ["日", "一", "二", "三", "四", "五", "六"][d.getDay()], min: Math.round(dayMinutes(pomoStats.days[day])), h: 0} })
+    const max = Math.max(1, ...out.map(d => d.min)); return out.map(d => ({...d, h: d.min > 0 ? Math.max(5, d.min / max * 100) : 0}))
+})
+const pomoSyncText = computed(() => !pomoStatsReady.value ? "记录尚未读取，请重试。" : pomoSyncPending.value
+    ? "本机已保存，公共副本待同步。检查存储权限后点重试。"
+    : pomoSyncedAt.value ? `本机已保存 · 公共副本同步于 ${new Date(pomoSyncedAt.value).toLocaleString()}` : "记录保存在本机；建议定期导出 JSON 备份。")
+const pomoReminderAction = computed(() => !pomoReminder.value ? "" : !pomoReminder.value.permission ? "notification" : !pomoReminder.value.channel ? "channel" : pomoReminder.value.controlChannel === false ? "controlChannel" : !pomoReminder.value.exact ? "exact" : "")
+const pomoReminderText = computed(() => !pomoCfg.notify ? "系统提醒已关闭，页面计时仍正常。" : !pomoReminder.value ? "后台提醒受系统权限和省电策略影响。"
+    : pomoReminder.value.scheduleError ? "后台提醒安排失败，请重试。" : !pomoReminder.value.permission ? "通知尚未授权。" : !pomoReminder.value.channel ? "番茄钟通知渠道已关闭。" : pomoReminder.value.controlChannel === false ? "计时控制通知已关闭，暂停与结束请在应用内操作。" : !pomoReminder.value.exact ? "精确提醒未开启，后台通知可能延迟。" : "提醒已就绪 · 可在通知栏暂停或结束计时。")
+const pomoReminderSettings = (kind: string): void => {
+    try { noriB()?.pomoReminderSettings?.(kind) }
+    catch { pomoError.value = "暂时无法打开系统提醒设置" }
+}
+const pomoExport = (kind: "json" | "csv"): void => {
+    pomoRefresh()
+    if (!pomoStatsReady.value || pomoError.value) return
+    try {
+        const stamp = new Date(), name = `nori-focus-${pomoDayKey(stamp)}-${String(stamp.getHours()).padStart(2, "0")}${String(stamp.getMinutes()).padStart(2, "0")}${String(stamp.getSeconds()).padStart(2, "0")}.${kind}`
+        const content = kind === "csv" ? pomoCsv(pomoStats) : JSON.stringify({kind: "nori-pomodoro", version: 1, exportedAt: Date.now(), stats: pomoStats}, null, 2)
+        if (noriB()?.writeFile?.(name, content) !== "ok") throw new Error("文件保存失败，请检查存储权限")
+        pomoMessage.value = `已导出至 Download/NoriDroid/${name}${pomo.value.phase !== "idle" ? "（包含已结算记录）" : ""}`
+    } catch (e) { pomoError.value = (e as Error).message }
+}
+;(window as unknown as {__noriPomoPickedRes?: (raw: string) => void}).__noriPomoPickedRes = (raw) => {
+    try { const result = JSON.parse(raw); if (result.cancelled) return; if (!result.ok) throw new Error(result.message || "读取失败")
+        const preview = parsePomoBackup(result.content); pomoBackupContent = result.content
+        pomoRestorePreview.value = `备份中有 ${preview.days} 天、${preview.minutes} 分钟。当前有 ${Object.keys(pomoStats.days).length} 天记录，将整体替换；重复恢复同一份不会叠加。`
+    } catch(e) { pomoError.value = (e as Error).message }
+}
+const pomoAction = (kind: string): void => {
+    if (pomoBusy.value) return
+    pomoBusy.value = true; pomoMessage.value = ""
+    try {
+        const before = pomo.value.phase, elapsed = Math.floor((pomo.value.elapsedMs || 0) / 60000)
+        if (kind === "start") pomoStartImpl(pomoCfg.focusMin, pomoCfg.breakMin)
+        else if (kind === "countUp") pomoCountUpImpl()
+        else if (kind === "pause") pomoPauseBtn()
+        else if (kind === "stop") { pomoConfirmEnd.value = false; const saved = pomoStopBtn(); if (saved !== undefined && pomo.value.phase === "idle") pomoMessage.value = `本段 ${Math.floor(saved / 60000)} 分钟已记录。每一段投入都算数。` }
+        else if (kind === "notify") pomoOnNotifyChange()
+        else if (kind === "stats") openPomoStats()
+        else if (kind === "retry") { pomoRefresh(); if (!pomoSettingsReadable) pomoCfgLoad(); if (pomoSettingsReady && pomoSettingsReadable) { const result = persistSettings(); pomoConfigError.value = result === "ok" ? "" : "设置保存失败，请检查存储权限" } }
+        else if (kind === "quietRestore") { pomoSulkCancelByUser(); applyQuiet() }
+        else if (kind === "rebootInclude" || kind === "rebootExclude") { const raw = noriB()?.pomoResolveReboot?.(kind === "rebootInclude"); if (raw) pomoStateSet(raw); pomoRefresh() }
+        else if (kind === "import") { if (pomo.value.phase !== "idle") throw new Error("请先结束计时"); if (!noriB()?.pickPomoBackup) throw new Error("请在 Android 主界面恢复备份"); noriB()?.pickPomoBackup?.() }
+        else if (kind === "cancelRestore") { pomoBackupContent = ""; pomoRestorePreview.value = "" }
+        else if (kind === "restore") {
+            if (!pomoBackupContent || pomo.value.phase !== "idle") throw new Error("请先结束计时并重新选择备份")
+            parsePomoBackup(pomoBackupContent)
+            const raw = noriB()?.pomoRestoreBackup?.(pomoBackupContent); if (!raw) throw new Error("恢复接口不可用")
+            pomoAcceptDashboard(raw); pomoRestorePreview.value = ""; pomoBackupContent = ""; pomoMessage.value = "记录已恢复；恢复前副本保存在 pomo-before-restore.json。"
+        }
+        if ((kind === "start" || kind === "countUp") && before !== "idle" && before !== pomo.value.phase) pomoMessage.value = `已保存上一段 ${elapsed} 分钟，新的计时已开始。`
+        else if ((kind === "start" || kind === "countUp") && before === "idle" && pomo.value.phase !== "idle" && !pomoMessage.value && pomoCfg.feedback !== "silent") pomoMessage.value = "这一段，Nori 陪你一起。按自己的节奏就好。"
+    } catch(e) { pomoError.value = `操作未完成：${(e as Error).message}` }
+    finally { window.setTimeout(() => { pomoBusy.value = false }, 250) }
+}
+const openPomoFromNotification = (): void => { panel.value = "pomo"; pomoRefresh() }
+const pomoWidgetStop = (): void => {
+    if (pomo.value.phase === "focus") { pomoConfirmEnd.value = true; panel.value = "pomo" }
+    else pomoAction("stop")
+}
+watch(panel, value => { if (value !== "pomo") pomoConfirmEnd.value = false })
+
 /* 悬浮窗: 拖拽 + 缩放 (位置/大小 localStorage 持久化; 组件根 pointerdown.stop 截断, 不惊动摸头/缩放手势) */
+const pomoWidgetEl = ref<HTMLElement | null>(null)
 const pomoPosLoad = (): void => {
 	try {
 		const raw = localStorage.getItem("pomo_widget")
@@ -5539,8 +5609,17 @@ const pomoPosSave = (): void => {
 	try { localStorage.setItem("pomo_widget", JSON.stringify({...pomoPos.value, mini: pomoMini.value})) } catch { /* 忽略 */ }
 }
 const pomoClampPos = (): void => {
-	pomoPos.value.x = Math.min(Math.max(4, pomoPos.value.x), Math.max(4, window.innerWidth - pomoPos.value.w - 4))
-	pomoPos.value.y = Math.min(Math.max(4, pomoPos.value.y), Math.max(4, window.innerHeight - 150))
+    const viewport = window.visualViewport
+    const left = (viewport?.offsetLeft || 0) + 12, top = (viewport?.offsetTop || 0) + 12
+    const width = viewport?.width || window.innerWidth, height = viewport?.height || window.innerHeight
+    pomoPos.value.w = Math.min(pomoPos.value.w, Math.max(120, width - 24))
+    const rect = pomoWidgetEl.value?.getBoundingClientRect()
+    const w = rect?.width || (pomoMini.value ? 215 : pomoPos.value.w)
+    const h = rect?.height || (pomoMini.value ? 50 : 190)
+    const dock = document.querySelector<HTMLElement>(".dock")?.getBoundingClientRect()
+    const bottom = dock && dock.height > 0 && dock.top > top + h ? Math.min(top + height - 24, dock.top - 12) : top + height - 24
+    pomoPos.value.x = Math.max(left, Math.min(pomoPos.value.x, left + width - Math.min(w, width - 24) - 24))
+    pomoPos.value.y = Math.max(top, Math.min(pomoPos.value.y, bottom - h))
 }
 let pomoDragSt: {px: number; py: number; x: number; y: number} | null = null
 const onPomoDragDown = (e: PointerEvent): void => {
@@ -5549,6 +5628,7 @@ const onPomoDragDown = (e: PointerEvent): void => {
 }
 const onPomoDragMove = (e: PointerEvent): void => {
 	if (!pomoDragSt) return
+    if (Math.hypot(e.clientX - pomoDragSt.px, e.clientY - pomoDragSt.py) < 5) return
 	pomoPos.value.x = pomoDragSt.x + e.clientX - pomoDragSt.px
 	pomoPos.value.y = pomoDragSt.y + e.clientY - pomoDragSt.py
 	pomoClampPos()
@@ -5562,8 +5642,10 @@ const onPomoRzDown = (e: PointerEvent): void => {
 const onPomoRzMove = (e: PointerEvent): void => {
 	if (!pomoRzSt) return
 	pomoPos.value.w = Math.min(480, Math.max(240, pomoRzSt.w + e.clientX - pomoRzSt.px))
+    pomoClampPos()
 }
-const onPomoRzUp = (): void => { if (pomoRzSt) { pomoRzSt = null; pomoPosSave() } }
+const onPomoRzUp = (): void => { if (pomoRzSt) { pomoRzSt = null; pomoClampPos(); pomoPosSave() } }
+watch([pomoMini, panel, pomoWidgetEl], () => { void nextTick(() => { pomoClampPos(); pomoPosSave() }) })
 
 /* 初始化 (setup 期): 统计/配置/组件位置/桥状态/显示节拍 */
 pomoCfgLoad()
@@ -5575,6 +5657,8 @@ if (pomo.value.phase !== "idle") pomoWidgetOn.value = true   // 计时中刷新/
 pomoUpdateDisplay()
 pomoRefreshDate()
 window.addEventListener("resize", pomoClampPos)
+window.visualViewport?.addEventListener("resize", pomoClampPos)
+window.visualViewport?.addEventListener("scroll", pomoClampPos)
 
 /* ---------------- CosyVoice 声音克隆 ---------------- */
 
@@ -6199,6 +6283,7 @@ const grantStorage = () => requestStoragePermission()
 /** 落盘。@returns 原生 writeFile 的原始返回 ("ok" / "err:xxx"), 供保存按钮如实报原因 */
 const persistSettings = (): string => {
 	const raw = saveSettingsRaw({
+        pomo: normalizePomo(pomoCfg),
 		apiKey: cfg.apiKey,
 		baseUrl: cfg.baseUrl,
 		model: cfg.model,
@@ -6378,6 +6463,7 @@ const refreshStorage = () => {
 	// 用户授权返回后设置页的「已授权 ✓」会立刻变绿, 不用重开面板。
 	allFilesAccess.value = hasAllFilesAccess()
 	if (!document.hidden) {
+		if (!pomoSettingsReadable) pomoCfgLoad()
 		pomoRefreshDate()
 		pomoRefresh()
 		pomoArmSulk()
@@ -6544,6 +6630,14 @@ onMounted(async () => {
 	// manual+on, 而 syncBgm 会照着它**起播** —— 随后 applyQuiet 才把它挂起, 结果是
 	// "先响半秒再静音"。先还原成进专注前的配置, syncBgm 一开始就不会播。
 	// (自动模式的重估放在后面, 每分钟一次, 跨过 23:00/8:00 边界即时切换)
+    pomoSettingsReady = true
+    if (pomoNeedsMigration && pomoSettingsReadable) {
+        const result = persistSettings()
+        if (result === "ok") { pomoNeedsMigration = false; localStorage.removeItem("pomo_cfg") }
+        else pomoConfigError.value = "专注设置迁移待保存，请检查存储权限。"
+    }
+    window.addEventListener("nori-open-pomo", openPomoFromNotification)
+    if (noriB()?.pomoOpenedFromNotification?.()) openPomoFromNotification()
 	recoverFocusMuteIfNeeded()
 	pomoUpdateDisplay()
 	applyQuiet()
@@ -6686,7 +6780,12 @@ onBeforeUnmount(async () => {
 	if (pomoTickTimer) { clearInterval(pomoTickTimer); pomoTickTimer = 0 }
 	if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
 	if (pomoDateTimer) { clearTimeout(pomoDateTimer); pomoDateTimer = 0 }
+    window.removeEventListener("nori-open-pomo", openPomoFromNotification)
+    if (pomoConfigTimer) clearTimeout(pomoConfigTimer)
+    if (pomoSettingsReady && pomoSettingsReadable) persistSettings()
 	window.removeEventListener("resize", pomoClampPos)
+    window.visualViewport?.removeEventListener("resize", pomoClampPos)
+    window.visualViewport?.removeEventListener("scroll", pomoClampPos)
 	setTtsErrorHandler(null)
 	detector.destroy()
 	cancelReturnToNeutral()
@@ -7482,9 +7581,11 @@ onBeforeUnmount(async () => {
 /* ---- 番茄钟悬浮窗 ---- */
 .pomo-widget {
 	position: fixed;
-	z-index: 40;
-	background: rgba(10, 16, 32, 0.86);
-	border: 1px solid rgba(126, 156, 216, 0.28);
+	z-index: 18;
+	box-sizing: border-box;
+	max-width: calc(100vw - 24px);
+	background: var(--px-panel);
+	border: 1px solid var(--px-stroke);
 	border-radius: var(--ui-radius-card);
 	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
 	padding: 10px 12px 14px;
@@ -7497,7 +7598,7 @@ onBeforeUnmount(async () => {
 	align-items: center;
 	gap: 6px;
 	font-size: 12px;
-	color: #9fb2d8;
+	color: var(--px-cyan);
 	cursor: grab;
 	touch-action: none;
 }
@@ -7505,15 +7606,16 @@ onBeforeUnmount(async () => {
 	margin-left: auto;
 	background: transparent;
 	border: none;
-	color: #9fb2d8;
+	color: var(--px-grey);
 	font-size: 14px;
-	padding: 0 4px;
+	min-width: 44px;
+	min-height: 44px;
 }
 .pw-tomato { font-size: 13px }
 .pw-time {
 	font-size: 34px;
 	font-weight: 700;
-	color: #e8eefc;
+	color: var(--px-white);
 	text-align: center;
 	margin: 6px 0 6px;
 	font-variant-numeric: tabular-nums;
@@ -7529,8 +7631,10 @@ onBeforeUnmount(async () => {
 	display: block;
 	height: 100%;
 	border-radius: var(--ui-radius-pill);
-	background: linear-gradient(90deg, #67b7ff, #7ee0c2);
-	transition: width 0.4s linear;
+	width: 100%;
+	transform-origin: left;
+	background: var(--px-cyan);
+	transition: transform 0.4s linear;
 }
 .pw-btns {
 	display: flex;
@@ -7538,35 +7642,55 @@ onBeforeUnmount(async () => {
 	margin-top: 10px;
 }
 .pw-btns button {
+	min-height: 44px;
 	flex: 1;
 	background: rgba(255, 255, 255, 0.08);
 	border: 1px solid rgba(255, 255, 255, 0.12);
-	color: #dbe6ff;
+	color: var(--px-text);
 	border-radius: var(--ui-radius-ctl);
 	padding: 7px 0;
 	font-size: 13px;
 }
-.pw-btns button.warn { color: #ffb4a8; border-color: rgba(255, 150, 130, 0.35) }
+.pw-btns button.warn { color: var(--px-red); border-color: rgba(255, 150, 130, 0.35) }
 .pw-grip {
 	position: absolute;
 	right: 2px;
 	bottom: 2px;
-	width: 18px;
-	height: 18px;
+	width: 44px;
+	height: 44px;
 	cursor: nwse-resize;
 	touch-action: none;
-	background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.25) 50%);
+	transform: translate(12px,12px);
+	background: linear-gradient(135deg, transparent 80%, var(--px-stroke) 80%);
 	border-bottom-right-radius: 12px;
 }
 .pw-pill {
-	background: rgba(10, 16, 32, 0.86);
-	border: 1px solid rgba(126, 156, 216, 0.28);
-	color: #e8eefc;
+	background: transparent;
+	border: none;
+	color: var(--px-white);
 	border-radius: var(--ui-radius-pill);
 	padding: 7px 14px;
 	font-size: 15px;
 	font-variant-numeric: tabular-nums;
 }
+.pw-mini-group {display:flex;align-items:center;background:var(--px-panel);border:1px solid var(--px-stroke);border-radius:var(--ui-radius-pill);overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.pw-mini-drag {display:grid;place-items:center;width:30px;min-height:50px;color:var(--px-grey);cursor:grab;touch-action:none}
+.pw-pill {display:flex;flex-direction:column;gap:3px;min-height:50px;padding:5px 10px;cursor:pointer}
+.pw-pill small{font-size:9px;color:var(--px-cyan)}
+.pw-mini-control{min-width:44px;min-height:50px;color:var(--px-cyan);border:0;border-left:1px solid var(--px-line);background:transparent;cursor:pointer}
+.sheet.focus-sheet{margin:0 auto;width:min(460px,calc(100vw - 24px));max-width:460px;max-height:90dvh;padding:20px;box-sizing:border-box;background:var(--px-bg)}
+.focus-sheet .sheet-head{margin-bottom:16px}
+.focus-sheet .sheet-body{padding-right:4px;scrollbar-width:thin;scrollbar-color:var(--px-stroke) transparent}
+.focus-sheet .sheet-body::-webkit-scrollbar{width:4px}.focus-sheet .sheet-body::-webkit-scrollbar-track{background:transparent}.focus-sheet .sheet-body::-webkit-scrollbar-thumb{background:var(--px-stroke);border-radius:4px}
+.pomo-stats-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:20px;font-size:11px;color:var(--px-grey)}
+.pomo-range-overview{display:flex;flex-direction:column;gap:8px;padding:18px 0;color:var(--px-grey);font-size:11px}
+.pomo-range-overview b{font-size:30px;color:var(--px-white);font-weight:500}.pomo-range-overview small{font-size:12px;font-weight:400}
+.pomo-date-picker{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;color:var(--px-grey);margin-top:14px}.pomo-date-picker input{min-height:44px;background:var(--px-bg);color:var(--px-text);border:1px solid var(--px-stroke);border-radius:var(--ui-radius-ctl);padding:8px;color-scheme:dark}
+.pomo-selectable-bars button{border:0;background:none;padding:0;cursor:pointer;min-width:0}.pomo-selectable-bars button:focus-visible{outline:1px solid var(--px-cyan)}
+.focus-sheet .settings-row{padding:14px;border:1px solid var(--px-line);background:var(--px-panel);border-radius:var(--ui-radius-card);margin-bottom:14px}
+.focus-sheet .pomo-months{margin-top:14px}
+@media(max-width:380px){.sheet.focus-sheet{padding:15px;max-height:92dvh}}
+@media(prefers-reduced-motion:reduce){.pw-bar i{transition:none}}
 /* ---- 番茄钟面板 ---- */
 .pomo-pair { display: flex; align-items: center; gap: 8px }
 /* 与设置面板其它输入框同款外观; 宽度按"单行两位数/三位数 + 无数字箭头"定为 96px
@@ -7576,20 +7700,20 @@ onBeforeUnmount(async () => {
 	text-align: center;
 	font-variant-numeric: tabular-nums;
 }
-.pomo-slash { color: #7c8db5 }
+.pomo-slash { color: var(--px-dim) }
 .pomo-chips { display: flex; gap: 6px; flex-wrap: wrap }
 .pomo-chip {
 	background: rgba(255, 255, 255, 0.07);
 	border: 1px solid rgba(255, 255, 255, 0.12);
-	color: #c6d4f2;
+	color: var(--px-grey);
 	border-radius: var(--ui-radius-pill);
 	padding: 5px 12px;
 	font-size: 12px;
 }
-.pomo-chip.on { background: rgba(103, 183, 255, 0.22); border-color: rgba(103, 183, 255, 0.55); color: #eaf3ff }
-.pomo-today { color: #e8eefc; font-size: 13px }
+.pomo-chip.on { background: var(--px-cyan-deep); border-color: var(--px-cyan); color: var(--px-white) }
+.pomo-today { color: var(--px-white); font-size: 13px }
 /* 完成率/平均每段: 次级信息, 弱化显示 */
-.pomo-sub { display: flex; gap: 12px; margin-top: 2px; font-size: 11px; color: #7c8db5 }
+.pomo-sub { display: flex; gap: 12px; margin-top: 2px; font-size: 11px; color: var(--px-dim) }
 .pomo-bars {
 	display: flex;
 	align-items: flex-end;
@@ -7601,10 +7725,10 @@ onBeforeUnmount(async () => {
 	margin: 4px 0 8px;
 }
 .pomo-bars .pb-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100% }
-.pomo-bars .pb-col i { width: 100%; max-width: 22px; border-radius: var(--ui-radius-ctl) 4px 0 0; background: linear-gradient(180deg, #67b7ff, #5a7fd6) }
+.pomo-bars .pb-col i { width: 100%; max-width: 22px; border-radius: var(--ui-radius-ctl) 4px 0 0; background: linear-gradient(180deg, var(--px-cyan), var(--px-cyan-dim)) }
 /* 柱顶常显分钟数: 手机上 hover 不可用, 原先的 title 等于看不到 */
-.pomo-bars .pb-col .pb-val { font-size: 10px; font-weight: 600; color: #a9bde6; margin-bottom: 2px }
-.pomo-bars .pb-col span { font-size: 10px; color: #7c8db5; margin-top: 4px }
+.pomo-bars .pb-col .pb-val { font-size: 10px; font-weight: 600; color: var(--px-grey); margin-bottom: 2px }
+.pomo-bars .pb-col span { font-size: 10px; color: var(--px-dim); margin-top: 4px }
 /* 30/365 天档: 柱子变窄、间隙变小, 否则一根不到 1px 看不清 */
 .pomo-bars.dense { gap: 1px; padding: 6px 6px }
 .pomo-bars.dense .pb-col i { max-width: 100%; border-radius: 2px 2px 0 0 }
@@ -7612,53 +7736,54 @@ onBeforeUnmount(async () => {
 /* 范围切换器 */
 .pomo-range { display: flex; gap: 6px; margin: 2px 0 6px }
 .pomo-rbtn {
+	min-height:44px;
 	flex: 1;
 	padding: 6px 0;
 	border-radius: var(--ui-radius-card);
 	background: rgba(255, 255, 255, 0.06);
 	border: 1px solid rgba(255, 255, 255, 0.12);
-	color: #c6d4f2;
+	color: var(--px-grey);
 	font-size: 12px;
-	&.on { background: rgba(103, 183, 255, 0.22); border-color: rgba(103, 183, 255, 0.55); color: #e8f2ff }
+	&.on { background: var(--px-cyan-deep); border-color: var(--px-cyan); color: var(--px-white) }
 	&.all { flex: 0 0 auto; padding: 6px 12px; color: var(--accent) }
 }
 /* 热力图容器: 一年 52 列比面板宽, 必须可横向滚动 */
 .pomo-heat-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; padding-bottom: 4px }
 .pomo-heat { display: block; image-rendering: pixelated; cursor: pointer }
 .pomo-heat-legend { display: flex; align-items: center; gap: 4px; margin-top: 6px; justify-content: flex-end }
-.pomo-heat-legend .mh-label { font-size: 10px; color: #7c8db5 }
+.pomo-heat-legend .mh-label { font-size: 10px; color: var(--px-dim) }
 .pomo-heat-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block }
-.mh-lv1 { background: rgba(103, 183, 255, 0.35) }
-.mh-lv2 { background: rgba(103, 183, 255, 0.55) }
-.mh-lv3 { background: rgba(103, 183, 255, 0.78) }
-.mh-lv4 { background: rgba(103, 183, 255, 1) }
+.mh-lv1 { background: var(--px-cyan); opacity: .35 }
+.mh-lv2 { background: var(--px-cyan); opacity: .55 }
+.mh-lv3 { background: var(--px-cyan); opacity: .78 }
+.mh-lv4 { background: var(--px-cyan) }
 .pomo-daybox {
 	display: flex; flex-direction: column; gap: 2px;
 	margin-top: 6px; padding: 8px 10px;
-	background: rgba(103, 183, 255, 0.10);
-	border: 1px solid rgba(103, 183, 255, 0.28);
+	background: var(--px-cyan-deep);
+	border: 1px solid var(--px-cyan-deep);
 	border-radius: var(--ui-radius-ctl);
-	b { font-size: 13px; color: #e8f2ff }
-	span { font-size: 12px; color: #a9bde6 }
+	b { font-size: 13px; color: var(--px-white) }
+	span { font-size: 12px; color: var(--px-grey) }
 }
 /* 月度汇总条 */
 .pomo-months { display: flex; flex-direction: column; gap: 4px }
-.pm-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #a9bde6 }
-.pm-name { flex: 0 0 44px; color: #7c8db5 }
+.pm-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--px-grey) }
+.pm-name { flex: 0 0 44px; color: var(--px-dim) }
 .pm-bar { flex: 1; height: 7px; border-radius: var(--ui-radius-ctl); background: var(--line-soft); overflow: hidden }
-.pm-bar i { display: block; height: 100%; border-radius: var(--ui-radius-ctl); background: linear-gradient(90deg, #5a7fd6, #67b7ff) }
+.pm-bar i { display: block; height: 100%; border-radius: var(--ui-radius-ctl); background: linear-gradient(90deg, var(--px-cyan-dim), var(--px-cyan)) }
 .pm-val { flex: 0 0 92px; text-align: right }
 .pomo-act { display: flex; gap: 8px; margin: 6px 0 4px }
 .pomo-go {
 	flex: 1;
-	background: linear-gradient(135deg, rgba(103, 183, 255, 0.3), rgba(126, 224, 194, 0.24));
+	background: linear-gradient(135deg, var(--px-cyan-deep), rgba(126, 224, 194, 0.24));
 	border: 1px solid rgba(126, 156, 216, 0.45);
-	color: #eef4ff;
+	color: var(--px-white);
 	border-radius: var(--ui-radius-ctl);
 	padding: 10px 0;
 	font-size: 14px;
 }
-.pomo-go.alt { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); color: #c6d4f2 }
+.pomo-go.alt { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); color: var(--px-grey) }
 .chat-enter-active, .chat-leave-active { transition: opacity 0.22s ease, transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .chat-enter-from, .chat-leave-to { opacity: 0; transform: translateY(16px); }
 
