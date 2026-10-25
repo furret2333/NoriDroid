@@ -137,12 +137,24 @@ try {
 	copyFileSync(APK_PATH, join(dlDir, APK_NAME))
 	log(`  写入 ${DL_DIR}/${APK_NAME}`)
 
-	// 只保留最近 KEEP_LAST 个 apk（按修改时间，刚写入的最新）
+	// 只保留最近 KEEP_LAST 个 apk
+	// ⚠ 不要按 mtime 排序：clone 出来的文件与刚复制的文件 mtime 几乎相同，排序不稳定会删错。
+	const verOf = (f) => {
+		const m = f.match(/NoriDroid-([\d.]+)-release\.apk$/i)
+		return m ? m[1].split(".").map(Number) : [0]
+	}
 	const apks = readdirSync(dlDir)
 		.filter((f) => f.toLowerCase().endsWith(".apk"))
-		.map((f) => ({ f, t: statSync(join(dlDir, f)).mtimeMs }))
-		.sort((a, b) => b.t - a.t)
-	for (const { f } of apks.slice(KEEP_LAST)) {
+		.sort((a, b) => {
+			const va = verOf(a)
+			const vb = verOf(b)
+			for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+				const d = (vb[i] || 0) - (va[i] || 0)
+				if (d) return d
+			}
+			return 0
+		})
+	for (const f of apks.slice(KEEP_LAST)) {
 		log(`  删除旧包 ${f}`)
 		git(["rm", "-q", "--ignore-unmatch", `${DL_DIR}/${f}`], work)
 	}
