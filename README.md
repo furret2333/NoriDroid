@@ -23,7 +23,7 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 
 仓库地址：<https://github.com/furret2333/NoriDroid>
 
-> **当前交付版本：** `v2.5.2`（`versionCode 9`），在线人数心跳从 5 分钟改为 10 分钟（服务端窗口 15 分钟），并加入「每分钟全局最多 20 个新安装」上限；其余内容同 2.5.1。此前版本说明见 [RELEASE_NOTES_v2.5.2.md](RELEASE_NOTES_v2.5.2.md)。
+> **当前交付版本：** `v2.5.3`（`versionCode 10`），修复在线人数开关快速「关→开」时被在途请求挡住、只能等 10 分钟的问题；心跳 10 分钟 / 服务端窗口 15 分钟 / 每分钟最多 20 个新安装。其余内容同 2.5.2。此前版本说明见 [RELEASE_NOTES_v2.5.3.md](RELEASE_NOTES_v2.5.3.md)。
 
 ---
 

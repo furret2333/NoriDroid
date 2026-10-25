@@ -273,6 +273,7 @@ export const createPresenceService = (deps: PresenceDeps): PresenceService => {
 	let timer = 0
 	let running = false
 	let inFlight = false
+	let pending = false
 	let version = ""
 	let lastAttempt = 0
 	let failCount = 0
@@ -290,9 +291,21 @@ export const createPresenceService = (deps: PresenceDeps): PresenceService => {
 	}
 
 	const run = async (force: boolean): Promise<void> => {
-		if (!running || inFlight) return
+		if (!running) {
+			pending = false
+			return
+		}
+		if (inFlight) {
+			// 开关快速「关→开」时，上一次请求可能还在途；记下来，等它结束后立刻补跑，
+			// 否则 start() 会被 inFlight 挡掉，只能等下一个 10 分钟调度。
+			pending = true
+			return
+		}
 		const url = deps.url()
-		if (!url) return
+		if (!url) {
+			pending = false
+			return
+		}
 		if (!force && !deps.isVisible()) {
 			schedule(HEARTBEAT_MS)
 			return
@@ -314,7 +327,13 @@ export const createPresenceService = (deps: PresenceDeps): PresenceService => {
 		} finally {
 			inFlight = false
 		}
+		if (!running) return
 		emit()
+		if (pending) {
+			pending = false
+			void run(true)
+			return
+		}
 		schedule(
 			failCount > 0
 				? Math.min(MAX_RETRY_MS, MIN_RETRY_MS * 2 ** Math.min(failCount - 1, 3))
@@ -340,6 +359,7 @@ export const createPresenceService = (deps: PresenceDeps): PresenceService => {
 		},
 		stop() {
 			running = false
+			pending = false
 			clear()
 		},
 		get() {

@@ -167,6 +167,7 @@ const makeHarness = (init = {}) => {
 		isVisible: () => vis.visible,
 		send: async (url, id, version) => {
 			sent.push({url, id, version, at: now})
+			if (init.hold) await init.hold
 			const r = init.responses?.length ? init.responses.shift() : '{"ok":true,"online":1,"today":2}'
 			if (r instanceof Error) throw r
 			return r
@@ -226,6 +227,22 @@ const makeHarness = (init = {}) => {
 	h.service.start("2.5.0")
 	await tick()
 	check("⑫-b stop 后可重新 start", h.sent.length === 3, `sent=${h.sent.length}`)
+}
+
+{
+	// 开关快速「关→开」时，上一次请求还在途：start 不能因为 inFlight 被吞掉。
+	let release
+	const hold = new Promise((r) => { release = r })
+	const h = makeHarness({hold})
+	h.service.start("2.5.0")
+	await tick()
+	check("⑫-c 在途请求期间关→开：先只发了一次", h.sent.length === 1, `sent=${h.sent.length}`)
+	h.service.stop()
+	h.service.start("2.5.0")
+	await tick()
+	release()
+	for (let i = 0; i < 4; i += 1) await tick()
+	check("⑫-d 在途请求结束后立刻补发一次（不用等 10 分钟）", h.sent.length === 2, `sent=${h.sent.length}`)
 }
 
 {
