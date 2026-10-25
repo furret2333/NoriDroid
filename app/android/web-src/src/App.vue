@@ -12,32 +12,32 @@
 		
 		<div ref="rippleHost" class="ripple-host"></div>
 
-		<!-- 鎵嬫寚瑙︽懜杩借釜: 鍗婇€忔槑纾ㄧ爞灏忕櫧鐐硅窡闅忔墜鎸?-->
+		<!-- 手指触摸追踪: 半透明磨砂小白点跟随手指 -->
 		<div ref="touchDotHost" class="touch-dot-host"></div>
 
-		<!-- 鏁版嵁娴峰姩鎬佽儗鏅?(绾▼搴忔覆鏌?: 鏄熷皹/鏄熶簯婕傜Щ/缃戞牸, 浣嶄簬 Live2D 涔嬩笅 -->
+		<!-- 数据海动态背景 (纯程序渲染): 星尘/星云漂移/网格, 位于 Live2D 之下 -->
 		<canvas ref="dataseaCanvas" class="datasea-bg" v-show="cfg.dataseaBg"></canvas>
 
-		<!-- 鍛戒腑鍖哄煙璋冭瘯鏄剧ず (娴嬭瘯鐢?: 瀹炴椂鏄剧ず褰撳墠瑙︽懜鍛戒腑鐨勫尯鍩?+ 鎶氭懜杩涘害/瀹屾垚娆℃暟 -->
-		<div v-if="hitDebug && hitZoneText" class="hit-debug">鍛戒腑锛歿{ hitZoneText }}<span v-if="petDebugText"> 锝?{{ petDebugText }}</span></div>
+		<!-- 命中区域调试显示 (测试用): 实时显示当前触摸命中的区域 + 抚摸进度/完成次数 -->
+		<div v-if="hitDebug && hitZoneText" class="hit-debug">命中：{{ hitZoneText }}<span v-if="petDebugText"> ｜ {{ petDebugText }}</span></div>
 
-		<!-- 鐣寗閽熸偓娴獥 (鎷栨嫿绉诲姩 / 鍙充笅瑙掔缉鏀?/ 鍙姌鍙? 缁勪欢鏍规埅鏂?pointer 浜嬩欢, 涓嶆儕鍔ㄦ懜澶翠笌鍙屾寚鎵嬪娍) -->
+		<!-- 番茄钟悬浮窗 (拖拽移动 / 右下角缩放 / 可折叠; 组件根截断 pointer 事件, 不惊动摸头与双指手势) -->
 		<div v-if="pomoWidgetOn && pomo.phase !== 'idle' && panel !== 'pomo' && panel !== 'pomoStats'" ref="pomoWidgetEl" class="pomo-widget" :class="{mini: pomoMini}" :style="{left: pomoPos.x + 'px', top: pomoPos.y + 'px', width: pomoMini ? 'auto' : pomoPos.w + 'px'}" @pointerdown.stop>
 			<template v-if="!pomoMini">
 				<div class="pw-head" @pointerdown="onPomoDragDown" @pointermove="onPomoDragMove" @pointerup="onPomoDragUp" @pointercancel="onPomoDragUp">
-					<span class="pw-tomato">馃崊</span><span>{{ pomoPhaseText }}</span>
-					<button class="pw-mini-btn" title="鏀惰捣" aria-label="鏀惰捣璁℃椂鎸備欢" @pointerdown.stop @click="pomoMini = true; pomoPosSave()">鈥?/button>
+					<span class="pw-tomato">🍅</span><span>{{ pomoPhaseText }}</span>
+					<button class="pw-mini-btn" title="收起" aria-label="收起计时挂件" @pointerdown.stop @click="pomoMini = true; pomoPosSave()">—</button>
 				</div>
 				<div class="pw-time">{{ pomoFmt }}</div>
 				<div v-if="pomo.phase !== 'countUp'" class="pw-bar"><i :style="{transform: 'scaleX(' + pomoPct / 100 + ')'}"></i></div>
 				<div class="pw-btns">
-					<button :disabled="pomoBusy || pomo.rebootPending" @click="pomoAction('pause')">{{ pomo.paused ? '缁х画' : '鏆傚仠' }}</button>
-					<button class="warn" @click="pomoWidgetStop">{{ pomo.phase === 'break' ? '缁撴潫浼戞伅' : '缁撴潫骞朵繚瀛? }}</button>
+					<button :disabled="pomoBusy || pomo.rebootPending" @click="pomoAction('pause')">{{ pomo.paused ? '继续' : '暂停' }}</button>
+					<button class="warn" @click="pomoWidgetStop">{{ pomo.phase === 'break' ? '结束休息' : '结束并保存' }}</button>
 				</div>
 				<i class="pw-grip" @pointerdown="onPomoRzDown" @pointermove="onPomoRzMove" @pointerup="onPomoRzUp" @pointercancel="onPomoRzUp"></i>
 			</template>
 			<template v-else>
-                <div class="pw-mini-group"><span class="pw-mini-drag" title="鎷栧姩" @pointerdown="onPomoDragDown" @pointermove="onPomoDragMove" @pointerup="onPomoDragUp" @pointercancel="onPomoDragUp">鉅?/span><button class="pw-pill" :aria-label="pomoPhaseText + '锛屽睍寮€璁℃椂鎸備欢'" @click="pomoMini = false; pomoPosSave()"><small>{{ pomoPhaseText }}</small>{{ pomoFmt }}</button><button class="pw-mini-control" :disabled="pomoBusy || pomo.rebootPending" :aria-label="pomo.paused ? '缁х画璁℃椂' : '鏆傚仠璁℃椂'" @click="pomoAction('pause')">{{ pomo.paused ? '鈻? : '鈪? }}</button></div>
+                <div class="pw-mini-group"><span class="pw-mini-drag" title="拖动" @pointerdown="onPomoDragDown" @pointermove="onPomoDragMove" @pointerup="onPomoDragUp" @pointercancel="onPomoDragUp">⠿</span><button class="pw-pill" :aria-label="pomoPhaseText + '，展开计时挂件'" @click="pomoMini = false; pomoPosSave()"><small>{{ pomoPhaseText }}</small>{{ pomoFmt }}</button><button class="pw-mini-control" :disabled="pomoBusy || pomo.rebootPending" :aria-label="pomo.paused ? '继续计时' : '暂停计时'" @click="pomoAction('pause')">{{ pomo.paused ? '▶' : 'Ⅱ' }}</button></div>
 			</template>
 		</div>
 
@@ -63,7 +63,7 @@
 				type="button"
 				class="tag"
 				:class="{locked: canvasLocked}"
-				:title="canvasLocked ? '鐐瑰嚮閫夋嫨妯″瀷锛涢暱鎸夋垨鎸夌┖鏍艰В閿佺敾甯? : '鐐瑰嚮閫夋嫨妯″瀷锛涢暱鎸夋垨鎸夌┖鏍奸攣瀹氱敾甯?"
+				:title="canvasLocked ? '点击选择模型；长按或按空格解锁画布' : '点击选择模型；长按或按空格锁定画布'"
 				@pointerdown="onModelTagDown"
 				@pointermove="onModelTagMove"
 				@pointerup="cancelModelTagPress()"
@@ -74,10 +74,10 @@
 				@keyup.space.prevent
 				@click="onModelTagClick"
 			>
-				<span>{{ currentModel?.name ?? "鈥? }}</span>
-				<span class="tag-hint">{{ canvasLocked ? '宸查攣瀹?路 闀挎寜瑙ｉ攣' : '闀挎寜閿佸畾鐢诲竷' }}</span>
+				<span>{{ currentModel?.name ?? "—" }}</span>
+				<span class="tag-hint">{{ canvasLocked ? '已锁定 · 长按解锁' : '长按锁定画布' }}</span>
 			</button>
-			<div v-if="error" class="err" @click="error = ''">{{ error }} 鉁?/div>
+			<div v-if="error" class="err" @click="error = ''">{{ error }} ✕</div>
 			<div v-else-if="loading" class="loading">{{ loadingMsg }}</div>
 		</div>
 
@@ -85,22 +85,22 @@
 		<transition name="chat">
 			<div v-if="portraitLayout || chatOpen" v-show="!portraitLayout || !panel" class="chat-panel" :class="{'history-open': chatOpen}">
 				<transition name="ai">
-					<button v-if="portraitLayout && !chatOpen && portraitReply" class="portrait-reply" type="button" title="鐐瑰嚮灞曞紑鑱婂ぉ璁板綍" @click="openPortraitHistory">
+					<button v-if="portraitLayout && !chatOpen && portraitReply" class="portrait-reply" type="button" title="点击展开聊天记录" @click="openPortraitHistory">
 						<span v-for="(seg, i) in bubbleSegments(portraitReply)" :key="i" class="portrait-reply-text">{{ bubbleText(seg) }}</span>
 					</button>
 				</transition>
-				<button v-if="portraitLayout" class="history-toggle" type="button" :aria-expanded="chatOpen" aria-controls="chat-history" :aria-label="chatOpen ? '鏀惰捣鑱婂ぉ璁板綍' : '灞曞紑鑱婂ぉ璁板綍'" @click="toggleChat">
+				<button v-if="portraitLayout" class="history-toggle" type="button" :aria-expanded="chatOpen" aria-controls="chat-history" :aria-label="chatOpen ? '收起聊天记录' : '展开聊天记录'" @click="toggleChat">
 					<svg viewBox="0 0 24 24" aria-hidden="true" :class="{expanded: chatOpen}"><path d="m6 15 6-6 6 6" /></svg>
 				</button>
 				<div id="chat-history" class="chat-history" v-show="chatOpen">
 				<div class="chat-head">
-					<span class="chat-title">瀵硅瘽 路 {{ curModelName }}</span>
-					<button v-if="chatStreaming || touchStreaming" class="x stop" @click="stopGenerate">鈻?鍋滄鐢熸垚</button>
-					<button v-if="speaking" class="x stop" @click="stopTTS()">鈻?鍋滄</button>
-					<button class="x" aria-label="鏀惰捣鑱婂ぉ璁板綍" @click="chatOpen = false">鉁?/button>
+					<span class="chat-title">对话 · {{ curModelName }}</span>
+					<button v-if="chatStreaming || touchStreaming" class="x stop" @click="stopGenerate">■ 停止生成</button>
+					<button v-if="speaking" class="x stop" @click="stopTTS()">■ 停止</button>
+					<button class="x" aria-label="收起聊天记录" @click="chatOpen = false">✕</button>
 				</div>
 				<div ref="chatScroll" class="chat-msgs" :style="{ fontSize: chatFontPX, '--bubble-w': bubbleWidthNum + '%' }" @click="imageMenu = false">
-					<div v-if="!messages.length" class="chat-empty">鍜屾垜璇寸偣浠€涔堝惂</div>
+					<div v-if="!messages.length" class="chat-empty">和我说点什么吧</div>
 					<div
 						v-for="m in messages"
 						:key="msgKey(m)"
@@ -109,9 +109,9 @@
 						:data-message-ts="m.ts"
 					>
 						<div v-if="m.role === 'user' && messageImageUrl(m)" class="message-image-wrap">
-							<img class="message-image" :src="messageImageUrl(m) ?? ''" alt="宸插彂閫佸浘鐗? />
+							<img class="message-image" :src="messageImageUrl(m) ?? ''" alt="已发送图片" />
 						</div>
-						<!-- 瀛樺偍/鍘嗗彶: 涓€鏉℃秷鎭? 鏄剧ず: assistant 鎸夊彞鎷嗗姘旀场, user 淇濇寔鏁存潯 -->
+						<!-- 存储/历史: 一条消息; 显示: assistant 按句拆多气泡, user 保持整条 -->
 						<div
 							v-for="(seg, j) in messageSegments(m)"
 							:key="j"
@@ -121,46 +121,46 @@
 					<div v-if="(typing && !chatStreaming) || (touchStreaming && messages[messages.length - 1]?.role === 'user')" class="bubble-wrap assistant"><div class="bubble typing sea-dots"><span></span><span></span><span></span></div></div>
 				</div>
 				</div>
-				<div v-if="pendingQueue.length" class="queue-hint">宸叉帓闃?{{ pendingQueue.length }} 鏉?/div>
+				<div v-if="pendingQueue.length" class="queue-hint">已排队 {{ pendingQueue.length }} 条</div>
 				<div v-if="pendingImage" class="image-preview-row">
-					<img class="image-preview" :src="pendingImage.dataUrl" alt="寰呭彂閫佸浘鐗? />
-					<div class="image-preview-meta"><span>宸查€夊浘鐗?路 浠呴殢鏈潯鍙戦€?/span><button class="image-remove" title="绉婚櫎鍥剧墖" aria-label="绉婚櫎鍥剧墖" @click="pendingImage = null">鉁?/button></div>
+					<img class="image-preview" :src="pendingImage.dataUrl" alt="待发送图片" />
+					<div class="image-preview-meta"><span>已选图片 · 仅随本条发送</span><button class="image-remove" title="移除图片" aria-label="移除图片" @click="pendingImage = null">✕</button></div>
 				</div>
 				<div class="chat-input">
 					<input
 						v-model="draft"
-						:placeholder="modelReady ? '杈撳叆娑堟伅鈥? : '璇峰厛鍦ㄨ缃噷閰嶇疆 API Key 鍜屾ā鍨?"
+						:placeholder="modelReady ? '输入消息…' : '请先在设置里配置 API Key 和模型'"
 						@focus="onComposerFocus"
 						@blur="onComposerBlur"
 						@keydown.enter="onInputEnter"
 					/>
 					<div v-if="portraitLayout" class="image-entry composer-more">
-						<button class="chat-tool" type="button" title="鍥剧墖涓庢埑鎴? aria-label="鍥剧墖涓庢埑鎴? aria-haspopup="menu" :aria-expanded="imageMenu" @click="imageMenu = !imageMenu">锛?/button>
+						<button class="chat-tool" type="button" title="图片与戳戳" aria-label="图片与戳戳" aria-haspopup="menu" :aria-expanded="imageMenu" @click="imageMenu = !imageMenu">＋</button>
 						<div v-show="imageMenu" class="image-menu" role="menu" @keydown.esc="imageMenu = false">
-							<button role="menuitem" :disabled="imagePicking" @click="chooseImage('album')">{{ imagePicking ? '閫夊浘涓€? : '浠庣浉鍐岄€夊浘' }}</button>
-							<button role="menuitem" :disabled="imagePicking" @click="chooseImage('camera')">鐩存帴鎷嶆憚</button>
-							<button class="poke" role="menuitem" :disabled="!modelReady || typing || chatStreaming || touchStreaming" @click="imageMenu = false; pokeNori()">鎴虫埑 Nori</button>
+							<button role="menuitem" :disabled="imagePicking" @click="chooseImage('album')">{{ imagePicking ? '选图中…' : '从相册选图' }}</button>
+							<button role="menuitem" :disabled="imagePicking" @click="chooseImage('camera')">直接拍摄</button>
+							<button class="poke" role="menuitem" :disabled="!modelReady || typing || chatStreaming || touchStreaming" @click="imageMenu = false; pokeNori()">戳戳 Nori</button>
 						</div>
 					</div>
-					<button class="send" :class="{stop: portraitLayout && (chatStreaming || touchStreaming)}" @click="portraitLayout && (chatStreaming || touchStreaming) ? stopGenerate() : send()" :disabled="!(portraitLayout && (chatStreaming || touchStreaming)) && !draft.trim() && !pendingImage">{{ portraitLayout && (chatStreaming || touchStreaming) ? '鍋滄' : '鍙戦€? }}</button>
+					<button class="send" :class="{stop: portraitLayout && (chatStreaming || touchStreaming)}" @click="portraitLayout && (chatStreaming || touchStreaming) ? stopGenerate() : send()" :disabled="!(portraitLayout && (chatStreaming || touchStreaming)) && !draft.trim() && !pendingImage">{{ portraitLayout && (chatStreaming || touchStreaming) ? '停止' : '发送' }}</button>
 				</div>
 				<div v-if="!portraitLayout" class="chat-tools">
 					<div class="image-entry">
-						<button class="chat-tool" title="娣诲姞鍥剧墖" aria-haspopup="menu" :aria-expanded="imageMenu" :disabled="imagePicking" @click="imageMenu = !imageMenu">{{ imagePicking ? '閫夊浘涓€? : '鍥剧墖' }}</button>
+						<button class="chat-tool" title="添加图片" aria-haspopup="menu" :aria-expanded="imageMenu" :disabled="imagePicking" @click="imageMenu = !imageMenu">{{ imagePicking ? '选图中…' : '图片' }}</button>
 						<div v-if="imageMenu" class="image-menu" role="menu" @keydown.esc="imageMenu = false">
-							<button role="menuitem" @click="chooseImage('album')">浠庣浉鍐岄€夊浘</button>
-							<button role="menuitem" @click="chooseImage('camera')">鐩存帴鎷嶆憚</button>
+							<button role="menuitem" @click="chooseImage('album')">从相册选图</button>
+							<button role="menuitem" @click="chooseImage('camera')">直接拍摄</button>
 						</div>
 					</div>
-					<button class="chat-tool poke" title="鎴虫埑 Nori锛岃亰涓€鍙? @click="pokeNori" :disabled="!modelReady || typing || chatStreaming || touchStreaming">鎴虫埑</button>
-					<span class="chat-tool-hint">璇嗗浘闇€妯″瀷鏀寔</span>
+					<button class="chat-tool poke" title="戳戳 Nori，聊一句" @click="pokeNori" :disabled="!modelReady || typing || chatStreaming || touchStreaming">戳戳</button>
+					<span class="chat-tool-hint">识图需模型支持</span>
 				</div>
 			</div>
 		</transition>
 
 		<div v-if="portraitLayout && !panel" v-show="sideRailOpen" class="side-rail-mask" @pointerdown.stop="sideRailOpen = false"></div>
-		<nav v-if="portraitLayout && !panel" class="side-rail" :class="{open: sideRailOpen}" aria-label="鍔熻兘鑿滃崟" @pointerdown="onDockPress" @keydown.esc="sideRailOpen = false">
-			<button class="side-rail-handle" type="button" :aria-expanded="sideRailOpen" aria-controls="side-rail-items" :aria-label="sideRailOpen ? '鏀惰捣鍔熻兘鑿滃崟' : '灞曞紑鍔熻兘鑿滃崟'" @click="sideRailOpen = !sideRailOpen; imageMenu = false">
+		<nav v-if="portraitLayout && !panel" class="side-rail" :class="{open: sideRailOpen}" aria-label="功能菜单" @pointerdown="onDockPress" @keydown.esc="sideRailOpen = false">
+			<button class="side-rail-handle" type="button" :aria-expanded="sideRailOpen" aria-controls="side-rail-items" :aria-label="sideRailOpen ? '收起功能菜单' : '展开功能菜单'" @click="sideRailOpen = !sideRailOpen; imageMenu = false">
 				<svg viewBox="0 0 24 24" aria-hidden="true" :class="{expanded: sideRailOpen}"><path d="m14 6-6 6 6 6" /></svg>
 			</button>
 			<div id="side-rail-items" v-show="sideRailOpen" class="side-rail-items">
@@ -173,23 +173,23 @@
 		<div class="dock" v-show="!portraitLayout && panel !== 'touch' && panel !== 'tts'" @pointerdown="onDockPress">
 			<button class="fab ripple" @click="openDiary">
 				<img class="fab-ico" :src="DOCK_ICONS.diary" alt="" draggable="false" />
-				<span class="fab-label">鏃ヨ</span>
+				<span class="fab-label">日记</span>
 			</button>
 			<button class="fab ripple" @click="openPanel('model')">
 				<img class="fab-ico" :src="DOCK_ICONS.model" alt="" draggable="false" />
-				<span class="fab-label">妯″瀷</span>
+				<span class="fab-label">模型</span>
 			</button>
 			<button class="fab ripple" @click="openPanel('pomo')">
 				<img class="fab-ico" :src="DOCK_ICONS.pomo" alt="" draggable="false" />
-				<span class="fab-label">鐣寗</span>
+				<span class="fab-label">番茄</span>
 			</button>
 			<button class="fab ripple" @click="openPanel('settings')">
 				<img class="fab-ico" :src="DOCK_ICONS.settings" alt="" draggable="false" />
-				<span class="fab-label">璁剧疆</span>
+				<span class="fab-label">设置</span>
 			</button>
 			<button class="fab ripple" @click="toggleChat">
 				<img class="fab-ico" :src="DOCK_ICONS.chat" alt="" draggable="false" />
-				<span class="fab-label">瀵硅瘽</span>
+				<span class="fab-label">对话</span>
 			</button>
 		</div>
 
@@ -199,35 +199,35 @@
 			<div v-show="touchCustomExpanded" class="touch-overlay" :class="{drawing: touchDrawing, testing: touchTesting}">
 				<div v-for="(t, i) in touchAreas" :key="t.id" class="touch-area-box" :class="[t.type, {selected: selectedTouchId === t.id}]" :style="[boxStyle(t), {zIndex: i + 1}]">
 					<span class="ba-name">{{ t.name }}</span>
-					<span v-if="touchAdjusting && selectedTouchId === t.id" class="touch-resize-handle" aria-hidden="true">鈫?/span>
+					<span v-if="touchAdjusting && selectedTouchId === t.id" class="touch-resize-handle" aria-hidden="true">↘</span>
 				</div>
 				<div v-if="touchDraft" class="touch-area-box draft" :style="boxStyle(touchDraft)"></div>
 			</div>
 			
 			<div class="touch-top">
-				<span class="touch-title">浜掑姩璁剧疆</span>
-				<button class="x" aria-label="鍏抽棴浜掑姩璁剧疆" @click="closeTouchSettings">鉁?/button>
+				<span class="touch-title">互动设置</span>
+				<button class="x" aria-label="关闭互动设置" @click="closeTouchSettings">✕</button>
 			</div>
 			
 			<div class="touch-editor">
 				<section class="touch-intro">
-					<div class="touch-intro-icon" aria-hidden="true">鈾?/div>
+					<div class="touch-intro-icon" aria-hidden="true">♡</div>
 					<div class="touch-intro-copy">
-						<b>鎽稿ご 路 榛樿浜掑姩</b>
-						<span>鍦ㄦā鍨嬪ご閮ㄦ寜浣忔垨杞昏交鎶氭懜锛屼細瑙﹀彂琛ㄦ儏銆佽交鎽嗗拰鏌斿厜鍙嶉銆傚彴璇嶆湕璇昏窡闅忚闊冲悎鎴愯缃€?/span>
+						<b>摸头 · 默认互动</b>
+						<span>在模型头部按住或轻轻抚摸，会触发表情、轻摆和柔光反馈。台词朗读跟随语音合成设置。</span>
 					</div>
 				</section>
 				<section class="touch-pet-options">
-					<div class="touch-option-head"><b>鎽稿ご鍙嶉</b><small>榛樿寮€鍚紱鍏抽棴鍚庝粛淇濈暀澶撮儴璺熼殢</small></div>
+					<div class="touch-option-head"><b>摸头反馈</b><small>默认开启；关闭后仍保留头部跟随</small></div>
 					<div class="touch-option-grid">
-						<label><span>琛ㄦ儏涓庤交鎽?/span><input type="checkbox" v-model="cfg.petTouchEnabled" @change="onPetTouchSetting" /></label>
-						<label><span>鏌斿厜鐗规晥</span><input type="checkbox" v-model="cfg.petTouchEffects" @change="onPetTouchSetting" /></label>
-						<label><span>鎽╂摝闊虫晥</span><input type="checkbox" v-model="cfg.petTouchSound" @change="onPetTouchSetting" /></label>
-						<label><span>鍙拌瘝鏈楄</span><input type="checkbox" v-model="cfg.petTouchSpeech" @change="onPetTouchSetting" /></label>
+						<label><span>表情与轻摆</span><input type="checkbox" v-model="cfg.petTouchEnabled" @change="onPetTouchSetting" /></label>
+						<label><span>柔光特效</span><input type="checkbox" v-model="cfg.petTouchEffects" @change="onPetTouchSetting" /></label>
+						<label><span>摩擦音效</span><input type="checkbox" v-model="cfg.petTouchSound" @change="onPetTouchSetting" /></label>
+						<label><span>台词朗读</span><input type="checkbox" v-model="cfg.petTouchSpeech" @change="onPetTouchSetting" /></label>
 					</div>
 				</section>
 				<details class="touch-custom" :open="touchCustomExpanded" @toggle="onTouchCustomToggle">
-					<summary>鑷畾涔夊尯鍩?路 杩涢樁 <small>{{ touchAreas.length }} 涓尯鍩?/small></summary>
+					<summary>自定义区域 · 进阶 <small>{{ touchAreas.length }} 个区域</small></summary>
 				<TouchManager
 					:touches="touchAreas"
 					:drawing="touchDrawing"
@@ -257,7 +257,7 @@
 				/>
 				</details>
 				<p v-if="touchBubble" class="touch-feedback" role="status">{{ touchBubble }}</p>
-				<div v-if="touchReplyPreview" class="touch-ai-preview" aria-live="polite"><b>Nori{{ touchStreaming ? ' 路 姝ｅ湪鍥炲簲' : '' }}</b><p>{{ touchReplyPreview }}</p></div>
+				<div v-if="touchReplyPreview" class="touch-ai-preview" aria-live="polite"><b>Nori{{ touchStreaming ? ' · 正在回应' : '' }}</b><p>{{ touchReplyPreview }}</p></div>
 			</div>
 		</div>
 		</Transition>
@@ -265,40 +265,40 @@
 		<Transition name="fade">
 		<div v-if="panel === 'tts'" class="tts-page">
 			<div class="tts-top">
-				<span class="tts-title">璇煶鍚堟垚</span>
-				<button class="x" @click="panel = ''">鉁?/button>
+				<span class="tts-title">语音合成</span>
+				<button class="x" @click="panel = ''">✕</button>
 			</div>
 			<div class="tts-body">
 				<div class="tts-sec">
-					<div class="tts-sec-title">寮€鍏?/div>
+					<div class="tts-sec-title">开关</div>
 					<div class="field row-inline">
-						<label>鍚敤璇煶鏈楄</label>
+						<label>启用语音朗读</label>
 						<input type="checkbox" v-model="cfg.ttsEnabled" />
 					</div>
 					<div class="field">
-						<label>鎻愪緵鍟?/label>
+						<label>提供商</label>
 						<div class="voice-pick">
 							<select v-model="cfg.ttsProvider">
 								<option value="fish">Fish Audio</option>
-								<option value="cosyvoice">鍗冮棶 CosyVoice</option>
+								<option value="cosyvoice">千问 CosyVoice</option>
 							</select>
 						</div>
-						<div class="hint">鍒囨崲鍚庡悇鑷厤缃嫭绔嬩繚瀛? 浜掍笉褰卞搷</div>
+						<div class="hint">切换后各自配置独立保存, 互不影响</div>
 					</div>
 					<div class="field">
-						<label>鏈楄闊抽噺 {{ Math.round((Number(cfg.ttsVolume) || 0) * 100) }}%锛堝簲鐢ㄥ唴锛屼笉褰卞搷绯荤粺闊抽噺锛?/label>
+						<label>朗读音量 {{ Math.round((Number(cfg.ttsVolume) || 0) * 100) }}%（应用内，不影响系统音量）</label>
 						<input type="range" min="0" max="1" step="0.01" v-model.number="cfg.ttsVolume" @input="applyTtsVolume" @change="persistSettings" />
-						<div class="hint">鍙皟鏁?Nori 璇磋瘽鐨勯煶閲忥紝鎵嬫満閾冨０/濯掍綋闊抽噺涓嶅彈褰卞搷</div>
+						<div class="hint">只调整 Nori 说话的音量，手机铃声/媒体音量不受影响</div>
 					</div>
-					<div class="hint">寮€鍚悗, Nori 鐨勬瘡鍙ュ洖澶嶉兘浼氭祦寮忔湕璇?/div>
+					<div class="hint">开启后, Nori 的每句回复都会流式朗读</div>
 				</div>
 
 				<template v-if="cfg.ttsProvider === 'fish'">
 				<div class="tts-sec">
-					<div class="tts-sec-title">璐︽埛閰嶇疆</div>
+					<div class="tts-sec-title">账户配置</div>
 					<div class="field">
 						<label>Fish Audio API Key</label>
-						<input v-model="cfg.ttsApiKey" type="text" autocomplete="off" spellcheck="false" placeholder="鍦?fish.audio 鎺у埗鍙拌幏鍙?(sk-...)" />
+						<input v-model="cfg.ttsApiKey" type="text" autocomplete="off" spellcheck="false" placeholder="在 fish.audio 控制台获取 (sk-...)" />
 					</div>
 					<div class="field">
 						<label>API Base URL</label>
@@ -307,39 +307,39 @@
 				</div>
 
 				<div class="tts-sec">
-					<div class="tts-sec-title">闊宠壊涓庡弬鏁?/div>
+					<div class="tts-sec-title">音色与参数</div>
 					<div class="field">
-						<label>闊宠壊锛堝彲閫夛級</label>
+						<label>音色（可选）</label>
 						<div class="voice-pick">
 							<select v-model="cfg.ttsReferenceId">
-								<option value="">榛樿闊宠壊</option>
+								<option value="">默认音色</option>
 								<option v-for="v in voiceOptions" :key="v.id" :value="v.id">{{ v.title }}</option>
 							</select>
-							<button class="mini ripple" :disabled="voicesLoading" @click="loadVoices">{{ voicesLoading ? "鍔犺浇涓€? : "鍔犺浇闊宠壊" }}</button>
+							<button class="mini ripple" :disabled="voicesLoading" @click="loadVoices">{{ voicesLoading ? "加载中…" : "加载音色" }}</button>
 						</div>
-						<input v-model="cfg.ttsReferenceId" type="text" autocomplete="off" spellcheck="false" placeholder="鎴栨墜鍔ㄨ緭鍏?Reference ID, 鐣欑┖鐢ㄩ粯璁ら煶鑹? />
+						<input v-model="cfg.ttsReferenceId" type="text" autocomplete="off" spellcheck="false" placeholder="或手动输入 Reference ID, 留空用默认音色" />
 						<div v-if="voicesMsg" class="hint" :class="{ok: voicesMsgOk, bad: !voicesMsgOk}">{{ voicesMsg }}</div>
 					</div>
 					<div class="field">
-						<label>妯″瀷</label>
+						<label>模型</label>
 						<select v-model="cfg.ttsModel">
 							<option v-for="md in FISH_MODELS" :key="md" :value="md">{{ md }}</option>
 						</select>
 					</div>
 					<div class="field">
-						<label>闊抽鏍煎紡</label>
+						<label>音频格式</label>
 						<select v-model="cfg.ttsFormat">
 							<option v-for="f in FISH_FORMATS" :key="f" :value="f">{{ f }}</option>
 						</select>
-						<div class="hint">mp3 鍏煎鎬ф渶濂? pcm 寤惰繜鏈€浣?/div>
+						<div class="hint">mp3 兼容性最好; pcm 延迟最低</div>
 					</div>
 					<div class="field">
-						<label>鍒嗗潡闀垮害 {{ cfg.ttsChunkLength }}</label>
+						<label>分块长度 {{ cfg.ttsChunkLength }}</label>
 						<input type="range" min="100" max="500" step="50" v-model.number="cfg.ttsChunkLength" />
-						<div class="hint">瓒婂皬棣栭煶瓒婂揩銆佸潡鏁拌秺澶?/div>
+						<div class="hint">越小首音越快、块数越多</div>
 					</div>
 					<div class="field">
-						<label>寤惰繜妯″紡</label>
+						<label>延迟模式</label>
 						<select v-model="cfg.ttsLatency">
 							<option v-for="l in FISH_LATENCIES" :key="l" :value="l">{{ l }}</option>
 						</select>
@@ -349,104 +349,104 @@
 
 				<template v-else>
 				<div class="tts-sec">
-					<div class="tts-sec-title">鍗冮棶 CosyVoice 閰嶇疆</div>
+					<div class="tts-sec-title">千问 CosyVoice 配置</div>
 					<div class="field">
-						<label>鍗冮棶/鐧剧偧 API Key</label>
-						<input v-model="cfg.cosyApiKey" type="text" autocomplete="off" spellcheck="false" placeholder="鍦ㄧ櫨鐐兼帶鍒跺彴鑾峰彇 (sk-...)" />
+						<label>千问/百炼 API Key</label>
+						<input v-model="cfg.cosyApiKey" type="text" autocomplete="off" spellcheck="false" placeholder="在百炼控制台获取 (sk-...)" />
 					</div>
 					<div class="field">
 						<label>API Base URL</label>
-						<input v-model="cfg.cosyBaseUrl" type="text" autocomplete="off" spellcheck="false" placeholder="https://dashscope.aliyuncs.com 鎴栧寳浜笓灞炲煙鍚? />
+						<input v-model="cfg.cosyBaseUrl" type="text" autocomplete="off" spellcheck="false" placeholder="https://dashscope.aliyuncs.com 或北京专属域名" />
 					</div>
 					<div class="field">
-						<label>妯″瀷</label>
+						<label>模型</label>
 						<select v-model="cfg.cosyModel">
 							<option v-for="md in COSY_MODELS" :key="md" :value="md">{{ md }}</option>
 						</select>
 					</div>
 					<div class="field">
-						<label>闊宠壊</label>
+						<label>音色</label>
 						<div class="voice-pick">
 							<select v-model="cfg.cosyVoice">
-								<option v-if="!cfg.cosyCloneVoices.length" value="">鏆傛棤鍏嬮殕闊宠壊锛屽厛鍏嬮殕涓€涓?/option>
-								<option v-for="v in cfg.cosyCloneVoices" :key="v.id" :value="v.id">{{ v.model ? `${v.model} 路 ${v.id}` : v.id }}{{ v.model && v.model !== cfg.cosyModel ? "锛堝綋鍓嶆ā鍨嬩笉鍙敤锛? : "" }}</option>
+								<option v-if="!cfg.cosyCloneVoices.length" value="">暂无克隆音色，先克隆一个</option>
+								<option v-for="v in cfg.cosyCloneVoices" :key="v.id" :value="v.id">{{ v.model ? `${v.model} · ${v.id}` : v.id }}{{ v.model && v.model !== cfg.cosyModel ? "（当前模型不可用）" : "" }}</option>
 							</select>
 						</div>
-						<input v-model="cfg.cosyVoice" type="text" autocomplete="off" spellcheck="false" placeholder="鎴栨墜鍔ㄨ緭鍏ラ煶鑹?id" />
+						<input v-model="cfg.cosyVoice" type="text" autocomplete="off" spellcheck="false" placeholder="或手动输入音色 id" />
 						<div v-if="cosyVoiceHint" class="hint bad">{{ cosyVoiceHint }}</div>
 					</div>
 					<div class="field">
-						<label>璇€?{{ Number(cfg.cosyRate).toFixed(1) }}x</label>
+						<label>语速 {{ Number(cfg.cosyRate).toFixed(1) }}x</label>
 						<input type="range" min="0.5" max="2" step="0.1" v-model.number="cfg.cosyRate" />
 					</div>
-					<div class="tts-sec-title">澹伴煶鍏嬮殕</div>
+					<div class="tts-sec-title">声音克隆</div>
 					<div class="field">
-						<label>鍏嬮殕闊宠壊鍓嶇紑 (瀛楁瘝鏁板瓧)</label>
-						<input v-model="clonePrefix" type="text" autocomplete="off" spellcheck="false" placeholder="濡?myvoice" />
+						<label>克隆音色前缀 (字母数字)</label>
+						<input v-model="clonePrefix" type="text" autocomplete="off" spellcheck="false" placeholder="如 myvoice" />
 					</div>
-					<!-- 涓€閿厠闅嗭紙2026-10-01锛? 鍙傝€冮煶棰?*鑱旂綉涓嬭浇**锛堜笉鍐嶆墦杩?APK锛夛紝鐪佹帀"鑷繁鎵句竴娈?10~20 绉掑共闊?杩欎竴姝?-->
+					<!-- 一键克隆（2026-10-01）: 参考音频**联网下载**（不再打进 APK），省掉"自己找一段 10~20 秒干音"这一步 -->
 					<div class="field">
-						<label>涓€閿厠闅嗭紙棰勮鍙傝€冮煶棰戯級</label>
+						<label>一键克隆（预设参考音频）</label>
 						<button class="btn ripple primary" :disabled="cloneCreating" @click="openCloneGate">
-							{{ cloneCreating ? "涓嬭浇/鍒涘缓涓€? : "涓€閿厠闅嗛璁鹃煶鑹? }}
+							{{ cloneCreating ? "下载/创建中…" : "一键克隆预设音色" }}
 						</button>
-						<div class="hint">鐐规寜閽悗浼氬厛**鑱旂綉涓嬭浇**涓€娈?12.5 绉掔殑鍙傝€冮煶棰戯紙棣栨绾?3.4MB锛屼箣鍚庤蛋鏈湴缂撳瓨锛夛紝鍐嶇敱鍗冮棶鍒涘缓闊宠壊锛涢渶鍏堢瓟瀵广€屾ā鍨嬫巿鏉冮獙璇併€嶇殑闂銆傗殸 涓嬭浇婧愬湪鍥藉唴鍙兘鐩磋繛涓嶄簡锛?*鍙兘闇€瑕侀瓟娉?*銆?/div>
+						<div class="hint">点按钮后会先**联网下载**一段 12.5 秒的参考音频（首次约 3.4MB，之后走本地缓存），再由千问创建音色；需先答对「模型授权验证」的问题。⚠ 下载源在国内可能直连不了，**可能需要魔法**。</div>
 					</div>
 					<div class="btn-row">
-						<button class="btn ripple" :disabled="clonePicking" @click="doPickVoice">{{ clonePicking ? "閫夋嫨涓€? : (cloneFileName || "閫夋嫨闊抽鏂囦欢") }}</button>
-						<button class="btn ripple primary" :disabled="!cloneFileName || cloneCreating" @click="doCreateClone">{{ cloneCreating ? "鍒涘缓涓€? : "鍒涘缓鍏嬮殕闊宠壊" }}</button>
+						<button class="btn ripple" :disabled="clonePicking" @click="doPickVoice">{{ clonePicking ? "选择中…" : (cloneFileName || "选择音频文件") }}</button>
+						<button class="btn ripple primary" :disabled="!cloneFileName || cloneCreating" @click="doCreateClone">{{ cloneCreating ? "创建中…" : "创建克隆音色" }}</button>
 					</div>
-					<div class="hint">寤鸿闊抽锛?0~20 绉掞紝鈮?0MB锛學AV/MP3/M4A锛屾棤鑳屾櫙闊充箰</div>
-					<div v-if="cloneFileName" class="hint">宸查€? {{ cloneFileName }}{{ cloneFileSize ? ` (${fmtSize(cloneFileSize)})` : "" }}</div>
+					<div class="hint">建议音频：10~20 秒，≤10MB，WAV/MP3/M4A，无背景音乐</div>
+					<div v-if="cloneFileName" class="hint">已选: {{ cloneFileName }}{{ cloneFileSize ? ` (${fmtSize(cloneFileSize)})` : "" }}</div>
 					<div v-if="cloneMsg" class="hint" :class="{ok: cloneMsgOk, bad: !cloneMsgOk}">{{ cloneMsg }}</div>
 					<div v-if="cloneStatusText" class="hint" :class="{ok: cloneStatusOk, bad: !cloneStatusOk}">{{ cloneStatusText }}</div>
-					<div class="tts-sec-title">浣欓鏌ヨ</div>
+					<div class="tts-sec-title">余额查询</div>
 					<div class="bal-grid">
 						<div class="bal-item">
-							<div class="bal-name">鍗冮棶 CosyVoice</div>
-							<div class="bal-value" :class="{loading: balCosyLoading}">{{ balCosyLoading ? "鏌ヨ涓€? : (balCosy || "鏈煡璇?) }}</div>
+							<div class="bal-name">千问 CosyVoice</div>
+							<div class="bal-value" :class="{loading: balCosyLoading}">{{ balCosyLoading ? "查询中…" : (balCosy || "未查询") }}</div>
 						</div>
 						<div class="bal-item">
 							<div class="bal-name">DeepSeek</div>
-							<div class="bal-value" :class="{loading: balDsLoading}">{{ balDsLoading ? "鏌ヨ涓€? : (balDs || "鏈煡璇?) }}</div>
+							<div class="bal-value" :class="{loading: balDsLoading}">{{ balDsLoading ? "查询中…" : (balDs || "未查询") }}</div>
 						</div>
 					</div>
 					<div class="bal-btns">
-						<button class="mini ripple" :disabled="balCosyLoading" @click="queryCosyBalance">鏌ヨ鍗冮棶浣欓</button>
-						<button class="mini ripple" :disabled="balDsLoading" @click="queryDeepSeekBalance">鏌ヨ DeepSeek</button>
+						<button class="mini ripple" :disabled="balCosyLoading" @click="queryCosyBalance">查询千问余额</button>
+						<button class="mini ripple" :disabled="balDsLoading" @click="queryDeepSeekBalance">查询 DeepSeek</button>
 					</div>
-					<div class="hint">鍗冮棶/DashScope 瀹樻柟鏈紑鏀句綑棰濇煡璇㈡帴鍙ｏ紝鑻ユ彁绀轰笉鍙敤璇峰埌鍗冮棶鎺у埗鍙拌处鍗曢〉鏌ョ湅</div>
+					<div class="hint">千问/DashScope 官方未开放余额查询接口，若提示不可用请到千问控制台账单页查看</div>
 					<div v-if="balMsg" class="hint" :class="{ok: balMsgOk, bad: !balMsgOk}">{{ balMsg }}</div>
 				</div>
 				</template>
 
 				<div class="tts-sec" v-if="cfg.ttsProvider === 'fish'">
-					<div class="tts-sec-title">浣欓鏌ヨ</div>
+					<div class="tts-sec-title">余额查询</div>
 					<div class="bal-grid">
 						<div class="bal-item">
 							<div class="bal-name">Fish Audio</div>
-							<div class="bal-value" :class="{loading: balFishLoading}">{{ balFishLoading ? "鏌ヨ涓€? : (balFish || "鏈煡璇?) }}</div>
+							<div class="bal-value" :class="{loading: balFishLoading}">{{ balFishLoading ? "查询中…" : (balFish || "未查询") }}</div>
 						</div>
 						<div class="bal-item">
 							<div class="bal-name">DeepSeek</div>
-							<div class="bal-value" :class="{loading: balDsLoading}">{{ balDsLoading ? "鏌ヨ涓€? : (balDs || "鏈煡璇?) }}</div>
+							<div class="bal-value" :class="{loading: balDsLoading}">{{ balDsLoading ? "查询中…" : (balDs || "未查询") }}</div>
 						</div>
 					</div>
 					<div class="bal-btns">
-						<button class="mini ripple" :disabled="balFishLoading" @click="queryFishBalance">鏌ヨ Fish Audio</button>
-						<button class="mini ripple" :disabled="balDsLoading" @click="queryDeepSeekBalance">鏌ヨ DeepSeek</button>
+						<button class="mini ripple" :disabled="balFishLoading" @click="queryFishBalance">查询 Fish Audio</button>
+						<button class="mini ripple" :disabled="balDsLoading" @click="queryDeepSeekBalance">查询 DeepSeek</button>
 					</div>
-					<div class="hint">Fish Audio 鐢ㄤ笂闈㈣处鎴烽厤缃? DeepSeek 鐢ㄨ亰澶╄缃噷鐨?API Key</div>
+					<div class="hint">Fish Audio 用上面账户配置; DeepSeek 用聊天设置里的 API Key</div>
 					<div v-if="balMsg" class="hint" :class="{ok: balMsgOk, bad: !balMsgOk}">{{ balMsg }}</div>
 				</div>
 
 				<div class="tts-sec">
-					<div class="tts-sec-title">鎿嶄綔</div>
+					<div class="tts-sec-title">操作</div>
 					<div class="btn-row">
-						<button class="btn ripple" :disabled="ttsTesting" @click="doTestTTS">{{ ttsTesting ? "娴嬭瘯涓€? : "娴嬭瘯骞惰瘯鍚? }}</button>
-						<button class="btn ripple" v-if="speaking" @click="stopTTS()">鍋滄鏈楄</button>
+						<button class="btn ripple" :disabled="ttsTesting" @click="doTestTTS">{{ ttsTesting ? "测试中…" : "测试并试听" }}</button>
+						<button class="btn ripple" v-if="speaking" @click="stopTTS()">停止朗读</button>
 					</div>
-					<button class="btn ripple primary" @click="saveSettingsNow">淇濆瓨璁剧疆</button>
+					<button class="btn ripple primary" @click="saveSettingsNow">保存设置</button>
 					<div v-if="ttsMsg" class="hint" :class="{ok: ttsMsgOk, bad: !ttsMsgOk}">{{ ttsMsg }}</div>
 				</div>
 			</div>
@@ -464,16 +464,16 @@
 								<small>{{ bgmQuickStatus }}</small>
 							</span>
 							<span class="settings-bgm-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
-							<button class="settings-bgm-control" type="button" :aria-label="bgmQuickActionLabel" :title="bgmQuickActionLabel" @click="onBgmQuickToggle"><span aria-hidden="true">{{ bgmState === 'missing' && cfg.bgmEnabled ? '鈫? : cfg.bgmEnabled ? '鈪? : '鈻? }}</span></button>
-							<button class="settings-bgm-control settings-bgm-next" type="button" aria-label="鎹竴棣? title="鎹竴棣? :disabled="!bgmCanSkip" @click="onBgmNext">鈴?/button>
+							<button class="settings-bgm-control" type="button" :aria-label="bgmQuickActionLabel" :title="bgmQuickActionLabel" @click="onBgmQuickToggle"><span aria-hidden="true">{{ bgmState === 'missing' && cfg.bgmEnabled ? '↻' : cfg.bgmEnabled ? 'Ⅱ' : '▶' }}</span></button>
+							<button class="settings-bgm-control settings-bgm-next" type="button" aria-label="换一首" title="换一首" :disabled="!bgmCanSkip" @click="onBgmNext">⏭</button>
 						</div>
-						<button class="x" :aria-label="'鍏抽棴'" @click="panel = ''">鉁?/button>
+						<button class="x" :aria-label="'关闭'" @click="panel = ''">✕</button>
 					</div>
 					<div class="sheet-body">
 						
 						<template v-if="panel === 'model'">
 							<div v-if="listError" class="empty">{{ listError }}</div>
-							<div v-else-if="!modelList.length" class="empty">姝ｅ湪鑾峰彇妯″瀷鍒楄〃鈥?/div>
+							<div v-else-if="!modelList.length" class="empty">正在获取模型列表…</div>
 							<div v-else class="grid">
 								<div v-for="m in modelList" :key="m.id" class="mc" :class="{on: m.id === currentModelId}" @click="pick(m.id)">
 									<div class="thumb"><img :src="coverUrl(m.id)" @error="hideThumb" /></div>
@@ -484,7 +484,7 @@
 
 						
 						<template v-else-if="panel === 'motion'">
-							<div v-if="!motions.length" class="empty">鏆傛棤鍔ㄤ綔</div>
+							<div v-if="!motions.length" class="empty">暂无动作</div>
 							<div v-for="g in motions" :key="g.group" class="grp">
 								<div class="grp-name">{{ g.group }}</div>
 								<div class="chips">
@@ -495,9 +495,9 @@
 
 						
 						<template v-else-if="panel === 'expression'">
-							<div v-if="!expressions.length" class="empty">鏆傛棤琛ㄦ儏</div>
+							<div v-if="!expressions.length" class="empty">暂无表情</div>
 							<div class="chips">
-								<button class="chip w ripple" @click="l2d.stopExpression()">娓呴櫎</button>
+								<button class="chip w ripple" @click="l2d.stopExpression()">清除</button>
 								<button v-for="n in expressions" :key="n" class="chip ripple" @click="l2d.playExpression(n)">{{ n }}</button>
 							</div>
 						</template>
@@ -506,32 +506,32 @@
 						<DiaryPanel v-else-if="panel === 'diary'" :config="cfg" :chat-busy="chatStreaming || touchStreaming" @notify="triggerBubble($event)" />
 
 						
-						<!-- 璁板繂搴?(浜岀骇鑿滃崟: 鐩爣 / 闀挎湡璁板繂 / 鍘嗗彶鎬荤粨 涓変唤鍐呭閮芥敹鍦ㄨ繖閲? -->
+						<!-- 记忆库 (二级菜单: 目标 / 长期记忆 / 历史总结 三份内容都收在这里) -->
 						<template v-else-if="panel === 'memories'">
-							<!-- C: 椤堕儴缁熻琛?鈥斺€?涓€鐪肩湅鍒?鏈夋病鏈変綔搴?鏀惰捣/鍒犻櫎鐨勬潯鐩?(鐢ㄦ埛涓ゆ娌℃壘鍒板叆鍙? 鐢ㄨ繖涓В鍐冲彲鍙戠幇鎬? -->
+							<!-- C: 顶部统计行 —— 一眼看到"有没有作废/收起/删除的条目"(用户两次没找到入口, 用这个解决可发现性) -->
 							<div class="mem-stats">
-								闀挎湡 {{ nonGoalMemories.length }} 路 鐩爣 {{ goals.length }} 路 宸蹭綔搴?{{ invalidMems.length }} 路 宸叉敹璧?{{ fadedMems.length }} 路 宸插垹闄?{{ deletedMems.length }}
+								长期 {{ nonGoalMemories.length }} · 目标 {{ goals.length }} · 已作废 {{ invalidMems.length }} · 已收起 {{ fadedMems.length }} · 已删除 {{ deletedMems.length }}
 							</div>
 							<div v-if="!memSearch && !memFilter">
-								<!-- 闄潃浣犵殑浜嬶紙鐩爣锛夆€斺€?浠庝竴绾ц缃〉鎼繘鏉?-->
+								<!-- 陪着你的事（目标）—— 从一级设置页搬进来 -->
 								<div class="mem-sec">
-									<div class="mem-sec-title">闄潃浣犵殑浜嬶紙鐩爣锛?template v-if="goals.length">锛坽{ goals.length }}锛?/template></div>
-									<div v-if="!goals.length" class="hint">璁颁笅涓€涓洰鏍囷紝Nori 姣忛殧鍑犲ぉ浼氳嚜鐒跺湴闂棶杩涘睍</div>
+									<div class="mem-sec-title">陪着你的事（目标）<template v-if="goals.length">（{{ goals.length }}）</template></div>
+									<div v-if="!goals.length" class="hint">记下一个目标，Nori 每隔几天会自然地问问进展</div>
 									<div v-for="g in goals" :key="g.id" class="mem-item">
 										<span class="mem-tag src" :class="{inferred: isInferred(g)}" :title="PROV_TIP">{{ memProvenance(g) }}</span>
-										<span class="mem-text">馃幆 {{ g.content }}</span>
-										<button class="mem-op" @click="doRemoveGoal(g.id)">鍒犻櫎</button>
+										<span class="mem-text">🎯 {{ g.content }}</span>
+										<button class="mem-op" @click="doRemoveGoal(g.id)">删除</button>
 									</div>
 									<div class="goal-add">
-										<input v-model="goalDraft" placeholder="濡傦細鑰冮泤鎬?7 鍒?/ 鍧氭寔璺戞" spellcheck="false" @keyup.enter="doAddGoal" />
-										<button class="mini ripple" @click="doAddGoal">璁颁笅鐩爣</button>
+										<input v-model="goalDraft" placeholder="如：考雅思 7 分 / 坚持跑步" spellcheck="false" @keyup.enter="doAddGoal" />
+										<button class="mini ripple" @click="doAddGoal">记下目标</button>
 									</div>
 								</div>
-								<!-- 鍘嗗彶鎬荤粨 鈥斺€?鍚屾牱浠庝竴绾ч〉鎼繘鏉?-->
+								<!-- 历史总结 —— 同样从一级页搬进来 -->
 								<div class="mem-sec">
-									<div class="mem-sec-title">鍘嗗彶鎬荤粨锛坽{ memView.summaries.length }} 鏉★級</div>
+									<div class="mem-sec-title">历史总结（{{ memView.summaries.length }} 条）</div>
 									<div v-if="!memView.summaries.length" class="hint">
-										鏆傛棤鎬荤粨銆傚璇濆浜嗕箣鍚庝細鑷姩鎶婃棭鏈熷璇濆帇缂╂垚鎽樿
+										暂无总结。对话多了之后会自动把早期对话压缩成摘要
 									</div>
 									<details v-for="s in memView.summaries" :key="s.id" class="mem-summary">
 										<summary>{{ summaryLabel(s) }}</summary>
@@ -540,152 +540,164 @@
 								</div>
 							</div>
 							<div class="mem-search-row">
-								<input v-model="memSearch" class="mem-search-input" placeholder="鎼滅储璁板繂鍐呭鈥? spellcheck="false" />
+								<input v-model="memSearch" class="mem-search-input" placeholder="搜索记忆内容…" spellcheck="false" />
 								<select v-model="memFilter" class="mem-search-sel">
-									<option value="">鍏ㄩ儴绫诲瀷</option>
-									<option value="goal">馃幆 鐩爣</option>
+									<option value="">全部类型</option>
+									<option value="goal">🎯 目标</option>
 									<option v-for="(lb, k) in TYPE_LABELS" :key="k" :value="k">{{ lb }}</option>
-									<option value="pinned">馃搶 宸插浐瀹?/option>
+									<option value="pinned">📌 已固定</option>
 								</select>
 							</div>
-							<div class="mem-count-hint">闀挎湡璁板繂 {{ filteredMems.length }} 鏉?template v-if="memSearch || memFilter">锛堢瓫閫夌粨鏋滐級</template></div>
-							<!-- 銆屽緟鏁寸悊 N 鏉°€?P4): 璁?杩樻病杩涜蹇?杩欎欢浜嬪彲瑙?鈥斺€?鍚﹀垯鐢ㄦ埛璇村畬涓€鍙?							     浼氫互涓烘病璁颁綇 (瀹炴椂閫氶亾榛樿鍏充箣鍚庡挨鍏堕渶瑕佽繖涓氦浠?銆?							     A+B (2026-09-27 娣卞, 瀹炴満鍙嶉"鐐逛簡娌＄敤"): 鍙嶉**灏卞湴**鏄剧ず鍦ㄦ寜閽梺杈?
-							     娌℃湁鍙暣鐞嗗唴瀹规椂鎸夐挳缃伆 + 鏂囨璇存竻, 涓嶅啀"鍙偣浣嗘棤浜嬪彂鐢?銆?-->
+							<div class="mem-count-hint">长期记忆 {{ filteredMems.length }} 条<template v-if="memSearch || memFilter">（筛选结果）</template></div>
+							<!-- 「待整理 N 条」(P4): 让"还没进记忆"这件事可见 —— 否则用户说完一句
+							     会以为没记住 (实时通道默认关之后尤其需要这个交代)。
+							     A+B (2026-09-27 深夜, 实机反馈"点了没用"): 反馈**就地**显示在按钮旁边;
+							     没有可整理内容时按钮置灰 + 文案说清, 不再"可点但无事发生"。 -->
 							<div class="mem-pending">
-								<span v-if="memPending.pending > 0">寰呮暣鐞?{{ memPending.pending }} 鏉★紙婊?{{ memPending.threshold }} 鏉¤嚜鍔ㄦ暣鐞嗭級</span>
-								<span v-else>寰呮暣鐞?0 鏉?路 鏈€杩?20 鍙ヨ繕鍦ㄦ垜鐪煎墠锛屾敀澶?25 鍙ヤ細鑷姩鏁寸悊</span>
-								<button class="mini ripple" :disabled="memOrganizing || !canOrganize" @click="doOrganizeNow">{{ memOrganizing ? "鏁寸悊涓€? : (canOrganize ? "绔嬪嵆鏁寸悊" : "鏆傛棤鍙暣鐞?) }}</button>
+								<span v-if="memPending.pending > 0">待整理 {{ memPending.pending }} 条（满 {{ memPending.threshold }} 条自动整理）</span>
+								<span v-else>待整理 0 条 · 最近 20 句还在我眼前，攒够 25 句会自动整理</span>
+								<button class="mini ripple" :disabled="memOrganizing || !canOrganize" @click="doOrganizeNow">{{ memOrganizing ? "整理中…" : (canOrganize ? "立即整理" : "暂无可整理") }}</button>
 							</div>
 							<div v-if="memOrgMsg" class="hint mem-org-msg" :class="{ok: memOrgMsgOk, bad: !memOrgMsgOk}">{{ memOrgMsg }}</div>
-							<div v-if="!filteredMems.length" class="empty">娌℃湁鍖归厤鐨勮蹇?/div>
-							<!-- 璁板繂搴撲富瑙嗗浘 (P4): **鎸夊潡**鎺掓椂闂寸嚎 (涓€娆″巻鍙叉€荤粨瑕嗙洊鐨勪竴娈靛璇?= 涓€涓潡),
-							     鍧楀唴鍐?*鎸夌被鍨嬪垎灏忚妭** 鈥斺€?涓婂崐鍙ユ槸鍧? 涓嬪崐鍙ユ部鐢ㄧ敤鎴疯鐨勭被鍨嬪垎缁勩€?							     鎼滅储/绛涢€夋椂閫€鍥炴寜绫诲瀷骞抽摵 (瑙?memSections) -->
+							<div v-if="!filteredMems.length" class="empty">没有匹配的记忆</div>
+							<!-- 记忆库主视图 (P4): **按块**排时间线 (一次历史总结覆盖的一段对话 = 一个块),
+							     块内再**按类型分小节** —— 上半句是块, 下半句沿用用户要的类型分组。
+							     搜索/筛选时退回按类型平铺 (见 memSections) -->
 							<div v-for="sec in memSections" :key="sec.key" class="mem-sec" :class="{ 'mem-block': sec.key !== 'flat' }">
 								<div v-if="sec.title" class="mem-sec-title">{{ sec.title }}</div>
 								<div v-for="sub in sec.subs" :key="sub.key" class="mem-sec mem-group">
-									<div class="mem-sec-title sub">{{ sub.label }}锛坽{ sub.items.length }}锛?/div>
+									<div class="mem-sec-title sub">{{ sub.label }}（{{ sub.items.length }}）</div>
 									<div v-for="m in sub.items" :key="m.id" class="mem-item">
 										<span class="mem-tag src" :class="{inferred: isInferred(m)}" :title="PROV_TIP">{{ memProvenance(m) }}</span>
 										<span class="mem-text">
-											<span v-if="(m.tags ?? []).includes('goal')" class="mem-ico" title="鐩爣">馃幆</span>
-											<span v-if="(m.tags ?? []).includes('pinned')" class="mem-ico" title="宸插浐瀹?>馃搶</span>
+											<span v-if="(m.tags ?? []).includes('goal')" class="mem-ico" title="目标">🎯</span>
+											<span v-if="(m.tags ?? []).includes('pinned')" class="mem-ico" title="已固定">📌</span>
 											{{ m.content }}
 										</span>
-										<span class="mem-sub">{{ fmtTs(m.createdAt) }} 路 閲嶈搴?{{ m.importance.toFixed(2) }}<template v-if="m.decayDays == null"> 路 涓嶆贰蹇?/template></span>
-										<button class="mem-op" @click="doTogglePin(m)">{{ isPinnedId(m.id) ? "鍙栨秷鍥哄畾" : "鍥哄畾" }}</button>
-										<button class="mem-op" title="鏆傛椂鍋滅敤骞朵繚鐣欙紱鎵嬪姩鏀惰捣鍚庨渶鐐广€岀暀涓嬨€嶆仮澶? @click="doFadeMemory(m)">鏀惰捣</button>
-										<button class="mem-op danger" @click="doDeleteMemory(m)">鍒犻櫎</button>
+										<span class="mem-sub">{{ fmtTs(m.createdAt) }} · 重要度 {{ m.importance.toFixed(2) }}<template v-if="m.decayDays == null"> · 不淡忘</template></span>
+										<button class="mem-op" @click="doTogglePin(m)">{{ isPinnedId(m.id) ? "取消固定" : "固定" }}</button>
+										<button class="mem-op" title="暂时停用并保留；手动收起后需点「留下」恢复" @click="doFadeMemory(m)">收起</button>
+										<button class="mem-op danger" @click="doDeleteMemory(m)">删除</button>
 									</div>
 								</div>
 							</div>
-							<!-- 宸蹭綔搴熺殑璁板繂 (B1 璁板繂绾犳): 琚悗鏉ヨ鐨勮瘽鍙栦唬鐨勬棫璇存硶涓嶅啀娉ㄥ叆/鍙洖,
-							     浣嗙暀鍦ㄥ簱閲屽瓨妗? 鐐瑰紑灏辫兘杩樺師 鈥斺€?鍒ら敊鐨勪唬浠蜂粠"姘镐箙涓?闄嶅埌"鐐逛竴涓?銆?							     C: 娌℃湁浣滃簾鏉℃椂涔熺暀涓€琛岀伆瀛楁彁绀? 璁╄繖涓姛鑳?*鍙** (鍚﹀垯鐢ㄦ埛鎵句笉鍒?銆?-->
+							<!-- 已作废的记忆 (B1 记忆纠正): 被后来说的话取代的旧说法不再注入/召回,
+							     但留在库里存档, 点开就能还原 —— 判错的代价从"永久丢"降到"点一下"。
+							     C: 没有作废条时也留一行灰字提示, 让这个功能**可见** (否则用户找不到)。 -->
 							<details v-if="invalidMems.length && !memSearch && !memFilter" class="mem-sec mem-invalid">
-								<summary class="mem-sec-title">宸蹭綔搴燂紙{{ invalidMems.length }}锛?/summary>
-								<div class="hint">杩欎簺鏃ц娉曞凡琚綘鍚庢潵鐨勮瘽鍙栦唬锛孨ori 涓嶄細鍐嶇敤锛涘垽閿欎簡灏辩偣銆岃繕鍘熴€?/div>
+								<summary class="mem-sec-title">已作废（{{ invalidMems.length }}）</summary>
+								<div class="hint">这些旧说法已被你后来的话取代，Nori 不会再用；判错了就点「还原」</div>
 								<div v-for="m in invalidMems" :key="m.id" class="mem-item">
 									<span class="mem-text">{{ m.content }}</span>
-									<span class="mem-sub">浣滃簾浜?{{ fmtTs(m.invalidAt ?? 0) }}</span>
-									<button class="mem-op" @click="doRestoreInvalid(m)">杩樺師</button>
+									<span class="mem-sub">作废于 {{ fmtTs(m.invalidAt ?? 0) }}</span>
+									<button class="mem-op" @click="doRestoreInvalid(m)">还原</button>
 								</div>
 							</details>
-							<!-- C: 绌烘€佷篃鐣欎竴琛? 璁?鏀瑰彛浼氳繘鍘嗗彶"杩欎欢浜嬪彲瑙?-->
+							<!-- C: 空态也留一行, 让"改口会进历史"这件事可见 -->
 							<div v-else-if="!memSearch && !memFilter" class="mem-invalid-empty">
-								宸蹭綔搴燂紙0锛壜?浣犳敼鍙ｆ椂鏃ц娉曚細鐣欏湪杩欓噷锛岄殢鏃惰兘杩樺師
+								已作废（0）· 你改口时旧说法会留在这里，随时能还原
 							</div>
-							<!-- 宸叉敹璧?(2026-09-28, 鐢ㄦ埛鐨?鏆傛椂鏀惰捣"): 鍒版湡/澶箙娌℃彁鐨勬潯鐩嚜鍔ㄦ敹鍦ㄨ繖閲屻€?							     涓庛€屽凡浣滃簾銆嶇殑鍖哄埆: 浣滃簾=琚柊璇存硶鍙栦唬; 鏀惰捣=涓嶅啀閲嶈, 浣嗗畠**鍙兘杩樻槸鐪熺殑**銆?							     涓嶆敞鍏ャ€佷笉鍙洖, 浣嗙偣銆岀暀涓嬨€嶅氨鑳芥斁鍥炵敓鏁?鈥斺€?鑷姩璺緞姘镐笉鐪熷垹銆?-->
+							<!-- 已收起 (2026-09-28, 用户的"暂时收起"): 到期/太久没提的条目自动收在这里。
+							     与「已作废」的区别: 作废=被新说法取代; 收起=不再重要, 但它**可能还是真的**。
+							     不注入、不召回, 但点「留下」就能放回生效 —— 自动路径永不真删。 -->
 							<details v-if="fadedMems.length && !memSearch && !memFilter" class="mem-sec mem-faded">
-								<summary class="mem-sec-title">宸叉敹璧凤紙{{ fadedMems.length }}锛?/summary>
-								<div class="hint">鏀惰捣琛ㄧず鏆傛椂涓嶇敤锛屽唴瀹逛粛淇濈暀銆傛墜鍔ㄦ敹璧烽渶鐐广€岀暀涓嬨€嶆仮澶嶏紱鑷姩鏀惰捣鍙湪浣犱箣鍚庨噸鏂版槑纭彁鍙婃椂鎭㈠銆?/div>
+								<summary class="mem-sec-title">已收起（{{ fadedMems.length }}）</summary>
+								<div class="hint">收起表示暂时不用，内容仍保留。手动收起需点「留下」恢复；自动收起可在你之后重新明确提及时恢复。</div>
 								<div v-for="m in fadedMems" :key="m.id" class="mem-item">
 									<span class="mem-text">{{ m.content }}</span>
-									<span class="mem-sub">{{ fadeReasonLabel(m) }} 路 鏀惰捣浜?{{ fmtTs(m.fadedAt ?? 0) }}</span>
-									<button class="mem-op" @click="doRestoreFaded(m)">鐣欎笅</button>
+									<span class="mem-sub">{{ fadeReasonLabel(m) }} · 收起于 {{ fmtTs(m.fadedAt ?? 0) }}</span>
+									<button class="mem-op" @click="doRestoreFaded(m)">留下</button>
 								</div>
 							</details>
-							<!-- 宸插垹闄?(2026-09-28, 鍥炴敹绔?: 鎵嬪垹鐨勬潯鐩甫鍐呭鐣欏湪杩欓噷, 鍙繕鍘? 纭涓嶈鍐嶃€屾案涔呭垹闄ゃ€?-->
+							<!-- 已删除 (2026-09-28, 回收站): 手删的条目带内容留在这里, 可还原; 确认不要再「永久删除」 -->
 							<details v-if="deletedMems.length && !memSearch && !memFilter" class="mem-sec mem-deleted">
-								<summary class="mem-sec-title">宸插垹闄わ紙{{ deletedMems.length }}锛?/summary>
-								<div class="hint">鍒犻櫎鍚庡仠姝娇鐢紝鏃у璇濅笉浼氶噸鏂拌鍥炪€傚洖鏀剁珯鏈€澶氱暀 20 鏉★紱杩樺師淇濈暀鍒犻櫎鍓嶇姸鎬併€傛案涔呭垹闄ょЩ闄ゅ洖鏀剁珯鏉＄洰锛屼笉娓呴櫎鍘熻亰澶╂垨宸叉湁瀵煎嚭銆?/div>
+								<summary class="mem-sec-title">已删除（{{ deletedMems.length }}）</summary>
+								<div class="hint">删除后停止使用，旧对话不会重新记回。回收站最多留 20 条；还原保留删除前状态。永久删除移除回收站条目，不清除原聊天或已有导出。</div>
 								<div v-for="m in deletedMems" :key="m.id" class="mem-item">
 									<span class="mem-text">{{ m.content }}</span>
-									<span class="mem-sub">鍒犻櫎浜?{{ fmtTs(m.deletedAt ?? 0) }}</span>
-									<button class="mem-op" @click="doRestoreDeleted(m)">杩樺師</button>
-									<button class="mem-op danger" @click="doDeleteForever(m)">姘镐箙鍒犻櫎</button>
+									<span class="mem-sub">删除于 {{ fmtTs(m.deletedAt ?? 0) }}</span>
+									<button class="mem-op" @click="doRestoreDeleted(m)">还原</button>
+									<button class="mem-op danger" @click="doDeleteForever(m)">永久删除</button>
 								</div>
 							</details>
-							<!-- 璁板繂浼樺寲 (2026-09-28, 鐢ㄦ埛鎻愮殑"鏁寸悊浼樺寲"): 浠?*浣犵暀涓嬬殑/鍒犳帀鐨?*璁板繂閲屽鍙ｅ懗,
-							     鎶婄ず渚嬪啓杩涙暣鐞嗘彁绀鸿瘝銆傞粯璁ゅ叧 鈥斺€?鏃╂湡搴撻噷鑻ユ湁鍨冨溇, 瀛﹁繘鍘讳細鎶婇鍛冲浐鍖栥€?-->
+							<!-- 记忆优化 (2026-09-28, 用户提的"整理优化"): 从**你留下的/删掉的**记忆里学口味,
+							     把示例写进整理提示词。默认关 —— 早期库里若有垃圾, 学进去会把风味固化。 -->
 							<div v-if="!memSearch && !memFilter" class="mem-sec mem-tune">
-								<div class="mem-sec-title">璁板繂浼樺寲</div>
+								<div class="mem-sec-title">记忆优化</div>
 								<div class="row-inline">
-									<label>鑷姩浼樺寲锛堟瘡鏂板 20 鏉¤蹇嗗埛鏂扮ず渚嬶級</label>
+									<label>自动优化（每新增 20 条记忆刷新示例）</label>
 									<input type="checkbox" v-model="cfg.memoryAutoTuneExamples" />
 								</div>
 								<div class="hint">{{ tuneInfo }}</div>
 								<div class="btn-row mem-tune-btns">
-									<button class="mini ripple" @click="doRebuildExamples">绔嬪嵆浼樺寲</button>
-									<button class="mini ripple" @click="tuneShow = !tuneShow">{{ tuneShow ? "鏀惰捣绀轰緥" : "鏌ョ湅绀轰緥" }}</button>
-									<button class="mini ripple" :disabled="!tuneHas" @click="doClearExamples">娓呴櫎绀轰緥</button>
+									<button class="mini ripple" @click="doRebuildExamples">立即优化</button>
+									<button class="mini ripple" @click="tuneShow = !tuneShow">{{ tuneShow ? "收起示例" : "查看示例" }}</button>
+									<button class="mini ripple" :disabled="!tuneHas" @click="doClearExamples">清除示例</button>
 								</div>
 								<div v-if="tuneShow && tuneHas" class="hint mem-tune-detail">
-									<div v-if="tunePos.length">璇ヨ锛歿{ tunePos.join(" / ") }}</div>
-									<div v-if="tuneNeg.length">涓嶈璁帮細{{ tuneNeg.join(" / ") }}</div>
-									<div class="mem-sub">鈥?鍙槸椋庢牸绀轰緥锛屼笉杩涘璇濅笂涓嬫枃锛屽彧鍦ㄦ暣鐞嗘椂鍙戠粰妯″瀷</div>
+									<div v-if="tunePos.length">该记：{{ tunePos.join(" / ") }}</div>
+									<div v-if="tuneNeg.length">不该记：{{ tuneNeg.join(" / ") }}</div>
+									<div class="mem-sub">※ 只是风格示例，不进对话上下文，只在整理时发给模型</div>
 								</div>
-								<div v-else-if="tuneShow" class="hint">杩樻病鏈夌ず渚?鈥斺€?鐐广€岀珛鍗充紭鍖栥€嶇敓鎴愪竴浠斤紙璁板繂澶皯鏃朵細鍏堣烦杩囷級</div>
+								<div v-else-if="tuneShow" class="hint">还没有示例 —— 点「立即优化」生成一份（记忆太少时会先跳过）</div>
 							</div>
-							<!-- A3 (2026-10-08): 璁板繂鍋ュ悍 + **娉ㄥ叆鍙鎬?* 鈥斺€?鎶?濂规€庝箞绐佺劧璁板緱 / 涓嶈寰?浠庣寽鍙樻垚鍙煡銆?							     璁℃暟閮ㄥ垎**涓嶄緷璧?*璇婃柇寮€鍏?(闅忔椂鍙); 娉ㄥ叆**鏄庣粏**鎵嶉渶瑕佹墦寮€寮€鍏?							     (鏄庣粏鍚綘鐨勫師璇濅笌璁板繂鍐呭, 涓庢暣鐞嗚瘖鏂悓涓€闅愮鍙ｅ緞)銆?-->
+							<!-- A3 (2026-10-08): 记忆健康 + **注入可见性** —— 把"她怎么突然记得 / 不记得"从猜变成可查。
+							     计数部分**不依赖**诊断开关 (随时可见); 注入**明细**才需要打开开关
+							     (明细含你的原话与记忆内容, 与整理诊断同一隐私口径)。 -->
 							<div class="mem-sec mem-health">
-								<div class="mem-sec-title">璁板繂鍋ュ悍</div>
+								<div class="mem-sec-title">记忆健康</div>
 								<div class="hint">
-									鐢熸晥 <b>{{ health.active }}</b> 路 宸叉敹璧?{{ health.faded }} 路 宸蹭綔搴?{{ health.invalid }} 路 搴撻噷鍏?{{ health.total }} 鏉?									锛堝巻鍙叉€荤粨 {{ health.summaries }} 鏉?路 璁板繂鍧?{{ health.blocks }} 涓?路 鍥炴敹绔?{{ health.deleted }} 鏉★級
+									生效 <b>{{ health.active }}</b> · 已收起 {{ health.faded }} · 已作废 {{ health.invalid }} · 库里共 {{ health.total }} 条
+									（历史总结 {{ health.summaries }} 条 · 记忆块 {{ health.blocks }} 个 · 回收站 {{ health.deleted }} 条）
 								</div>
 								<div class="hint">
-									鏈€杩戜繚瀛樻憳瑕侊細<b>{{ fmtWhen(health.lastSummaryAt) }}</b>
-									<span v-if="health.lastPersistError" class="bad"> 路 {{ health.lastPersistError }}</span>
+									最近保存摘要：<b>{{ fmtWhen(health.lastSummaryAt) }}</b>
+									<span v-if="health.lastPersistError" class="bad"> · {{ health.lastPersistError }}</span>
 									<template v-if="health.lastOrganize">
-										路 鏈杩愯鏈€鍚庝竴娆℃暣鐞嗭細<b :class="{bad: health.lastOrganize?.ok === false}">{{ /閮ㄥ垎瀹屾垚/.test(health.lastOrganize?.note ?? "") ? "閮ㄥ垎瀹屾垚" : health.lastOrganize?.ok ? "鎴愬姛" : "澶辫触" }}</b><template v-if="health.lastOrganize?.note">锛坽{ health.lastOrganize?.note }}锛?/template>
+										· 本次运行最后一次整理：<b :class="{bad: health.lastOrganize?.ok === false}">{{ /部分完成/.test(health.lastOrganize?.note ?? "") ? "部分完成" : health.lastOrganize?.ok ? "成功" : "失败" }}</b><template v-if="health.lastOrganize?.note">（{{ health.lastOrganize?.note }}）</template>
 									</template>
-									<template v-else>路 鏈杩愯杩樻病鏁寸悊杩?/template>
+									<template v-else>· 本次运行还没整理过</template>
 								</div>
-								<div class="hint">涓婁竴杞敞鍏ワ細{{ injectSummary }}</div>
+								<div class="hint">上一轮注入：{{ injectSummary }}</div>
 								<div v-if="(health.lastInject?.hits?.length ?? 0) > 0" class="mem-inject-hits">
 									<div v-for="h in (health.lastInject?.hits ?? [])" :key="h.id" class="mem-inject-hit">
 										<span class="mem-inject-score">{{ h.s.toFixed(2) }}</span>
 										<span class="mem-inject-type">{{ h.t }}</span>
 										<span class="mem-inject-text">{{ h.c }}</span>
-										<span v-if="h.kw" class="mem-inject-kw" title="闈犲叧閿瘝/鍒悕鍛戒腑">鍒悕</span>
+										<span v-if="h.kw" class="mem-inject-kw" title="靠关键词/别名命中">别名</span>
 									</div>
 								</div>
-								<div v-else-if="health.lastInject" class="hint">涓婁竴杞?*涓€鏉￠兘娌℃敞鍏?*锛氭鏂囦笌鍒悕閮芥病鍛戒腑锛屾垨搴撻噷娌℃湁鐢熸晥璁板繂</div>
+								<div v-else-if="health.lastInject" class="hint">上一轮**一条都没注入**：正文与别名都没命中，或库里没有生效记忆</div>
 								<div class="btn-row mem-diag-btns">
-									<button class="mini ripple" :disabled="injectN === 0" @click="doExportInject">瀵煎嚭娉ㄥ叆璁板綍</button>
+									<button class="mini ripple" :disabled="injectN === 0" @click="doExportInject">导出注入记录</button>
 								</div>
-								<div class="hint mem-sub">鈥?娉ㄥ叆鏄庣粏鍚綘鐨勫師璇濅笌璁板繂鍐呭锛屽鍑哄悗璇风暀鎰忔枃浠跺幓鍚?/div>
+								<div class="hint mem-sub">※ 注入明细含你的原话与记忆内容，导出后请留意文件去向</div>
 							</div>
-							<!-- 璁板繂璇婃柇 (P1銆岃娴嬮棴鐜€? 2026-09-30): 鎺掓煡"濂逛负浠€涔堣浣忎簡 / 涓轰粈涔堟病璁颁綇"鐢ㄣ€?							     榛樿鍏? 鎵撳紑鍚庢瘡娆℃暣鐞嗗湪**鍐呭瓨**閲岀暀涓€鏉¤瘉鎹?鎻愮ず璇?妯″瀷杈撳嚭/闂ㄦ鎸′笅鐨勬潯鐩?搴撶姸鎬?,
-							     鐐广€屽鍑鸿蹇嗚瘖鏂€嶆墠钀界洏鍒?Download/NoriDroid/銆傞噸鍚?App 浼氭竻绌恒€?-->
+							<!-- 记忆诊断 (P1「观测闭环」, 2026-09-30): 排查"她为什么记住了 / 为什么没记住"用。
+							     默认关; 打开后每次整理在**内存**里留一条证据(提示词/模型输出/门槛挡下的条目/库状态),
+							     点「导出记忆诊断」才落盘到 Download/NoriDroid/。重启 App 会清空。 -->
 							<div class="mem-sec mem-diag">
-								<div class="mem-sec-title">璁板繂璇婃柇锛堟帓鏌ョ敤锛?/div>
+								<div class="mem-sec-title">记忆诊断（排查用）</div>
 								<div class="row-inline">
-									<label>璁板綍鏁寸悊涓庢敞鍏ヨ繃绋嬶紙鏈€澶氭渶杩?{{ MAX_DIAG_RECORDS }} 娆★級</label>
+									<label>记录整理与注入过程（最多最近 {{ MAX_DIAG_RECORDS }} 次）</label>
 									<input type="checkbox" v-model="cfg.memoryDiagnostics" @change="onDiagToggle" />
 								</div>
 								<div class="hint">
-									鎵撳紑鍚庢瘡娆℃暣鐞嗕細鐣欎笅璇佹嵁锛氬杺缁欐ā鍨嬬殑鎻愮ず璇嶃€佹ā鍨嬪師璇濄€侀棬妲涙尅涓嬩簡浠€涔堛€佸簱閲岀幇鍦ㄥ灏戞潯銆?									宸茶褰?<b>{{ diagN }}</b> 娆★紱鍙湪鍐呭瓨閲岋紝閲嶅惎灏辨竻绌猴紝鎵€浠ュ鍑鸿鍦ㄥ悓涓€娆￠噷鍋氥€?								</div>
-								<div class="btn-row mem-diag-btns">
-									<button class="mini ripple" :disabled="diagN === 0" @click="doExportDiag">瀵煎嚭璁板繂璇婃柇</button>
-									<button class="mini ripple" :disabled="diagN === 0" @click="doClearDiag">娓呯┖璁板綍</button>
+									打开后每次整理会留下证据：喂给模型的提示词、模型原话、门槛挡下了什么、库里现在多少条。
+									已记录 <b>{{ diagN }}</b> 次；只在内存里，重启就清空，所以导出要在同一次里做。
 								</div>
-								<div class="hint mem-sub">鈥?璁板綍閲屽惈浣犵殑鍘熻瘽涓庤蹇嗗唴瀹癸紙璇婃柇蹇呴』濡傛锛夛紝瀵煎嚭鍚庤鐣欐剰鏂囦欢鍘诲悜</div>
+								<div class="btn-row mem-diag-btns">
+									<button class="mini ripple" :disabled="diagN === 0" @click="doExportDiag">导出记忆诊断</button>
+									<button class="mini ripple" :disabled="diagN === 0" @click="doClearDiag">清空记录</button>
+								</div>
+								<div class="hint mem-sub">※ 记录里含你的原话与记忆内容（诊断必须如此），导出后请留意文件去向</div>
 							</div>
-							<!-- C: 鎿嶄綔鎸夐挳澶嶅埗鍒拌蹇嗗簱椤?鈥斺€?鍘熸潵鍙湪璁剧疆涓€绾ч〉鐨勩€岃蹇嗙郴缁熴€嶅潡閲?
-							     鐢ㄦ埛涓ゆ閮芥病鎵惧埌 (瀵煎嚭鎵句笉鍒板氨鏄瘉鎹?銆傘€屾竻绌恒€嶄粛鍙暀鍦ㄤ竴绾ч〉 (鐮村潖鎬ф搷浣滀笉閲嶅鍏ュ彛) -->
+							<!-- C: 操作按钮复制到记忆库页 —— 原来只在设置一级页的「记忆系统」块里,
+							     用户两次都没找到 (导出找不到就是证据)。「清空」仍只留在一级页 (破坏性操作不重复入口) -->
 							<div class="btn-row mem-btns mem-btns-bottom">
-								<button class="mini ripple" @click="doExportAll">瀵煎嚭</button>
-								<button class="mini ripple" @click="doPruneMemories">娓呯悊浣庨璁板繂锛?0澶╂湭鎻愶級</button>
-								<button class="mini ripple" @click="doRestoreMemory" :disabled="!hasBackup">鎾ら攢涓婃娓呯悊</button>
+								<button class="mini ripple" @click="doExportAll">导出</button>
+								<button class="mini ripple" @click="doPruneMemories">清理低频记忆（30天未提）</button>
+								<button class="mini ripple" @click="doRestoreMemory" :disabled="!hasBackup">撤销上次清理</button>
 							</div>
 							<div v-if="memPruneMsg" class="hint" :class="{ok: memPruneMsgOk, bad: !memPruneMsgOk}">{{ memPruneMsg }}</div>
 						</template>
@@ -700,18 +712,18 @@
                                 @action="pomoAction" @reminder="pomoReminderSettings" @export="pomoExport" />
                         </template>
 						<template v-else-if="panel === 'pomoStats'">
-							<div class="pomo-stats-toolbar"><button class="mini" @click="panel = 'pomo'">鈥?杩斿洖璁℃椂</button><span>{{ pomoStatsReady ? '姣忎竴娈靛姫鍔涳紝閮界畻鏁? : '璁板綍鏆備笉鍙敤' }}</span></div>
-                            <div v-if="pomoError" class="hint">{{ pomoError }} <button class="mini" @click="pomoRefresh()">閲嶈瘯</button></div>
+							<div class="pomo-stats-toolbar"><button class="mini" @click="panel = 'pomo'">‹ 返回计时</button><span>{{ pomoStatsReady ? '每一段努力，都算数' : '记录暂不可用' }}</span></div>
+                            <div v-if="pomoError" class="hint">{{ pomoError }} <button class="mini" @click="pomoRefresh()">重试</button></div>
                             <template v-if="pomoStatsReady">
-                            <div class="pomo-range"><button v-for="r in ([7,30,365] as const)" :key="r" class="pomo-rbtn" :class="{on: pomoRange === r}" @click="pomoRange = r">{{ r === 365 ? '杩戜竴骞? : `杩?${r} 澶ー }}</button></div>
-                            <div class="pomo-range-overview"><b>{{ pomoRangeSummary.rangeMin }}<small> 鍒嗛挓</small></b><span>瀹屾垚 {{ pomoRangeSummary.rangeDone }} 涓?路 鍗曟棩鏈€浣?{{ pomoRangeSummary.rangeBest }} 鍒嗛挓</span></div>
-                            <div v-if="pomoRange <= 30" class="pomo-bars pomo-selectable-bars" :class="{dense: pomoRange === 30}"><button v-for="d in pomoRangeBars" :key="d.day" class="pb-col" :aria-label="`${d.day}锛?{d.min} 鍒嗛挓`" @click="pomoSelectDate(d.day)"><i :style="{height: d.h + '%'}"></i><span>{{ d.label }}</span></button></div>
-                            <div v-if="pomoSummary.todayRate >= 0" class="pomo-sub">浠婃棩鍊掕鏃跺畬鎴愮巼 {{ Math.round(pomoSummary.todayRate * 100) }}%<span v-if="pomoSummary.todayAvgMin > 0">骞冲潎瀹屾垚娈?{{ pomoSummary.todayAvgMin }} 鍒嗛挓</span></div>
-                            <!-- 鐙珛缁熻椤? 涓€骞寸儹鍔涘浘 (鐐规牸瀛愮湅鏌愬ぉ) + 缁堣韩绱 + 鏈堝害姹囨€?-->
+                            <div class="pomo-range"><button v-for="r in ([7,30,365] as const)" :key="r" class="pomo-rbtn" :class="{on: pomoRange === r}" @click="pomoRange = r">{{ r === 365 ? '近一年' : `近 ${r} 天` }}</button></div>
+                            <div class="pomo-range-overview"><b>{{ pomoRangeSummary.rangeMin }}<small> 分钟</small></b><span>完成 {{ pomoRangeSummary.rangeDone }} 个 · 单日最佳 {{ pomoRangeSummary.rangeBest }} 分钟</span></div>
+                            <div v-if="pomoRange <= 30" class="pomo-bars pomo-selectable-bars" :class="{dense: pomoRange === 30}"><button v-for="d in pomoRangeBars" :key="d.day" class="pb-col" :aria-label="`${d.day}，${d.min} 分钟`" @click="pomoSelectDate(d.day)"><i :style="{height: d.h + '%'}"></i><span>{{ d.label }}</span></button></div>
+                            <div v-if="pomoSummary.todayRate >= 0" class="pomo-sub">今日倒计时完成率 {{ Math.round(pomoSummary.todayRate * 100) }}%<span v-if="pomoSummary.todayAvgMin > 0">平均完成段 {{ pomoSummary.todayAvgMin }} 分钟</span></div>
+                            <!-- 独立统计页: 一年热力图 (点格子看某天) + 终身累计 + 月度汇总 -->
 							<div class="settings-row">
-								<label>杩戜竴骞?/label>
-								<!-- 52 鍒?脳 11px 鈮?572px, 姣旈潰鏉?绾?260px)瀹?鈫?蹇呴』鏀惧彲妯粴瀹瑰櫒閲?
-								     鍚﹀垯浼氭孩鍑洪潰鏉裤€俢anvas 鐢ㄥ儚绱犲昂瀵哥粯鍒? 涓嶉殢瀹瑰櫒缂╂斁銆?-->
+								<label>近一年</label>
+								<!-- 52 列 × 11px ≈ 572px, 比面板(约 260px)宽 → 必须放可横滚容器里,
+								     否则会溢出面板。canvas 用像素尺寸绘制, 不随容器缩放。 -->
 								<div class="pomo-heat-wrap">
 									<canvas
 										ref="pomoHeatCanvas"
@@ -720,55 +732,56 @@
 									></canvas>
 								</div>
 								<div class="pomo-heat-legend">
-									<span class="mh-label">灏?/span>
+									<span class="mh-label">少</span>
 									<i v-for="lv in [1, 2, 3, 4]" :key="lv" :class="'mh-lv' + lv"></i>
-									<span class="mh-label">澶?/span>
+									<span class="mh-label">多</span>
 								</div>
-								<div class="hint" v-if="!pomoSelectedDay">鐐逛换鎰忔牸瀛愭煡鐪嬮偅涓€澶╃殑涓撴敞鎯呭喌銆?/div>
-								<label class="pomo-date-picker">閫夋嫨鏃ユ湡<input type="date" :max="pomoDayKey(pomoDate)" @change="pomoSelectDate(($event.target as HTMLInputElement).value)" /></label>
+								<div class="hint" v-if="!pomoSelectedDay">点任意格子查看那一天的专注情况。</div>
+								<label class="pomo-date-picker">选择日期<input type="date" :max="pomoDayKey(pomoDate)" @change="pomoSelectDate(($event.target as HTMLInputElement).value)" /></label>
 								<div class="pomo-daybox" v-if="pomoSelectedDay">
 									<b>{{ pomoSelectedDay.date }}</b>
-									<span>{{ pomoSelectedDay.min }} 鍒嗛挓 路 瀹屾垚 {{ pomoSelectedDay.done }} 路 涓柇 {{ pomoSelectedDay.abort }}</span>
+									<span>{{ pomoSelectedDay.min }} 分钟 · 完成 {{ pomoSelectedDay.done }} · 中断 {{ pomoSelectedDay.abort }}</span>
 								</div>
 							</div>
 							<div class="settings-row">
-								<label>绱</label>
+								<label>累计</label>
 								<span class="pomo-today">
-									鎬讳笓娉?{{ fmtTotalMin((pomoStats.total?.focusMin || 0) + (pomoStats.total?.countUpMin || 0)) }}
-									路 瀹屾垚 {{ pomoStats.total?.done || 0 }} 涓?									<span v-if="(pomoStats.total?.countUpMin || 0) > 0"> 路 鍏朵腑姝ｅ悜 {{ fmtTotalMin(pomoStats.total?.countUpMin || 0) }}</span>
+									总专注 {{ fmtTotalMin((pomoStats.total?.focusMin || 0) + (pomoStats.total?.countUpMin || 0)) }}
+									· 完成 {{ pomoStats.total?.done || 0 }} 个
+									<span v-if="(pomoStats.total?.countUpMin || 0) > 0"> · 其中正向 {{ fmtTotalMin(pomoStats.total?.countUpMin || 0) }}</span>
 								</span>
 								<div class="pomo-sub">
-									<span>鏈€濂界殑涓€澶?{{ Math.round(pomoStats.best?.dayMin || 0) }} 鍒嗛挓</span>
-									<span>鏈€闀胯繛缁?{{ pomoStats.best?.streak || 0 }} 澶?/span>
+									<span>最好的一天 {{ Math.round(pomoStats.best?.dayMin || 0) }} 分钟</span>
+									<span>最长连续 {{ pomoStats.best?.streak || 0 }} 天</span>
 								</div>
 							</div>
 							<div class="settings-row">
-								<label>杩?12 涓湀</label>
+								<label>近 12 个月</label>
 								<div class="pomo-months">
 									<div v-for="m in pomoMonths" :key="m.month" class="pm-row">
 										<span class="pm-name">{{ m.month.slice(2) }}</span>
 										<span class="pm-bar"><i :style="{width: monthPercent(m.min, pomoMonths) + '%'}"></i></span>
-										<span class="pm-val">{{ m.min }} 鍒?路 {{ m.done }} 涓?/span>
+										<span class="pm-val">{{ m.min }} 分 · {{ m.done }} 个</span>
 									</div>
 								</div>
 							</div>
-							<div class="hint">鏈夋晥涓撴敞璁板綍闀挎湡淇濈暀銆傛€讳笓娉ㄥ寘鍚€掕鏃朵笌姝ｅ悜璁℃椂锛屼笉鍖呭惈浼戞伅銆?/div>
+							<div class="hint">有效专注记录长期保留。总专注包含倒计时与正向计时，不包含休息。</div>
                             </template>
 						</template>
 						<template v-else-if="panel === 'settings'">
 							<div class="settings-shell">
-								<div class="settings-tabs" role="tablist" aria-label="璁剧疆绾у埆">
-									<button type="button" role="tab" :aria-selected="settingsTab === 'basic'" :class="{active: settingsTab === 'basic'}" @click="settingsTab = 'basic'">鍩虹璁剧疆</button>
-									<button type="button" role="tab" :aria-selected="settingsTab === 'advanced'" :class="{active: settingsTab === 'advanced'}" @click="settingsTab = 'advanced'">杩涢樁璁剧疆</button>
+								<div class="settings-tabs" role="tablist" aria-label="设置级别">
+									<button type="button" role="tab" :aria-selected="settingsTab === 'basic'" :class="{active: settingsTab === 'basic'}" @click="settingsTab = 'basic'">基础设置</button>
+									<button type="button" role="tab" :aria-selected="settingsTab === 'advanced'" :class="{active: settingsTab === 'advanced'}" @click="settingsTab = 'advanced'">进阶设置</button>
 								</div>
 								<button v-if="settingsTab === 'basic'" class="settings-intro-entry settings-basic-intro btn ripple intro-open" @click="introOpen">
-									<span class="settings-intro-copy"><b>鏂版墜鏁欑▼ / 鑷磋阿</b><small>蹇€熶簡瑙?Nori 鐨勫姛鑳藉拰璁剧疆</small></span>
-									<span class="settings-entry-arrow" aria-hidden="true">鈫?/span>
+									<span class="settings-intro-copy"><b>新手教程 / 致谢</b><small>快速了解 Nori 的功能和设置</small></span>
+									<span class="settings-entry-arrow" aria-hidden="true">→</span>
 								</button>
 								<div v-if="settingsTab === 'basic'" class="settings-basic-grid">
 									<div class="settings-basic-column">
 									<section class="settings-basic-group settings-basic-group-connection">
-										<div class="settings-basic-heading"><h3>杩炴帴</h3><small>{{ modelReady ? '宸查厤缃? : '寰呴厤缃? }}</small></div>
+										<div class="settings-basic-heading"><h3>连接</h3><small>{{ modelReady ? '已配置' : '待配置' }}</small></div>
 										<div class="settings-row">
 											<label>API Base URL</label>
 											<input v-model="cfg.baseUrl" type="text" spellcheck="false" autocomplete="off" />
@@ -778,51 +791,51 @@
 											<input v-model="cfg.apiKey" type="text" autocomplete="off" spellcheck="false" />
 										</div>
 										<div class="settings-row">
-											<label>妯″瀷</label>
+											<label>模型</label>
 											<div class="model-pick">
 												<select v-model="cfg.model">
-													<option value="" disabled>鈥?閫夋嫨妯″瀷 鈥?/option>
+													<option value="" disabled>— 选择模型 —</option>
 													<option v-for="md in modelOptions" :key="md" :value="md">{{ md }}</option>
 												</select>
-												<button class="mini ripple" @click="refreshModels">鍔犺浇妯″瀷</button>
+												<button class="mini ripple" @click="refreshModels">加载模型</button>
 											</div>
 											<div v-if="modelLoadMsg" class="hint">{{ modelLoadMsg }}</div>
 										</div>
 									</section>
 									<section class="settings-basic-group settings-basic-group-display">
-										<div class="settings-basic-heading"><h3>鏄剧ず娓呮櫚搴?/h3></div>
+										<div class="settings-basic-heading"><h3>显示清晰度</h3></div>
 										<div class="settings-row">
-											<label>娓叉煋鍒嗚鲸鐜?{{ renderScaleNum.toFixed(1) }}x锛堝師鐢?{{ nativeDpr.toFixed(1) }}x锛?/label>
+											<label>渲染分辨率 {{ renderScaleNum.toFixed(1) }}x（原生 {{ nativeDpr.toFixed(1) }}x）</label>
 											<input type="range" min="0.5" max="3.0" step="0.1" v-model.number="cfg.renderScale" @change="applyRenderScale" />
-											<div class="hint">瓒婇珮瓒婃竻鏅般€佽秺鑰楃數锛涜皟鍒板師鐢熸竻鏅板害鍙幏寰楁渶娓呮鐨勬樉绀恒€?/div>
+											<div class="hint">越高越清晰、越耗电；调到原生清晰度可获得最清楚的显示。</div>
 										</div>
 									</section>
 									<section class="settings-basic-group settings-basic-group-music">
-										<div class="settings-basic-heading"><h3>鑳屾櫙闊充箰</h3><small>{{ bgmState === 'ready' ? '璧勬簮宸插氨缁? : bgmState === 'downloading' ? `涓嬭浇涓?${bgmPct}%` : '棣栨鎾斁闇€涓嬭浇' }}</small></div>
+										<div class="settings-basic-heading"><h3>背景音乐</h3><small>{{ bgmState === 'ready' ? '资源已就绪' : bgmState === 'downloading' ? `下载中 ${bgmPct}%` : '首次播放需下载' }}</small></div>
 										<div class="settings-row">
-											<label>鎾斁鏇茬洰</label>
+											<label>播放曲目</label>
 											<div class="model-pick">
-												<select :value="cfg.bgmTrack" @change="onBgmTrackChange"><option value="random">闅忔満鎾斁</option><option v-for="t in BGM_TRACKS" :key="t.id" :value="t.id">{{ t.name }}</option></select>
-												<button class="mini ripple" :disabled="!bgmCanSkip" @click="onBgmNext">鎹竴棣?/button>
+												<select :value="cfg.bgmTrack" @change="onBgmTrackChange"><option value="random">随机播放</option><option v-for="t in BGM_TRACKS" :key="t.id" :value="t.id">{{ t.name }}</option></select>
+												<button class="mini ripple" :disabled="!bgmCanSkip" @click="onBgmNext">换一首</button>
 											</div>
 										</div>
 										<div class="settings-row">
-											<label>闊抽噺 {{ Math.round((Number(cfg.bgmVolume) || 0) * 100) }}%</label>
+											<label>音量 {{ Math.round((Number(cfg.bgmVolume) || 0) * 100) }}%</label>
 											<input type="range" min="0" max="1" step="0.01" v-model.number="cfg.bgmVolume" @input="onBgmVolume" @change="persistSettings" />
 										</div>
-										<button v-if="bgmState === 'missing'" class="mini ripple" @click="onBgmDownload">涓嬭浇鑳屾櫙闊充箰璧勬簮</button>
-										<button v-else-if="bgmState === 'downloading'" class="mini ripple" disabled>姝ｅ湪涓嬭浇 {{ bgmPct }}%</button>
+										<button v-if="bgmState === 'missing'" class="mini ripple" @click="onBgmDownload">下载背景音乐资源</button>
+										<button v-else-if="bgmState === 'downloading'" class="mini ripple" disabled>正在下载 {{ bgmPct }}%</button>
 									</section>
 									<section class="settings-basic-group settings-basic-group-float">
-										<div class="settings-basic-heading"><h3>鎮诞绐?/h3></div>
+										<div class="settings-basic-heading"><h3>悬浮窗</h3></div>
 										<div class="settings-row">
-											<div class="row-inline"><label>绂诲紑搴旂敤鍚庢樉绀烘偓娴獥 Nori</label><input type="checkbox" v-model="cfg.floatEnabled" @change="onFloatToggle" /></div>
+											<div class="row-inline"><label>离开应用后显示悬浮窗 Nori</label><input type="checkbox" v-model="cfg.floatEnabled" @change="onFloatToggle" /></div>
 											<div class="hint">{{ floatPermissionHint }}</div>
-											<button class="mini ripple" @click="resetFloatWindow">閲嶇疆鎮诞绐椾綅缃拰澶у皬</button>
+											<button class="mini ripple" @click="resetFloatWindow">重置悬浮窗位置和大小</button>
 										</div>
 									</section>
 									<section class="settings-basic-group settings-basic-group-font">
-										<div class="settings-basic-heading"><h3>鐣岄潰瀛椾綋</h3></div>
+										<div class="settings-basic-heading"><h3>界面字体</h3></div>
 										<div class="settings-row">
 											<div class="pomo-range">
 												<button
@@ -833,71 +846,72 @@
 												>{{ o.label }}</button>
 											</div>
 											<div class="hint">{{ uiFontHint }}</div>
-											<div class="hint">缂哄瓧锛圙B2312 涔嬪鐨勭敓鍍诲瓧锛変細鑷姩鍥炶惤绯荤粺瀛椾綋锛涗袱涓瓧浣撻兘闅忓寘锛屾棤闇€鑱旂綉涓嬭浇</div>
+											<div class="hint">缺字（GB2312 之外的生僻字）会自动回落系统字体；两个字体都随包，无需联网下载</div>
 										</div>
 									</section>
 									</div>
 									<div class="settings-basic-column">
 									<section class="settings-basic-group settings-basic-group-persona">
-										<div class="settings-basic-heading"><h3>浜鸿涓庤闊?/h3></div>
+										<div class="settings-basic-heading"><h3>人设与语音</h3></div>
 										<div class="settings-row">
-											<label>浜鸿鏂囨锛堟彁绀鸿瘝锛?/label>
+											<label>人设文案（提示词）</label>
 											<div class="row-inline">
-												<button class="mini ripple" @click="doImportPersona">瀵煎叆鏂囦欢</button>
-												<button class="mini ripple" :disabled="!personaCustom" @click="doResetPersona">娓呴櫎鑷畾涔?/button>
+												<button class="mini ripple" @click="doImportPersona">导入文件</button>
+												<button class="mini ripple" :disabled="!personaCustom" @click="doResetPersona">清除自定义</button>
 											</div>
 											<div class="hint">{{ personaStateText }}</div>
 											<div v-if="personaMsg" class="hint" :class="{ok: personaMsgOk, bad: !personaMsgOk}">{{ personaMsg }}</div>
 										</div>
 										<div class="settings-row">
-											<div class="row-inline"><label>瀹樻柟浜鸿</label><button class="mini ripple" :disabled="personaDlBusy" @click="openPersonaGate">{{ personaDlBusy ? "涓嬭浇涓€? : "涓嬭浇瀹樻柟浜鸿" }}</button></div>
+											<div class="row-inline"><label>官方人设</label><button class="mini ripple" :disabled="personaDlBusy" @click="openPersonaGate">{{ personaDlBusy ? "下载中…" : "下载官方人设" }}</button></div>
 											<div v-if="personaDlMsg" class="hint" :class="{ok: personaDlOk, bad: !personaDlOk}">{{ personaDlMsg }}</div>
 										</div>
 										<div class="settings-row settings-tts-entry">
 											<button class="settings-entry-button ripple" @click="openPanel('tts')">
-												<span class="settings-entry-icon" aria-hidden="true">鈼?/span>
-												<span class="settings-entry-copy"><b>璇煶鍚堟垚</b><small>閰嶇疆鏈楄鏈嶅姟銆侀煶鑹蹭笌璇曞惉</small></span>
-												<span class="settings-entry-arrow" aria-hidden="true">鈫?/span>
+												<span class="settings-entry-icon" aria-hidden="true">◌</span>
+												<span class="settings-entry-copy"><b>语音合成</b><small>配置朗读服务、音色与试听</small></span>
+												<span class="settings-entry-arrow" aria-hidden="true">→</span>
 											</button>
 										</div>
 									</section>
 									<section class="settings-basic-group settings-basic-group-preferences">
-										<div class="settings-basic-heading"><h3>鏃ュ父鍋忓ソ</h3></div>
+										<div class="settings-basic-heading"><h3>日常偏好</h3></div>
 										<div class="settings-row">
-											<div class="row-inline"><label>鍔ㄦ€佽儗鏅紙鏁版嵁娴凤級</label><input type="checkbox" v-model="cfg.dataseaBg" @change="onDataseaBgToggle" /></div>
+											<div class="row-inline"><label>动态背景（数据海）</label><input type="checkbox" v-model="cfg.dataseaBg" @change="onDataseaBgToggle" /></div>
 										</div>
 										<div class="settings-row">
-											<div class="row-inline"><label>璁?Nori 鐭ラ亾鏃堕棿</label><input type="checkbox" v-model="cfg.timeAware" @change="persistSettings" /></div>
+											<div class="row-inline"><label>让 Nori 知道时间</label><input type="checkbox" v-model="cfg.timeAware" @change="persistSettings" /></div>
 										</div>
 										<div class="settings-row">
-											<label>瀹夐潤妯″紡</label>
-											<div class="model-pick"><select v-model="cfg.quietMode" @change="onQuietModeChange"><option value="off">鍏抽棴</option><option value="auto">鑷姩锛堟瘡鏃?23:00鈥撴鏃?8:00锛?/option><option value="manual">鎵嬪姩</option></select></div>
-											<div v-if="cfg.quietMode === 'manual'" class="row-inline"><label>绔嬪嵆闈欓煶</label><input type="checkbox" v-model="cfg.quietOn" @change="onQuietToggle" /></div>
+											<label>安静模式</label>
+											<div class="model-pick"><select v-model="cfg.quietMode" @change="onQuietModeChange"><option value="off">关闭</option><option value="auto">自动（每日 23:00–次日 8:00）</option><option value="manual">手动</option></select></div>
+											<div v-if="cfg.quietMode === 'manual'" class="row-inline"><label>立即静音</label><input type="checkbox" v-model="cfg.quietOn" @change="onQuietToggle" /></div>
 										</div>
 										<div class="settings-row">
-											<div class="row-inline"><label>Nori 涓诲姩鎼瘽</label><input type="checkbox" v-model="cfg.ambientEnabled" @change="onAmbientToggle" /></div>
+											<div class="row-inline"><label>Nori 主动搭话</label><input type="checkbox" v-model="cfg.ambientEnabled" @change="onAmbientToggle" /></div>
 										</div>
 									</section>
 									<section class="settings-basic-group settings-basic-group-touch">
-										<div class="settings-basic-heading"><h3>鎽稿ご涓庤嚜瀹氫箟瑙︽懜</h3></div>
+										<div class="settings-basic-heading"><h3>摸头与自定义触摸</h3></div>
 										<div class="settings-row">
-											<div class="hint">璁剧疆鎽稿ご鍙嶉锛屾垨涓哄綋鍓嶆ā鍨嬮厤缃Е鎽稿尯鍩熴€?/div>
-											<button class="mini ripple" @click="openPanel('touch')">鎵撳紑浜掑姩璁剧疆</button>
+											<div class="hint">设置摸头反馈，或为当前模型配置触摸区域。</div>
+											<button class="mini ripple" @click="openPanel('touch')">打开互动设置</button>
 										</div>
 									</section>
 									<section class="settings-basic-group settings-basic-group-memory">
-										<div class="settings-basic-heading"><h3>鏁版嵁涓庤蹇?/h3></div>
+										<div class="settings-basic-heading"><h3>数据与记忆</h3></div>
 										<div class="settings-row">
-											<label>鏁版嵁鐩綍</label><div class="hint ok">{{ storagePath }}</div>
+											<label>数据目录</label><div class="hint ok">{{ storagePath }}</div>
 										</div>
 										<div class="settings-row">
-											<div class="row-inline"><label>鎵€鏈夋枃浠惰闂潈闄恵{ allFilesAccess ? '锛堝凡鎺堟潈锛? : '锛堟湭鎺堟潈锛? }}</label><button class="mini ripple" @click="doRequestAllFiles">鍘绘巿鏉?/button></div>
+											<div class="row-inline"><label>所有文件访问权限{{ allFilesAccess ? '（已授权）' : '（未授权）' }}</label><button class="mini ripple" @click="doRequestAllFiles">去授权</button></div>
 										</div>
 										<div class="settings-row">
-											<label>闀挎湡璁板繂涓庡巻鍙叉憳瑕?/label>
-											<!-- 鍩虹璁剧疆椤电殑鍏ュ彛璧?*鐩磋繛**锛堜笉鐪嬩篃蹇点€屽缇炪€嶅彴璇嶏紝涓€涓嬪嵆杩涳級銆?											     杩涢樁璁剧疆閲岄偅涓?.mem-enter 鎵嶄繚鐣欎笁涓嬫嫤闂ㄣ€傝繖涓笉瀵圭О鏄?2026-10-25
-											     浜у搧瀹氳皟鐨勭粨鏋滐紙"缁曡繃灏辫"锛夛細鍩虹椤垫槸鏃ュ父椤烘墜鍏ュ彛锛屽埆褰?bug 琛ユ嫤闂ㄣ€?-->
-											<button class="mini ripple" @click="openPanel('memories')">鎵撳紑璁板繂搴?路 {{ nonGoalMemories.length + goals.length }} 鏉?/button>
+											<label>长期记忆与历史摘要</label>
+											<!-- 基础设置页的入口走**直连**（不看也念「害羞」台词，一下即进）。
+											     进阶设置里那个 .mem-enter 才保留三下拦门。这个不对称是 2026-10-25
+											     产品定调的结果（"绕过就行"）：基础页是日常顺手入口，别当 bug 补拦门。 -->
+											<button class="mini ripple" @click="openPanel('memories')">打开记忆库 · {{ nonGoalMemories.length + goals.length }} 条</button>
 										</div>
 									</section>
 									</div>
@@ -905,17 +919,17 @@
 								<template v-else>
 									<header class="settings-overview settings-advanced-overview">
 										<div class="settings-overline">NORI CONTROL DECK</div>
-										<nav class="settings-jumps" aria-label="璁剧疆鍒嗗尯">
-											<a href="#settings-connection">杩炴帴</a>
-											<a href="#settings-display">鏄剧ず</a>
-											<a href="#settings-storage">瀛樺偍</a>
-											<a href="#settings-sound">澹伴煶</a>
-											<a href="#settings-memory">璁板繂</a>
-											<a href="#settings-window">绐楀彛</a>
+										<nav class="settings-jumps" aria-label="设置分区">
+											<a href="#settings-connection">连接</a>
+											<a href="#settings-display">显示</a>
+											<a href="#settings-storage">存储</a>
+											<a href="#settings-sound">声音</a>
+											<a href="#settings-memory">记忆</a>
+											<a href="#settings-window">窗口</a>
 										</nav>
 									</header>
 								<details id="settings-connection" class="settings-section">
-										<summary><span><b>杩炴帴涓庢ā鍨?/b><small>閰嶇疆 API 鍦板潃銆佸瘑閽ュ拰妯″瀷</small></span><i aria-hidden="true"></i></summary>
+										<summary><span><b>连接与模型</b><small>配置 API 地址、密钥和模型</small></span><i aria-hidden="true"></i></summary>
 									<div class="settings-section-body">
 							<div class="settings-row">
 								<label>API Base URL</label>
@@ -926,13 +940,13 @@
 								<input v-model="cfg.apiKey" type="text" autocomplete="off" spellcheck="false" />
 							</div>
 							<div class="settings-row">
-								<label>妯″瀷</label>
+								<label>模型</label>
 								<div class="model-pick">
 									<select v-model="cfg.model">
-										<option value="" disabled>鈥?閫夋嫨妯″瀷 鈥?/option>
+										<option value="" disabled>— 选择模型 —</option>
 										<option v-for="md in modelOptions" :key="md" :value="md">{{ md }}</option>
 									</select>
-									<button class="mini ripple" @click="refreshModels">鍔犺浇妯″瀷</button>
+									<button class="mini ripple" @click="refreshModels">加载模型</button>
 								</div>
 								<div v-if="modelLoadMsg" class="hint">{{ modelLoadMsg }}</div>
 							</div>
@@ -940,19 +954,19 @@
 							</details>
 
 							<details id="settings-display" class="settings-section">
-								<summary><span><b>鏄剧ず涓庢€ц兘</b><small>璋冩暣姘旀场闃呰浣撻獙鍜?Live2D 娴佺晠搴?/small></span><i aria-hidden="true"></i></summary>
+								<summary><span><b>显示与性能</b><small>调整气泡阅读体验和 Live2D 流畅度</small></span><i aria-hidden="true"></i></summary>
 								<div class="settings-section-body">
 							<div class="settings-row">
-								<label>姘旀场瀛椾綋 {{ bubbleScaleNum.toFixed(2) }}锛堟帹鑽?1.00锛?/label>
+								<label>气泡字体 {{ bubbleScaleNum.toFixed(2) }}（推荐 1.00）</label>
 								<input type="range" min="0.7" max="1.8" step="0.05" v-model.number="cfg.bubbleScale" />
 							</div>
 							<div class="settings-row">
-								<label>姘旀场瀹藉害 {{ bubbleWidthNum }}%锛堟帹鑽?82%锛?/label>
+								<label>气泡宽度 {{ bubbleWidthNum }}%（推荐 82%）</label>
 								<input type="range" min="55" max="95" step="1" v-model.number="cfg.bubbleWidth" />
-								<div class="hint">瓒婄獎锛屾瘡琛屽瓧鏁拌秺灏戯紝鏍囩偣鏇村鏄撳崟鐙垚琛岋紱瑙夊緱鍙ュ彿/闂彿钀藉崟灏辫皟瀹戒竴鐐?/div>
+								<div class="hint">越窄，每行字数越少，标点更容易单独成行；觉得句号/问号落单就调宽一点</div>
 							</div>
 							<div class="settings-row">
-								<label>娓叉煋甯х巼涓婇檺 {{ l2dFpsNum === 0 ? "涓嶉檺鍒? : `${l2dFpsNum} fps` }}锛堝舰璞?+ 鑳屾櫙锛?/label>
+								<label>渲染帧率上限 {{ l2dFpsNum === 0 ? "不限制" : `${l2dFpsNum} fps` }}（形象 + 背景）</label>
 								<div class="pomo-range">
 									<button
 										v-for="v in L2D_FPS_OPTIONS" :key="v"
@@ -961,326 +975,337 @@
 									>{{ l2dFpsLabel(v) }}</button>
 								</div>
 								<div class="hint">
-									Live2D 褰㈣薄涓庢暟鎹捣鑳屾櫙姣忕鏈€澶氶噸缁樺嚑娆★紙涓よ€呭悓姝ワ紱鎮诞绐椾篃璺熼殢杩欎釜妗ｄ綅锛夈€?20Hz 灞忚 60 鐪佷竴鍗婏紱
-									30/20/15 鏇寸渷鐢典絾鍔ㄤ綔涓庤儗鏅細鐣ヨ烦銆?0Hz 灞忓彧鏈夎鍒颁綆浜?60 鎵嶆湁鍖哄埆銆傞€夈€屼笉闄愩€嶆仮澶嶅師鏉ョ殑琛屼负
+									Live2D 形象与数据海背景每秒最多重绘几次（两者同步；悬浮窗也跟随这个档位）。120Hz 屏设 60 省一半；
+									30/20/15 更省电但动作与背景会略跳。60Hz 屏只有设到低于 60 才有区别。选「不限」恢复原来的行为
 								</div>
 							</div>
 									</div>
 								</details>
 
 								<details id="settings-storage" class="settings-section">
-									<summary><span><b>鏁版嵁涓庡瓨鍌?/b><small>鏌ョ湅鏂囦欢浣嶇疆鍜岃闂潈闄?/small></span><i aria-hidden="true"></i></summary>
+									<summary><span><b>数据与存储</b><small>查看文件位置和访问权限</small></span><i aria-hidden="true"></i></summary>
 									<div class="settings-section-body">
 							<div class="settings-row">
-								<label>鑱婂ぉ璁板綍瀛樺偍浣嶇疆</label>
-								<!-- 2026-10-02 鏇存: 鍐欏湪**鍏叡涓嬭浇鐩綍**閲岀殑鏂囦欢锛堣亰澶?璁板繂/鏃ヨ锛夊嵏杞藉悗涓€鑸粛鍦紙绯荤粺涓嶆寜搴旂敤绉佹湁鏁版嵁娓呯悊锛夛紱
-								     鐜板湪娓呭崟閲屽姞浜?hasFragileUserData, 鍗歌浇鏃朵細璇㈤棶鏄惁淇濈暀涓嬪簲鐢ㄦ暟鎹?(鍕鹃€夋墠淇濈暀)銆?-->
-								<div class="hint ok">鍏叡涓嬭浇鐩綍锛歿{ storagePath }}锛堥噸瑁呭悗鑻ュ唴瀹逛笉瑙佷簡锛岃涓嬫柟銆屽瓨鍌ㄨ嚜妫€銆嶏級</div>
+								<label>聊天记录存储位置</label>
+								<!-- 2026-10-02 更正: 写在**公共下载目录**里的文件（聊天/记忆/日记）卸载后一般仍在（系统不按应用私有数据清理）；
+								     现在清单里加了 hasFragileUserData, 卸载时会询问是否保留下应用数据 (勾选才保留)。 -->
+								<div class="hint ok">公共下载目录：{{ storagePath }}（重装后若内容不见了，见下方「存储自检」）</div>
 								<div class="row-inline">
-									<label>鎵€鏈夋枃浠惰闂潈闄恵{ allFilesAccess ? "锛堝凡鎺堟潈 鉁擄級" : "锛堟湭鎺堟潈锛? }}</label>
-									<button class="mini ripple" @click="doRequestAllFiles">鍘绘巿鏉?/button>
+									<label>所有文件访问权限{{ allFilesAccess ? "（已授权 ✓）" : "（未授权）" }}</label>
+									<button class="mini ripple" @click="doRequestAllFiles">去授权</button>
 								</div>
 								<div class="hint">
-									鐢ㄤ簬璇诲啓 {{ storagePath }} 閲岀殑鏁版嵁鏂囦欢銆?b>鍗歌浇閲嶈鍚庡師鏈夊唴瀹硅涓嶅埌锛屽氨鏄洜涓烘病鏈夊畠</b>锛?									Android 11+ 璧凤紝鍒殑搴旂敤锛堟垨鏈簲鐢ㄦ棫瀹炰緥锛夊啓杩涘叕鍏变笅杞界洰褰曠殑鏂囦欢锛屾湰搴旂敤鏃㈠湪濯掍綋搴撻噷鐪嬩笉瑙併€佷篃涓嶈兘鐩存帴璇汇€?									鎺堜簣鍚庤繑鍥炴湰椤电偣銆岃嚜妫€銆嶏紝浼氭樉绀恒€屾墍鏈夋枃浠惰闂潈闄? 鏄€嶄笖鍐呭琚鍥炪€?								</div>
+									用于读写 {{ storagePath }} 里的数据文件。<b>卸载重装后原有内容读不到，就是因为没有它</b>：
+									Android 11+ 起，别的应用（或本应用旧实例）写进公共下载目录的文件，本应用既在媒体库里看不见、也不能直接读。
+									授予后返回本页点「自检」，会显示「所有文件访问权限: 是」且内容被读回。
+								</div>
 								<div class="row-inline">
-									<label>瀛樺偍鑷锛堣涓嶅埌鏁版嵁鏃剁偣涓€涓嬶級</label>
-									<button class="mini ripple" @click="doStorageProbe">鑷</button>
+									<label>存储自检（读不到数据时点一下）</label>
+									<button class="mini ripple" @click="doStorageProbe">自检</button>
 								</div>
 								<pre v-if="storageProbeMsg" class="store-probe">{{ storageProbeMsg }}</pre>
-								<div class="hint">鍒楀嚭鍏叡鐩綍閲屽埌搴曟湁娌℃湁鏂囦欢銆丮ediaStore 鏄惁鍙銆佽兘鍚︾洿璇?鈥斺€?鍗歌浇閲嶈鍚庢帓鏌?鍘熸湁鍐呭璇讳笉鍒?鐢?/div>
+								<div class="hint">列出公共目录里到底有没有文件、MediaStore 是否可见、能否直读 —— 卸载重装后排查"原有内容读不到"用</div>
 							</div>
 									</div>
 								</details>
 
 								<details id="settings-sound" class="settings-section">
-									<summary><span><b>澹伴煶涓庨櫔浼?/b><small>鑳屾櫙闊充箰銆侀煶鏁堝拰涓诲姩浜掑姩</small></span><i aria-hidden="true"></i></summary>
+									<summary><span><b>声音与陪伴</b><small>背景音乐、音效和主动互动</small></span><i aria-hidden="true"></i></summary>
 									<div class="settings-section-body">
 							<div class="settings-row mem-block">
-								<label>鑳屾櫙闊充箰</label>
+								<label>背景音乐</label>
 								<div class="mem-sec">
 									<div class="mem-sec-title mem-sec-title-row">
-										<span>NoriOS 瀹樻柟 OST{{ bgmNowName ? ` 路 姝ｅ湪鎾斁锛?{bgmNowName}` : "" }}</span>
+										<span>NoriOS 官方 OST{{ bgmNowName ? ` · 正在播放：${bgmNowName}` : "" }}</span>
 										<label class="bgm-toggle">
-											<input type="checkbox" :checked="cfg.bgmEnabled" @change="onBgmToggle" /> 寮€鍚?										</label>
+											<input type="checkbox" :checked="cfg.bgmEnabled" @change="onBgmToggle" /> 开启
+										</label>
 									</div>
 									<div class="model-pick">
 										<select :value="cfg.bgmTrack" @change="onBgmTrackChange">
-											<option value="random">闅忔満鎾斁</option>
+											<option value="random">随机播放</option>
 											<option v-for="t in BGM_TRACKS" :key="t.id" :value="t.id">{{ t.name }}</option>
 										</select>
-										<button v-if="cfg.bgmEnabled && bgmState === 'ready'" class="mini ripple" @click="onBgmNext">鎹竴棣?/button>
+										<button v-if="cfg.bgmEnabled && bgmState === 'ready'" class="mini ripple" @click="onBgmNext">换一首</button>
 									</div>
 									<div class="hint">
-										{{ bgmState === "ready" ? "璧勬簮宸插氨缁紝闅忓紑鍏虫挱鏀? : bgmState === "downloading" ? `璧勬簮鍖呬笅杞戒腑 ${bgmPct}%` : "闊抽璧勬簮鏈笅杞斤紙绾?13MB锛岄娆￠渶鑱旂綉锛? }}
+										{{ bgmState === "ready" ? "资源已就绪，随开关播放" : bgmState === "downloading" ? `资源包下载中 ${bgmPct}%` : "音频资源未下载（约 13MB，首次需联网）" }}
 									</div>
 									<button
 										v-if="bgmState !== 'ready'"
 										class="mini ripple"
 										:disabled="bgmState === 'downloading'"
 										@click="onBgmDownload"
-									>{{ bgmState === "downloading" ? `涓嬭浇涓?${bgmPct}%` : "涓嬭浇鑳屾櫙闊充箰璧勬簮" }}</button>
-									<button v-else class="mini ripple" @click="onBgmRedownload">閲嶆柊涓嬭浇</button>
+									>{{ bgmState === "downloading" ? `下载中 ${bgmPct}%` : "下载背景音乐资源" }}</button>
+									<button v-else class="mini ripple" @click="onBgmRedownload">重新下载</button>
 									<input type="range" min="0" max="1" step="0.01" v-model.number="cfg.bgmVolume" @input="onBgmVolume" @change="persistSettings" />
-									<div class="hint">闊抽噺鐙珛浜庢湕璇昏闊筹紝榛樿 35% 涓嶇洊 Nori 璇磋瘽锛涘惊鐜挱鏀撅紝閫€鍚庡彴鑷姩鏆傚仠</div>
+									<div class="hint">音量独立于朗读语音，默认 35% 不盖 Nori 说话；循环播放，退后台自动暂停</div>
 								</div>
 							</div>
 							<div class="settings-row">
-								<label>鎸夐敭闊虫晥闊抽噺 {{ Math.round((Number(cfg.sfxVolume) || 0) * 100) }}%锛?% = 鍏抽棴锛?/label>
+								<label>按键音效音量 {{ Math.round((Number(cfg.sfxVolume) || 0) * 100) }}%（0% = 关闭）</label>
 								<input type="range" min="0" max="1" step="0.01" v-model.number="cfg.sfxVolume" @input="onSfxVolume" @change="persistSettings" />
-								<div class="hint">鐐瑰嚮搴曢儴鍔熻兘鎸夐挳鏃剁殑鎻愮ず闊?/div>
+								<div class="hint">点击底部功能按钮时的提示音</div>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>闊虫晥鏂囦欢</label>
+									<label>音效文件</label>
 									<button class="mini ripple" :disabled="sfxBusy" @click="doDownloadSfx">{{ sfxBtnText }}</button>
 								</div>
 								<div class="hint" :class="{ok: sfxMsgOk, bad: sfxMsgBad}">{{ sfxMsg }}</div>
-								<div class="hint">闊虫晥涓嶅啀鎵撹繘瀹夎鍖咃紙鍖呮洿灏忥級锛岃繖閲岀偣涓€娆′笅鍒版湰鏈猴紝涔嬪悗涓€鐩寸敤鏈湴鐨勶紱娌′笅杞芥椂鎸夐敭闊充笌鐣寗閽熼煶鏁堥潤闊充絾涓嶆姤閿?/div>
+								<div class="hint">音效不再打进安装包（包更小），这里点一次下到本机，之后一直用本地的；没下载时按键音与番茄钟音效静音但不报错</div>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>鍔ㄦ€佽儗鏅紙鏁版嵁娴凤級</label>
+									<label>动态背景（数据海）</label>
 									<input type="checkbox" v-model="cfg.dataseaBg" @change="onDataseaBgToggle" />
 								</div>
-								<div class="hint">鏄熷皹銆佹槦浜戝厜鏂戜笌缃戞牸鐨勭▼搴忔覆鏌擄紝鍑犱箮闆跺紑閿€锛涘叧闂悗鍥炲埌绾壊鑳屾櫙</div>
+								<div class="hint">星尘、星云光斑与网格的程序渲染，几乎零开销；关闭后回到纯色背景</div>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>璁?Nori 鐭ラ亾鏃堕棿</label>
+									<label>让 Nori 知道时间</label>
 									<input type="checkbox" v-model="cfg.timeAware" @change="persistSettings" />
 								</div>
-								<div class="hint">鍙戦€佹椂鎻愪緵璁惧鏃堕棿涓庡綋鍓嶆椂娈碉紝璁╅棶鍊欏拰浣滄伅璇濋鏇磋创鍚堝綋涓嬶紝骞跺尯鍒嗗巻鍙插璇濈殑鏃堕棿銆傝纭繚鎵嬫満鏃堕棿銆佹椂鍖烘纭€?/div>
+								<div class="hint">发送时提供设备时间与当前时段，让问候和作息话题更贴合当下，并区分历史对话的时间。请确保手机时间、时区正确。</div>
 							</div>
 							<div class="settings-row">
-								<label>瀹夐潤妯″紡</label>
+								<label>安静模式</label>
 								<div class="model-pick">
 									<select v-model="cfg.quietMode" @change="onQuietModeChange">
-										<option value="off">鍏抽棴</option>
-										<option value="auto">鑷姩锛堟瘡鏃?23:00鈥撴鏃?8:00锛?/option>
-										<option value="manual">鎵嬪姩</option>
+										<option value="off">关闭</option>
+										<option value="auto">自动（每日 23:00–次日 8:00）</option>
+										<option value="manual">手动</option>
 									</select>
 								</div>
 								<div v-if="cfg.quietMode === 'manual'" class="row-inline">
-									<label>绔嬪嵆闈欓煶</label>
+									<label>立即静音</label>
 									<input type="checkbox" v-model="cfg.quietOn" @change="onQuietToggle" />
 								</div>
-								<div class="hint">寮€鍚悗 Nori 涓嶄富鍔ㄦ惌璇濄€丅GM 鏆傚仠锛涗綘鍙戞秷鎭ス鐓у父鍥炲锛圱TS 鏈楄涓庢寜閿煶淇濈暀锛?/div>
+								<div class="hint">开启后 Nori 不主动搭话、BGM 暂停；你发消息她照常回复（TTS 朗读与按键音保留）</div>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>Nori 涓诲姩鎼瘽</label>
+									<label>Nori 主动搭话</label>
 									<input type="checkbox" v-model="cfg.ambientEnabled" @change="onAmbientToggle" />
 								</div>
-								<div class="hint">瀹夐潤鍑犲垎閽熷悗锛屽ス鍙兘浼氳交杞昏涓€鍙ワ紙鏈湴璇枡闆?token銆佷笉杩涜亰澶╄褰曪紱姣忔浼氳瘽鏈€澶氬嚑鏉★級锛涘畨闈欐ā寮忓紑鍚椂涓嶇敓鏁?/div>
+								<div class="hint">安静几分钟后，她可能会轻轻说一句（本地语料零 token、不进聊天记录；每次会话最多几条）；安静模式开启时不生效</div>
 							</div>
 									</div>
 								</details>
 
 								<details id="settings-memory" class="settings-section">
-									<summary><span><b>璁板繂涓庝簰鍔?/b><small>璁板繂绛栫暐銆佽〃鎯呴┍鍔ㄥ拰澶撮儴璺熼殢</small></span><i aria-hidden="true"></i></summary>
+									<summary><span><b>记忆与互动</b><small>记忆策略、表情驱动和头部跟随</small></span><i aria-hidden="true"></i></summary>
 									<div class="settings-section-body">
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>鍛戒腑鍖哄煙璋冭瘯锛堟祴璇曠敤锛?/label>
+									<label>命中区域调试（测试用）</label>
 									<input type="checkbox" v-model="hitDebug" />
 								</div>
-								<div class="hint">寮€鍚悗灞忓箷椤堕儴鏄剧ず褰撳墠瑙︽懜鍛戒腑鐨勫尯鍩燂紙瀹炰綋/鐣欑櫧锛変笌鎶氭懜杩涘害锛堝銆屾姎鎽?0.4/1.0s 路 瀹屾垚 2 路 閫熷害 0.42銆嶏級锛岀敤浜庨獙璇佹懜澶翠綅缃垽瀹氫笌"瀹屾垚涓€娆?鐨勬椂鏈猴紱鏄剧ず"寮傚父"璇存槑鍛戒腑缁勪欢鍑洪敊锛堜細闄勫師鍥狅級锛涙寮忎娇鐢ㄥ彲鍏抽棴</div>
+								<div class="hint">开启后屏幕顶部显示当前触摸命中的区域（实体/留白）与抚摸进度（如「抚摸 0.4/1.0s · 完成 2 · 速度 0.42」），用于验证摸头位置判定与"完成一次"的时机；显示"异常"说明命中组件出错（会附原因）；正式使用可关闭</div>
 							</div>
 							<div class="settings-row mem-block">
-								<label>璁板繂绯荤粺</label>
-								<!-- 璁板繂搴撳叆鍙?(2026-09-26 鐢ㄦ埛瑕佹眰): 鍘熸潵鎶?鐩爣 / 闀挎湡璁板繂 / 鍘嗗彶鎬荤粨"涓変唤
-								     鍒楄〃**瑁搁湶鍦ㄤ竴绾ц缃〉**閲? 鍙堥暱鍙堝緱寰€涓嬫粴; 鐜板湪鏀惰繘浜岀骇鑿滃崟 (panel === 'memories'),
-								     杩欓噷鍙暀鍏ュ彛 + 涓嬮潰閭ｄ簺寮€鍏?鎿嶄綔鎸夐挳銆傚垪琛ㄦ湰韬湪璁板繂搴撻〉閲屾洿鍏?(甯︽悳绱?绛涢€?鏃堕棿涓庨噸瑕佸害)銆?-->
-								<!-- 鐐硅繖閲屽厛缁欏弽搴?(姘旀场 + 鏈楄), 绗笁涓嬫墠鐪熺殑杩涘幓 鈥斺€?瑙?onMemEntryTap銆?								     鈿?鍙湁**杩涢樁璁剧疆**杩欎釜鍏ュ彛杩樺甫涓変笅鎷﹂棬; 鍩虹璁剧疆椤甸偅涓洿杩炲叆鍙ｆ槸鏈夋剰缁曡繃鐨?								     (2026-10-25 浜у搧瀹氳皟)锛屼袱杈逛笉瀵圭О涓嶆槸 bug銆?-->
+								<label>记忆系统</label>
+								<!-- 记忆库入口 (2026-09-26 用户要求): 原来把"目标 / 长期记忆 / 历史总结"三份
+								     列表**裸露在一级设置页**里, 又长又得往下滚; 现在收进二级菜单 (panel === 'memories'),
+								     这里只留入口 + 下面那些开关/操作按钮。列表本身在记忆库页里更全 (带搜索/筛选/时间与重要度)。 -->
+								<!-- 点这里先给反应 (气泡 + 朗读), 第三下才真的进去 —— 见 onMemEntryTap。
+								     ⚠ 只有**进阶设置**这个入口还带三下拦门; 基础设置页那个直连入口是有意绕过的
+								     (2026-10-25 产品定调)，两边不对称不是 bug。 -->
 								<button class="mini ripple mem-enter" @click="onMemEntryTap">
-									璁板繂搴?路 鐩爣 / 闀挎湡璁板繂 / 鍘嗗彶鎬荤粨锛坽{ nonGoalMemories.length + goals.length }} 鏉★級 鈥?								</button>
+									记忆库 · 目标 / 长期记忆 / 历史总结（{{ nonGoalMemories.length + goals.length }} 条） ›
+								</button>
 								<div class="row-inline">
-									<label>鎽樿鍚庤嚜鍔ㄨ鍓棫鑱婂ぉ璁板綍</label>
+									<label>摘要后自动裁剪旧聊天记录</label>
 									<input type="checkbox" v-model="cfg.trimHistory" />
 								</div>
-								<div class="hint">寮€鍚悗, 宸插帇缂╃殑鏃ф秷鎭細浠庤亰澶╄褰曚腑绉婚櫎锛堟憳瑕佷粛淇濈暀锛夛紝閬垮厤鑱婂ぉ璁板綍鏃犻檺鑶ㄨ儉</div>
+								<div class="hint">开启后, 已压缩的旧消息会从聊天记录中移除（摘要仍保留），避免聊天记录无限膨胀</div>
 								<div class="row-inline">
-									<label>鐢?AI 鎻愬彇涓庢暣鐞嗚蹇嗭紙鏇村噯锛屾帹鑽愬紑鍚級</label>
+									<label>用 AI 提取与整理记忆（更准，推荐开启）</label>
 									<input type="checkbox" v-model="cfg.memoryLlmExtract" />
 								</div>
-								<div class="hint">鍘嗗彶鎬荤粨鏃剁敱 AI 椤烘墜鎸戝嚭璇ヨ鐨勪俊鎭紙闂茶亰銆佹彁闂€佹儏缁笉璁帮級锛屽苟鑷姩鍚堝苟閲嶅銆佷綔搴熻鏀瑰彛鐨勬棫璇存硶銆備笌鎽樿鍏辩敤鍚屼竴娆¤皟鐢紝涓嶉澶栬姳 token锛涘叧闂悗鍙潬鍏抽敭璇嶈鍒欒锛岃寰楀皯</div>
+								<div class="hint">历史总结时由 AI 顺手挑出该记的信息（闲聊、提问、情绪不记），并自动合并重复、作废被改口的旧说法。与摘要共用同一次调用，不额外花 token；关闭后只靠关键词规则记，记得少</div>
 								<div class="row-inline">
-									<label>姣忔潯娑堟伅閮界珛鍗虫彁鍙栬蹇嗭紙鏃х殑瀹炴椂閫氶亾锛岄粯璁ゅ叧闂級</label>
+									<label>每条消息都立即提取记忆（旧的实时通道，默认关闭）</label>
 									<input type="checkbox" v-model="cfg.memoryRealtimeExtract" />
 								</div>
-								<div class="hint">鍏抽棴鏃讹細璁板繂鍦ㄥ巻鍙叉€荤粨鏃朵竴娆℃暣鐞嗭紙鏈€澶氭櫄鍑犲崄鏉℃秷鎭紝浣嗚皟鐢ㄩ噺灏戜竴涓暟閲忕骇锛屾敼鍙ｄ篃涓嶄細璁伴敊锛夈€傚紑鍚椂锛氭瘡鍙ラ兘鍙兘澶氳姳 1~2 娆″皬璋冪敤锛屼粎渚涘嚭闂鏃跺鐓ф帓閿?/div>
+								<div class="hint">关闭时：记忆在历史总结时一次整理（最多晚几十条消息，但调用量少一个数量级，改口也不会记错）。开启时：每句都可能多花 1~2 次小调用，仅供出问题时对照排错</div>
 								<div class="row-inline">
-									<label>鐢?AI 璇箟鍙洖璁板繂锛堟帹鑽愬紑鍚級</label>
+									<label>用 AI 语义召回记忆（推荐开启）</label>
 									<input type="checkbox" v-model="cfg.smartRecall" />
 								</div>
-								<div class="hint">瀵硅瘽鍓嶇敤 AI 鍒ゆ柇鍝簺璁板繂鐪熸鐩稿叧锛堚€滈偅涓父鎴忊€濃啋 璁板緱浣犲枩娆㈢帺鍘熺锛夛紝姣旂函鍏抽敭璇嶅噯寰楀锛涙瘡娆″璇濆涓€娆″皬璋冪敤锛屼粙鎰?token 鍙叧</div>
+								<div class="hint">对话前用 AI 判断哪些记忆真正相关（“那个游戏”→ 记得你喜欢玩原神），比纯关键词准得多；每次对话多一次小调用，介意 token 可关</div>
 								<div class="btn-row mem-btns">
-									<button class="mini ripple" @click="doPruneMemories">娓呯悊浣庨璁板繂锛?0澶╂湭鎻愶級</button>
-									<button class="mini ripple" @click="doClearMemory">娓呯┖鍏ㄩ儴璁板繂</button>
-									<button class="mini ripple" @click="doRestoreMemory" :disabled="!hasBackup">鎾ら攢涓婃娓呯悊</button>
-									<button class="mini ripple" @click="doExportAll">瀵煎嚭</button>
+									<button class="mini ripple" @click="doPruneMemories">清理低频记忆（30天未提）</button>
+									<button class="mini ripple" @click="doClearMemory">清空全部记忆</button>
+									<button class="mini ripple" @click="doRestoreMemory" :disabled="!hasBackup">撤销上次清理</button>
+									<button class="mini ripple" @click="doExportAll">导出</button>
 								</div>
 								<div v-if="memPruneMsg" class="hint" :class="{ok: memPruneMsgOk, bad: !memPruneMsgOk}">{{ memPruneMsg }}</div>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>AI 琛ㄦ儏鏍囪锛堟帹鑽愬紑鍚級</label>
+									<label>AI 表情标记（推荐开启）</label>
 									<input type="checkbox" v-model="cfg.emotionLlm" />
 								</div>
-								<div class="hint">鍥炲鏈熬闄勫甫銆愯〃鎯呫€戙€愬姩浣溿€戞爣璁帮紝鐢?AI 鍒ゆ柇骞跺嵆鏃堕┍鍔ㄨ〃鎯?鍔ㄤ綔锛涘叧闂垯鐢ㄥ叧閿瘝瑙勫垯銆傛爣璁颁笉鏄剧ず銆佷笉鏈楄锛屽嚑涔庝笉澧炲姞 token</div>
+								<div class="hint">回复末尾附带【表情】【动作】标记，由 AI 判断并即时驱动表情/动作；关闭则用关键词规则。标记不显示、不朗读，几乎不增加 token</div>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>DeepSeek 鎬濊€冩ā寮?/label>
+									<label>DeepSeek 思考模式</label>
 									<input type="checkbox" v-model="cfg.deepseekThinking" />
 								</div>
-								<div class="hint">璁?DeepSeek 鍏堟€濊€冨啀鍥炵瓟锛堟洿鎱€佹洿璐?token锛夛紱浠呭 DeepSeek 绔偣鐢熸晥锛岄粯璁ゅ紑鍚紝鍏虫帀鍗虫樉寮忓叧闂?/div>
+								<div class="hint">让 DeepSeek 先思考再回答（更慢、更费 token）；仅对 DeepSeek 端点生效，默认开启，关掉即显式关闭</div>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>澶撮儴璺熼殢 路 宸﹀彸鍙嶅悜</label>
+									<label>头部跟随 · 左右反向</label>
 									<input type="checkbox" v-model="cfg.lookFlipX" />
 								</div>
 								<div class="row-inline">
-									<label>澶撮儴璺熼殢 路 涓婁笅鍙嶅悜</label>
+									<label>头部跟随 · 上下反向</label>
 									<input type="checkbox" v-model="cfg.lookFlipY" />
 								</div>
-								<label>澶撮儴璺熼殢鐏垫晱搴?{{ Number(cfg.lookSens).toFixed(2) }}</label>
+								<label>头部跟随灵敏度 {{ Number(cfg.lookSens).toFixed(2) }}</label>
 								<input type="range" min="0.1" max="0.5" step="0.05" v-model.number="cfg.lookSens" />
-								<div class="hint">鎵嬫寚鏂瑰悜涓嶅灏卞嬀閫夊弽鍚戯紱璺熷緱澶倝鎴栧お璺冲氨璋冪伒鏁忓害锛堝彧褰卞搷鎽稿ご鏃剁殑璺熼殢绱ц嚧搴︼紱鏉炬墜鍚庢寜鍥哄畾鐨?杞绘嫧鎰?缂撶紦鍥炴锛屼笉闅忔妗ｄ綅鍙樺寲銆傛敼瀹岀偣淇濆瓨璁剧疆锛?/div>
+								<div class="hint">手指方向不对就勾选反向；跟得太肉或太跳就调灵敏度（只影响摸头时的跟随紧致度；松手后按固定的"轻拨感"缓缓回正，不随此档位变化。改完点保存设置）</div>
 							</div>
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>鍚敤 Live2D 鍙ｅ瀷</label>
+									<label>启用 Live2D 口型</label>
 									<input type="checkbox" v-model="cfg.lipSyncEnabled" @change="persistSettings" />
 								</div>
-								<div class="hint">榛樿鍏抽棴锛涘紑鍚悗鎸夊疄闄呮挱鏀鹃煶棰戞尟骞呴┍鍔ㄥ彛鍨嬶紝鏃犳硶鍙栧緱鍙潬鎸箙鏃朵繚鎸侀棴鍢?/div>
+								<div class="hint">默认关闭；开启后按实际播放音频振幅驱动口型，无法取得可靠振幅时保持闭嘴</div>
 							</div>
 									</div>
 								</details>
 
 								<details id="settings-window" class="settings-section">
-									<summary><span><b>绐楀彛涓庢墜鍔?/b><small>鎺у埗鎮诞绐楀拰瑙︽懜琛屼负</small></span><i aria-hidden="true"></i></summary>
+									<summary><span><b>窗口与手势</b><small>控制悬浮窗和触摸行为</small></span><i aria-hidden="true"></i></summary>
 									<div class="settings-section-body">
 							<div class="settings-row">
 								<div class="row-inline">
-									<label>绂诲紑搴旂敤鍚庢樉绀烘偓娴獥 Nori</label>
+									<label>离开应用后显示悬浮窗 Nori</label>
 									<input type="checkbox" v-model="cfg.floatEnabled" @change="onFloatToggle" />
 								</div>
-								<div class="hint">寮€鍚悗锛屾寜 Home銆佸垏鍚庡彴鎴栭€€鍑哄簲鐢ㄦ椂锛孨ori 浼氱暀鍦ㄥ睆骞曚笂銆倇{ floatPermissionHint }}</div>
+								<div class="hint">开启后，按 Home、切后台或退出应用时，Nori 会留在屏幕上。{{ floatPermissionHint }}</div>
 							</div>
 							<div class="settings-row">
-								<label>鎮诞绐楁覆鏌撳垎杈ㄧ巼 {{ Number(cfg.floatRenderScale).toFixed(1) }}x锛堟帹鑽?{{ nativeDpr.toFixed(1) }}x锛?/label>
+								<label>悬浮窗渲染分辨率 {{ Number(cfg.floatRenderScale).toFixed(1) }}x（推荐 {{ nativeDpr.toFixed(1) }}x）</label>
 								<input type="range" min="0.5" max="3.0" step="0.1" v-model.number="cfg.floatRenderScale" @change="onFloatRenderScale" />
-								<div class="hint">娓叉煋鍒嗚鲸鐜囧悓涓?App锛岃秺楂樿秺娓呮櫚涔熻秺鑰楃數锛堟偓娴獥灏哄鐢ㄥ弻鎸囩缉鏀捐皟鑺傦紝鑷姩璁板繂锛?/div>
-								<button class="btn ripple" @click="resetFloatWindow">閲嶇疆鎮诞绐椾綅缃拰澶у皬</button>
+								<div class="hint">渲染分辨率同主 App，越高越清晰也越耗电（悬浮窗尺寸用双指缩放调节，自动记忆）</div>
+								<button class="btn ripple" @click="resetFloatWindow">重置悬浮窗位置和大小</button>
 							</div>
 							<div class="settings-row">
-								<div class="row-inline label-only">鎮诞绐楄Е鎽告墜鍔?/div>
-									<div class="hint">路 杞荤偣 Nori 韬綋 鈫?鎵撳紑鑱婂ぉ绐楀彛<br />路 鎸変綇骞剁Щ鍔?鈫?鐩存帴鎷栧姩妗屽疇锛屽厑璁告妸鐣欑櫧鍜岄儴鍒嗘ā鍨嬬Щ鍑哄睆骞?br />路 鍦ㄧ獥鍙ｅ唴鍙屾寚鎹忓悎 鈫?绛夋瘮璋冩暣澶у皬<br />路 鎷栧姩鍜岀偣鎸夐兘浼氶噸缃緟鏈鸿鏃?br />路 鑱婂ぉ绐楀彛锛氭嫋 鈮?鏍囬鏍忕Щ鍔紝鍙屾寚鎹忓悎缂╂斁锛岀偣閿佸舰鍥炬爣鍥哄畾浣嶇疆鍜屽ぇ灏忥紝鐐?脳 鍏抽棴<br />路 鍙湁鐐瑰嚮杈撳叆妗嗘墠鍞よ捣閿洏</div>
+								<div class="row-inline label-only">悬浮窗触摸手势</div>
+									<div class="hint">· 轻点 Nori 身体 → 打开聊天窗口<br />· 按住并移动 → 直接拖动桌宠，允许把留白和部分模型移出屏幕<br />· 在窗口内双指捏合 → 等比调整大小<br />· 拖动和点按都会重置待机计时<br />· 聊天窗口：拖 ≡ 标题栏移动，双指捏合缩放，点锁形图标固定位置和大小，点 × 关闭<br />· 只有点击输入框才唤起键盘</div>
 							</div>
 									</div>
 								</details>
 
 								<details class="settings-section settings-actions">
-									<summary><span><b>鏇村宸ュ叿</b><small>鍔ㄤ綔銆佽〃鎯呬笌澶栬宸ュ叿</small></span><i aria-hidden="true"></i></summary>
+									<summary><span><b>更多工具</b><small>动作、表情与外观工具</small></span><i aria-hidden="true"></i></summary>
 									<div class="settings-section-body">
-										<button class="btn ripple" @click="openPanel('touch')">鎽稿ご涓庤嚜瀹氫箟瑙︽懜</button>
-										<button class="btn ripple" @click="openPanel('motion')">鍔ㄤ綔鍒楄〃</button>
-							<button class="btn ripple" @click="openPanel('expression')">琛ㄦ儏鍒楄〃</button>
-							<button class="btn ripple" @click="toggleUiStyle">澶栬椋庢牸锛歿{ uiSoft ? "鏌斿拰闆鹃潰" : "娼睈鐜荤拑" }} 鈥?/button>
-							<!-- 鍦ㄧ嚎浜烘暟锛?026-10-21锛? 榛樿寮€锛涘叧鎺夊悗涓€涓姹傞兘涓嶅彂锛屽叧浜庨〉涔熶笉鏄剧ず浜烘暟 -->
+										<button class="btn ripple" @click="openPanel('touch')">摸头与自定义触摸</button>
+										<button class="btn ripple" @click="openPanel('motion')">动作列表</button>
+							<button class="btn ripple" @click="openPanel('expression')">表情列表</button>
+							<button class="btn ripple" @click="toggleUiStyle">外观风格：{{ uiSoft ? "柔和雾面" : "潮汐玻璃" }} ›</button>
+							<!-- 在线人数（2026-10-21）: 默认开；关掉后一个请求都不发，关于页也不显示人数 -->
 							<div v-if="presenceReady" class="settings-row">
-								<div class="row-inline"><label>鏄剧ず鍦ㄧ嚎浜烘暟锛堝尶鍚嶅績璺筹級</label><input type="checkbox" v-model="cfg.presenceEnabled" @change="onPresenceToggle" /></div>
-								<div class="hint">鍖垮悕蹇冭烦锛氭瘡 5 鍒嗛挓涓婃姤涓€娆￠殢鏈哄畨瑁?ID 涓庡簲鐢ㄧ増鏈彿锛屼粎鐢ㄤ簬銆屾鍒诲湪绾?/ 浠婃棩鏉ヨ繃銆嶈鏁帮紱涓嶅惈璁惧鏍囪瘑涓庤亰澶╁唴瀹广€傚叧闂悗涓嶅啀鍙戦€佷换浣曡姹傘€?/div>
+								<div class="row-inline"><label>显示在线人数（匿名心跳）</label><input type="checkbox" v-model="cfg.presenceEnabled" @change="onPresenceToggle" /></div>
+								<div class="hint">匿名心跳：每 5 分钟上报一次随机安装 ID 与应用版本号，仅用于「此刻在线 / 今日来过」计数；不含设备标识与聊天内容。关闭后不再发送任何请求。</div>
 							</div>
 									</div>
 								</details>
 								</template>
 
 								<div class="settings-bottom-actions">
-									<button class="btn ripple primary settings-save-button" @click="saveSettingsNow">淇濆瓨璁剧疆</button>
+									<button class="btn ripple primary settings-save-button" @click="saveSettingsNow">保存设置</button>
 									<button class="settings-license-link mini ripple about-open" @click="openAboutPage">
-										<span><b>寮€婧愯鍙?/ 鍏充簬 / 闅愮</b><small>NoriDroid 路 v{{ APP_VERSION }}</small></span>
-										<span aria-hidden="true">鈫?/span>
+										<span><b>开源许可 / 关于 / 隐私</b><small>NoriDroid · v{{ APP_VERSION }}</small></span>
+										<span aria-hidden="true">→</span>
 									</button>
-									<!-- 鍦ㄧ嚎浜烘暟锛?026-10-23 鐢ㄦ埛瑕佹眰锛? 鏀惧湪璁剧疆涓€绾ч〉銆佸紑婧愯鍙叆鍙ｄ笅鏂癸紝涓嶇敤鐐硅繘鍏充簬椤点€?									     鍙湁閰嶇疆浜嗚鏁版湇鍔℃椂鎵嶆樉绀猴紱鏈厤缃椂鏁村潡涓嶅嚭鐜般€?-->
+									<!-- 在线人数（2026-10-23 用户要求）: 放在设置一级页、开源许可入口下方，不用点进关于页。
+									     只有配置了计数服务时才显示；未配置时整块不出现。 -->
 									<div v-if="presenceReady" class="settings-presence">
 										<span class="about-presence-dot" :class="presenceToneClass" aria-hidden="true"></span>
-										姝ゅ埢鍦ㄧ嚎 <b>{{ presenceCount }}</b><template v-if="presenceToday"> 路 {{ presenceToday }}</template>
+										此刻在线 <b>{{ presenceCount }}</b><template v-if="presenceToday"> · {{ presenceToday }}</template>
 									</div>
 									<div v-if="presenceReady" class="settings-presence-hint">{{ presenceStatus }}</div>
-									<button v-if="presenceReady && presenceState && !presenceState.ok" class="mini ripple settings-presence-retry" @click="onPresenceRetry">绔嬪嵆閲嶈瘯</button>
+									<button v-if="presenceReady && presenceState && !presenceState.ok" class="mini ripple settings-presence-retry" @click="onPresenceRetry">立即重试</button>
 								</div>
 							</div>
 						</template>
-						<!-- 鍏充簬 / 闅愮 / 寮€婧愯鍙紙2026-10-02 鐢ㄦ埛瑕佹眰锛? 澶嶇敤鐜版湁 sheet 闈㈡澘锛堝叆鍙ｅ湪璁剧疆闈㈡澘閲岋級锛?						     鍥涘潡鍐呭缂轰竴涓嶅彲 鈥斺€?鐗堟湰+涓婃父澹版槑 / 闅愮璇存槑 / 寮€婧愯鍙?/ 鍙嶉娓犻亾銆?						     璁稿彲缁嗚妭涓庝箟鍔¤鏄庝互浠撳簱鏍?THIRD-PARTY.md 涓哄噯锛岃繖閲屽彧鏀捐鐐?+ 鎸囧悜瀹冦€?-->
+						<!-- 关于 / 隐私 / 开源许可（2026-10-02 用户要求）: 复用现有 sheet 面板（入口在设置面板里），
+						     四块内容缺一不可 —— 版本+上游声明 / 隐私说明 / 开源许可 / 反馈渠道。
+						     许可细节与义务说明以仓库根 THIRD-PARTY.md 为准，这里只放要点 + 指向它。 -->
 						<template v-else-if="panel === 'about'">
 							<div class="about-page">
-								<!-- 鈶?鐗堟湰 + 涓婃父澹版槑 -->
+								<!-- ① 版本 + 上游声明 -->
 								<div class="about-sec">
-									<div class="about-h">鐗堟湰</div>
-									<p class="about-p">NoriDroid <b>v{{ APP_VERSION }}</b>锛圓ndroid 妗屽疇锛欿otlin 澶栧３ + Vue 3 WebView 鍓嶇锛?/p>
-									<p class="about-p">鏈」鐩?b>琛嶇敓鑷?/b> <button class="about-a" @click="openAboutUrl(UPSTREAM_REPO_URL)">erhiolab/DeepEr</button>锛屼笂娓镐互 <b>GPL-3.0</b> 鍙戝竷锛涙湰浠撳簱鏄?b>淇敼鐗?/b>锛堥噸鏋勩€佽蹇嗘ā鍧椼€佹偓娴獥銆佷竴閿厠闅嗙瓑鏀瑰姩锛夛紝鍚屾牱浠?<b>GPL-3.0</b> 鍙戝竷锛岃瑙佷粨搴撴牴鐨?LICENSE銆?/p>
-									<p class="about-p">鏈」鐩粨搴擄細<button class="about-a" @click="openAboutUrl(REPO_URL)">{{ REPO_URL }}</button></p>
+									<div class="about-h">版本</div>
+									<p class="about-p">NoriDroid <b>v{{ APP_VERSION }}</b>（Android 桌宠：Kotlin 外壳 + Vue 3 WebView 前端）</p>
+									<p class="about-p">本项目<b>衍生自</b> <button class="about-a" @click="openAboutUrl(UPSTREAM_REPO_URL)">erhiolab/DeepEr</button>，上游以 <b>GPL-3.0</b> 发布；本仓库是<b>修改版</b>（重构、记忆模块、悬浮窗、一键克隆等改动），同样以 <b>GPL-3.0</b> 发布，详见仓库根的 LICENSE。</p>
+									<p class="about-p">本项目仓库：<button class="about-a" @click="openAboutUrl(REPO_URL)">{{ REPO_URL }}</button></p>
 								</div>
-								<!-- 鈶?闅愮璇存槑 -->
+								<!-- ② 隐私说明 -->
 								<div class="about-sec">
-									<div class="about-h">闅愮璇存槑</div>
-									<p class="about-p">浼氳仈缃戝仛浠€涔堬細</p>
+									<div class="about-h">隐私说明</div>
+									<p class="about-p">会联网做什么：</p>
 									<ul class="about-ul">
-										<li>LLM 瀵硅瘽 鈥斺€?鎶婁綘鍙戠殑娑堟伅銆佷汉璁句笌鐩稿叧璁板繂鍙戝埌<b>浣犺嚜宸卞～鐨?/b> API 鍦板潃锛堥粯璁?DeepSeek 绛夛級锛屽洖澶嶄篃鐢卞畠杩斿洖</li>
-										<li>TTS 鏈楄 鈥斺€?鎶婅鏈楄鐨勬枃鏈彂缁欎綘鍦ㄨ缃噷閫夌殑璇煶鏈嶅姟锛團ish Audio / 鍗冮棶锛?/li>
-										<li>涓€閿厠闅?鈥斺€?鑱旂綉涓嬭浇鍙傝€冮煶棰戯紝骞舵妸瀹冧笂浼犵粰鍗冮棶鍋氶煶鑹插厠闅?/li>
-										<li>璁剧疆閲岀殑銆屼笅杞介煶鏁堛€嶁€斺€?浠庣綉缁滀笅杞介煶鏁堟枃浠?/li>
-										<li v-if="presenceReady">鍦ㄧ嚎浜烘暟 鈥斺€?鍖垮悕蹇冭烦锛氬彧涓婁紶<b>闅忔満瀹夎 ID + 搴旂敤鐗堟湰鍙?/b>锛?0 鍒嗛挓绐楀彛鍘婚噸銆佷粖鏃ユ寜鍖椾含鏃堕棿鍒囨棩锛夛紝涓嶅惈璁惧鏍囪瘑銆佽亰澶╁唴瀹规垨浠讳綍涓汉鏁版嵁锛涙湇鍔＄鍙瓨鍝堝笇锛孖P 浠呯敤浜庡唴瀛橀檺娴併€佷笉钀藉簱涔熶笉鎵撴棩蹇楋紱鍙湪璁剧疆閲屽叧闂?/li>
+										<li>LLM 对话 —— 把你发的消息、人设与相关记忆发到<b>你自己填的</b> API 地址（默认 DeepSeek 等），回复也由它返回</li>
+										<li>TTS 朗读 —— 把要朗读的文本发给你在设置里选的语音服务（Fish Audio / 千问）</li>
+										<li>一键克隆 —— 联网下载参考音频，并把它上传给千问做音色克隆</li>
+										<li>设置里的「下载音效」—— 从网络下载音效文件</li>
+										<li v-if="presenceReady">在线人数 —— 匿名心跳：只上传<b>随机安装 ID + 应用版本号</b>（10 分钟窗口去重、今日按北京时间切日），不含设备标识、聊天内容或任何个人数据；服务端只存哈希，IP 仅用于内存限流、不落库也不打日志；可在设置里关闭</li>
 									</ul>
-									<p class="about-p">闄ゆ涔嬪涓嶉噰闆嗐€佷笉涓婁紶浠讳綍鏁版嵁锛氭病鏈夌涓夋柟缁熻銆佹病鏈夊箍鍛娿€佹病鏈夊穿婧冧笂鎶?SDK锛汚PI Key 鍙瓨鍦ㄦ湰鏈鸿缃噷銆?/p>
-									<p class="about-p">鏁版嵁瀛樺湪鍝細</p>
+									<p class="about-p">除此之外不采集、不上传任何数据：没有第三方统计、没有广告、没有崩溃上报 SDK；API Key 只存在本机设置里。</p>
+									<p class="about-p">数据存在哪：</p>
 									<ul class="about-ul">
-										<li>鑱婂ぉ璁板綍 / 璁板繂 / 鏃ヨ 鈫?<b>鍏叡涓嬭浇鐩綍</b> <code>Download/NoriDroid/</code>锛堣蛋绯荤粺濯掍綋搴撳啓鍏ワ紝鍒殑搴旂敤涔熺湅寰楀埌锛?/li>
-										<li>浜鸿鏂囨湰 / 闊虫晥 / 鑳屾櫙闊充箰 / 妯″瀷缂撳瓨 鈫?<b>搴旂敤绉佹湁鐩綍</b>锛堝叾瀹冨簲鐢ㄨ涓嶅埌锛?/li>
+										<li>聊天记录 / 记忆 / 日记 → <b>公共下载目录</b> <code>Download/NoriDroid/</code>（走系统媒体库写入，别的应用也看得到）</li>
+										<li>人设文本 / 音效 / 背景音乐 / 模型缓存 → <b>应用私有目录</b>（其它应用读不到）</li>
 									</ul>
-									<p class="about-warn">鈿?鍗歌浇璇存槑锛?b>鍏叡涓嬭浇鐩綍閲岀殑鑱婂ぉ / 璁板繂 / 鏃ヨ鍗歌浇鍚庝竴鑸粛鍦?/b>锛堝畠浠洿鎺ュ啓鍦?<code>Download/NoriDroid/</code>锛岀郴缁熶笉浼氬綋鎴愬簲鐢ㄧ鏈夋暟鎹竻鎺夛紝閲嶈鍚庤繕鑳借鍒帮級锛涗絾<b>浜鸿銆佷笅杞界殑闊虫晥銆佹ā鍨嬬紦瀛樸€佸厠闅嗛煶鑹茶褰曞瓨鍦ㄥ簲鐢ㄧ鏈夌洰褰曪紝鍗歌浇浼氳娓呮帀</b>锛岄渶瑕侀噸鏂板鍏ユ垨涓嬭浇銆傜郴缁熻嫢鍦ㄥ嵏杞芥椂寮广€屾槸鍚︿繚鐣欏簲鐢ㄦ暟鎹€嶏紝鍕鹃€変繚鐣欐洿淇濋櫓銆?/p>
-									<p class="about-p">鏉冮檺鐢ㄩ€旓細</p>
+									<p class="about-warn">⚠ 卸载说明：<b>公共下载目录里的聊天 / 记忆 / 日记卸载后一般仍在</b>（它们直接写在 <code>Download/NoriDroid/</code>，系统不会当成应用私有数据清掉，重装后还能读到）；但<b>人设、下载的音效、模型缓存、克隆音色记录存在应用私有目录，卸载会被清掉</b>，需要重新导入或下载。系统若在卸载时弹「是否保留应用数据」，勾选保留更保险。</p>
+									<p class="about-p">权限用途：</p>
 									<ul class="about-ul">
-										<li><b>INTERNET</b> 鈥斺€?涓婇潰閭ｄ簺鑱旂綉鍔熻兘锛堝璇?/ 鏈楄 / 涓嬭浇锛?/li>
-										<li><b>鎮诞绐?/b>锛圫YSTEM_ALERT_WINDOW锛夆€斺€?閫€鍑?App 鍚庤 Nori 鐣欏湪妗岄潰涓?/li>
-										<li><b>閫氱煡</b>锛圥OST_NOTIFICATIONS锛夆€斺€?鐣寗閽熷埌鐐规彁閱?/li>
-										<li><b>鎵€鏈夋枃浠惰闂?/b>锛圡ANAGE_EXTERNAL_STORAGE锛夆€斺€?璇诲啓鍏叡涓嬭浇鐩綍閲岀殑鑱婂ぉ / 璁板繂 / 鏃ヨ锛汚ndroid 11 璧锋病鏈夊畠灏辫涓嶅埌鏃ф暟鎹紙灏ゅ叾鏄嵏杞介噸瑁呬箣鍚庯級</li>
+										<li><b>INTERNET</b> —— 上面那些联网功能（对话 / 朗读 / 下载）</li>
+										<li><b>悬浮窗</b>（SYSTEM_ALERT_WINDOW）—— 退出 App 后让 Nori 留在桌面上</li>
+										<li><b>通知</b>（POST_NOTIFICATIONS）—— 番茄钟到点提醒</li>
+										<li><b>所有文件访问</b>（MANAGE_EXTERNAL_STORAGE）—— 读写公共下载目录里的聊天 / 记忆 / 日记；Android 11 起没有它就读不到旧数据（尤其是卸载重装之后）</li>
 									</ul>
 								</div>
-								<!-- 鈶?寮€婧愯鍙?-->
+								<!-- ③ 开源许可 -->
 								<div class="about-sec">
-									<div class="about-h">寮€婧愯鍙?/div>
-									<p class="about-p">闅忓寘鍒嗗彂鐨勭涓夋柟缁勪欢锛?/p>
+									<div class="about-h">开源许可</div>
+									<p class="about-p">随包分发的第三方组件：</p>
 									<ul class="about-ul">
-										<li><b>Vue 3</b> 鈥斺€?MIT锛堝墠绔鏋讹級</li>
-										<li><b>live2d-easy-control 1.0.3</b> 鈥斺€?MIT锛涙湰椤圭洰鐢?<code>scripts/patch-live2d.mjs</code> 瀵瑰畠<b>鎵撹繃琛ヤ竵锛堜慨鏀圭増锛?/b>锛屽師鐗堟潈涓庤鍙０鏄庝繚鐣欙紝鏈」鐩慨鏀圭殑閮ㄥ垎鍚屾牱鎸?GPL-3.0 鎻愪緵</li>
-										<li><b>AndroidX / androidx.webkit</b> 鈥斺€?Apache-2.0锛圓ndroid 鏀寔搴擄級</li>
-										<li><b>Kotlin stdlib</b> 鈥斺€?Apache-2.0锛圞otlin 鏍囧噯搴擄級</li>
-										<li><b>闇為箿鏂囨シ LXGW WenKai</b> 路 <b>绔欓叿蹇箰浣?ZCOOL KuaiLe</b> 鈥斺€?<b>SIL OFL 1.1</b>锛堣缃?鈫?鍩虹璁剧疆閲岀殑鐣岄潰瀛椾綋锛夈€傞殢鍖呭垎鍙戠殑鏄?b>瀛愰泦</b>锛圙B2312 鍏ㄩ噺 + 鐣岄潰鐢ㄥ瓧锛岃 <code>scripts/subset-ui-fonts.py</code>锛夛紱璁稿彲鍏ㄦ枃鍦ㄤ粨搴?<code>src/assets/fonts/OFL-*.txt</code>銆侽FL 鍏佽鑷敱浼犳挱涓庡祵鍏ヨ蒋浠讹紝浣?b>涓嶅緱鍗曠嫭鍞崠瀛椾綋鏂囦欢</b>銆?/li>
-										<li><b>Live2D Cubism Core</b>锛坙ive2dcubismcore.min.js锛夆€斺€?<b>涓撴湁璁稿彲</b>锛屼笉鏄紑婧愮粍浠躲€侰ore <b>鎸夊師鏍峰垎鍙戙€佷笉淇敼</b>锛屼篃<b>涓嶇疆浜庝細鍏佽绗笁鏂逛慨鏀圭殑寮€婧愯鍙箣涓?/b>锛涚増鏉冧笌璁稿彲澹版槑涓€寰嬩繚鐣欍€?/li>
+										<li><b>Vue 3</b> —— MIT（前端框架）</li>
+										<li><b>live2d-easy-control 1.0.3</b> —— MIT；本项目用 <code>scripts/patch-live2d.mjs</code> 对它<b>打过补丁（修改版）</b>，原版权与许可声明保留，本项目修改的部分同样按 GPL-3.0 提供</li>
+										<li><b>AndroidX / androidx.webkit</b> —— Apache-2.0（Android 支持库）</li>
+										<li><b>Kotlin stdlib</b> —— Apache-2.0（Kotlin 标准库）</li>
+										<li><b>霞鹜文楷 LXGW WenKai</b> · <b>站酷快乐体 ZCOOL KuaiLe</b> —— <b>SIL OFL 1.1</b>（设置 → 基础设置里的界面字体）。随包分发的是<b>子集</b>（GB2312 全量 + 界面用字，见 <code>scripts/subset-ui-fonts.py</code>）；许可全文在仓库 <code>src/assets/fonts/OFL-*.txt</code>。OFL 允许自由传播与嵌入软件，但<b>不得单独售卖字体文件</b>。</li>
+										<li><b>Live2D Cubism Core</b>（live2dcubismcore.min.js）—— <b>专有许可</b>，不是开源组件。Core <b>按原样分发、不修改</b>，也<b>不置于会允许第三方修改的开源许可之下</b>；版权与许可声明一律保留。</li>
 									</ul>
-									<p class="about-p">Live2D 涓撴湁杞欢璁稿彲鍗忚鍏ㄦ枃锛?/p>
+									<p class="about-p">Live2D 专有软件许可协议全文：</p>
 									<button class="about-a ripple about-a-block" @click="openAboutUrl(LIVE2D_EULA_URL)">{{ LIVE2D_EULA_URL }}</button>
-									<p class="about-p">涓嶉殢鍖呭垎鍙戯細浜鸿鏂囨湰銆侀煶鏁堛€佸弬鑰冮煶棰戙€丩ive2D 妯″瀷绱犳潗閮?b>涓嶅湪瀹夎鍖呴噷</b> 鈥斺€?鐢变娇鐢ㄨ€呰嚜宸卞鍏ユ垨鑱旂綉涓嬭浇锛岀増鏉冨綊鍚勮嚜浣滆€呮墍鏈夈€?/p>
-									<p class="about-p">瀹屾暣娓呭崟涓?Live2D 鍗忚鐨勫垎鍙戜箟鍔¤鏄庤浠撳簱鏍圭洰褰曠殑 <code>THIRD-PARTY.md</code>銆?/p>
-									<!-- 瀛椾綋璁稿彲鍏ㄦ枃锛?026-10-16锛? OFL 1.1 瑕佹眰鍐嶅垎鍙戞椂闄勫甫璁稿彲锛?									     杩欓噷鎶婂師鏂囨墦杩涘寘銆佸彲灏卞湴灞曞紑锛堥粯璁ゆ敹璧凤紝涓嶆墦鎵伴槄璇伙級銆?-->
+									<p class="about-p">不随包分发：人设文本、音效、参考音频、Live2D 模型素材都<b>不在安装包里</b> —— 由使用者自己导入或联网下载，版权归各自作者所有。</p>
+									<p class="about-p">完整清单与 Live2D 协议的分发义务说明见仓库根目录的 <code>THIRD-PARTY.md</code>。</p>
+									<!-- 字体许可全文（2026-10-16）: OFL 1.1 要求再分发时附带许可，
+									     这里把原文打进包、可就地展开（默认收起，不打扰阅读）。 -->
 									<details class="about-license">
-										<summary>闇為箿鏂囨シ LXGW WenKai 路 SIL OFL 1.1 璁稿彲鍏ㄦ枃</summary>
+										<summary>霞鹜文楷 LXGW WenKai · SIL OFL 1.1 许可全文</summary>
 										<pre class="about-license-text">{{ oflWenKaiText }}</pre>
 									</details>
 									<details class="about-license">
-										<summary>绔欓叿蹇箰浣?ZCOOL KuaiLe 路 SIL OFL 1.1 璁稿彲鍏ㄦ枃</summary>
+										<summary>站酷快乐体 ZCOOL KuaiLe · SIL OFL 1.1 许可全文</summary>
 										<pre class="about-license-text">{{ oflKuaiLeText }}</pre>
 									</details>
 								</div>
-								<!-- 鈶?鍙嶉娓犻亾 -->
+								<!-- ④ 反馈渠道 -->
 								<div class="about-sec">
-									<div class="about-h">鍙嶉娓犻亾</div>
-									<p class="about-p">Nori 鏄€屽皬妗с€嶇敤鐖卞彂鐢靛仛鐨勫悓浜轰簩鍒涳紝娆㈣繋鏉ユ壘鎴戝弽棣?bug 鎹?鈥斺€?QQ 缇?<b>471419518</b>锛坕nori 涓€缇わ級銆?/p>
-									<p class="about-p">椤圭洰浠撳簱寮€ issue 涔熷彲浠ワ細<button class="about-a" @click="openAboutUrl(REPO_URL)">{{ REPO_URL }}</button></p>
+									<div class="about-h">反馈渠道</div>
+									<p class="about-p">Nori 是「小桧」用爱发电做的同人二创，欢迎来找我反馈 bug 捏 —— QQ 群 <b>471419518</b>（inori 一群）。</p>
+									<p class="about-p">项目仓库开 issue 也可以：<button class="about-a" @click="openAboutUrl(REPO_URL)">{{ REPO_URL }}</button></p>
 								</div>
 							</div>
 						</template>
@@ -1289,40 +1314,46 @@
 			</div>
 		</transition>
 
-		<!-- 鏂版墜寮曞 (鍒嗘寮圭獥): 棣栨鎵撳紑 (杩樻病寤虹珛鏁版嵁鐩綍) 鑷姩寮逛竴娆? 涔嬪悗鍙敱 璁剧疆 鈫?銆屾柊鎵嬪紩瀵笺€嶉噸鏂版墦寮€銆?		     z-index 80 楂樹簬闈㈡澘(20)/璋冭瘯琛?70), 淇濊瘉浠讳綍鏃跺€欓兘鍦ㄦ渶涓婂眰銆?-->
+		<!-- 新手引导 (分步弹窗): 首次打开 (还没建立数据目录) 自动弹一次; 之后可由 设置 → 「新手引导」重新打开。
+		     z-index 80 高于面板(20)/调试行(70), 保证任何时候都在最上层。 -->
 		<transition name="sheet">
 			<div v-if="introOn" class="intro-mask" @click.self="introClose">
-				<!-- 2026-10-01 閲嶅仛锛堢敤鎴凤細銆屽唴瀹逛笉鍙橈紝AI 鍛冲お澶с€嶏級锛氫笉鍐嶆覆鏌?40px 澶?emoji锛?				     鏀规垚"濂归€掓潵鐨勪竴寮犱究绛? 鈥斺€?宸﹀榻?+ 椤堕儴鑳跺甫 + 鏍囬涓嬬煭寮鸿皟绾?+ 姝ｆ枃宸︿晶缁嗚壊鏉?+ 缁嗗垎椤垫潯銆?				     鏂囨涓庢暟鎹粨鏋勪竴瀛楁湭鏀癸紱绫诲悕淇濇寔鍘熸牱锛堟祴璇曚笌鎺㈤拡鎸夌被鍚嶆壘鍏冪礌锛夈€?-->
+				<!-- 2026-10-01 重做（用户：「内容不变，AI 味太大」）：不再渲染 40px 大 emoji，
+				     改成"她递来的一张便签" —— 左对齐 + 顶部胶带 + 标题下短强调线 + 正文左侧细色条 + 细分页条。
+				     文案与数据结构一字未改；类名保持原样（测试与探针按类名找元素）。 -->
 				<div class="intro">
 					<span class="intro-tape" aria-hidden="true"></span>
 					<div class="intro-head">
-						<span class="intro-step">绗?{{ introStep + 1 }} / {{ INTRO_STEPS.length }} 姝?/span>
-						<button class="x" @click="introClose">鉁?/button>
+						<span class="intro-step">第 {{ introStep + 1 }} / {{ INTRO_STEPS.length }} 步</span>
+						<button class="x" @click="introClose">✕</button>
 					</div>
 					<div class="intro-title">{{ INTRO_STEPS[introStep].title }}</div>
 					<span class="intro-rule" aria-hidden="true"></span>
 					<div class="intro-body">
 						<p v-for="(t, i) in INTRO_STEPS[introStep].body" :key="i" class="intro-p" :class="INTRO_STEPS[introStep].tone"><template v-for="(seg, j) in introSegs(t)" :key="j"><span v-if="seg.b" class="intro-b">{{ seg.t }}</span><template v-else>{{ seg.t }}</template></template></p>
-						<div v-if="introStep === 2" class="intro-api-links" aria-label="API 瀵嗛挜鍏ュ彛">
-							<button class="mini ripple intro-api-link" type="button" @click="openIntroApi(DEEPSEEK_API_KEYS_URL)">鏂囧瓧璋冪敤</button>
-							<button class="mini ripple intro-api-link" type="button" @click="openIntroApi(QIANWEN_API_KEYS_URL)">璇煶杈撳嚭</button>
+						<div v-if="introStep === 2" class="intro-api-links" aria-label="API 密钥入口">
+							<button class="mini ripple intro-api-link" type="button" @click="openIntroApi(DEEPSEEK_API_KEYS_URL)">文字调用</button>
+							<button class="mini ripple intro-api-link" type="button" @click="openIntroApi(QIANWEN_API_KEYS_URL)">语音输出</button>
 						</div>
 					</div>
-					<!-- 2026-10-02 淇帓鐗堬紙鐢ㄦ埛鎴浘锛氭渶鍚庝竴姝ュ洓涓寜閽尋涓€琛岋紝鍙充晶涓や釜琚睆骞曡鎺夛級锛?					     涓や釜銆岃烦杞被銆嶆寜閽紙椤圭洰浠撳簱 / Steam 鎰挎湜鍗曪級鍗曠嫭鍗犱笂闈竴琛岋紝涓斿厑璁告崲琛?					     锛堢獎灞忔斁涓嶄笅灏辫嚜鍔ㄧ珫鎺掞級锛涘垎椤垫潯涓庛€屼笂涓€姝?/ 寮€濮嬩娇鐢ㄣ€嶇暀鍦ㄤ笅闈竴琛屻€?					     绫诲悕涓€寰嬩繚鎸佸師鏍凤紙e2e-intro / probe-clone-gate 鎸夌被鍚嶆壘鍏冪礌锛夈€?-->
+					<!-- 2026-10-02 修排版（用户截图：最后一步四个按钮挤一行，右侧两个被屏幕裁掉）：
+					     两个「跳转类」按钮（项目仓库 / Steam 愿望单）单独占上面一行，且允许换行
+					     （窄屏放不下就自动竖排）；分页条与「上一步 / 开始使用」留在下面一行。
+					     类名一律保持原样（e2e-intro / probe-clone-gate 按类名找元素）。 -->
 					<div class="intro-foot">
 						<div v-if="introStep >= INTRO_STEPS.length - 1" class="intro-links">
-							<!-- 椤圭洰浠撳簱锛?026-10-02 鐢ㄦ埛瑕佹眰锛夛細涓庢効鏈涘崟鍚屾鐨勪竴閿烦杞紝淇濇寔鍦ㄦ渶宸︼紙涓庣敤鎴锋埅鍥句竴鑷达級 -->
-							<button class="mini ripple intro-repo" @click="openRepo">椤圭洰浠撳簱</button>
-							<!-- Steam 鎰挎湜鍗曪紙2026-10-01 鐢ㄦ埛瑕佹眰锛夛細鍙湪鏈€鍚庝竴姝ュ嚭鐜帮紝璧板師鐢?ACTION_VIEW 鎵撳紑澶栭儴娴忚鍣?-->
-							<button class="mini ripple intro-steam" @click="openSteamWishlist">鍔犲叆 Steam 鎰挎湜鍗?/button>
+							<!-- 项目仓库（2026-10-02 用户要求）：与愿望单同款的一键跳转，保持在最左（与用户截图一致） -->
+							<button class="mini ripple intro-repo" @click="openRepo">项目仓库</button>
+							<!-- Steam 愿望单（2026-10-01 用户要求）：只在最后一步出现，走原生 ACTION_VIEW 打开外部浏览器 -->
+							<button class="mini ripple intro-steam" @click="openSteamWishlist">加入 Steam 愿望单</button>
 						</div>
 						<div class="intro-nav">
 							<div class="intro-dots">
 								<i v-for="(s, i) in INTRO_STEPS" :key="s.title" :class="{on: i === introStep, done: i < introStep}"></i>
 							</div>
 							<div class="intro-btns">
-								<button v-if="introStep > 0" class="mini ripple intro-prev" @click="introPrev">涓婁竴姝?/button>
-								<button class="mini ripple intro-next" @click="introNext">{{ introStep >= INTRO_STEPS.length - 1 ? "寮€濮嬩娇鐢? : "涓嬩竴姝? }}</button>
+								<button v-if="introStep > 0" class="mini ripple intro-prev" @click="introPrev">上一步</button>
+								<button class="mini ripple intro-next" @click="introNext">{{ introStep >= INTRO_STEPS.length - 1 ? "开始使用" : "下一步" }}</button>
 							</div>
 						</div>
 					</div>
@@ -1330,23 +1361,26 @@
 			</div>
 		</transition>
 
-		<!-- 妯″瀷鎺堟潈楠岃瘉锛堢瓟棰橀棬锛?026-10-01 涓轰竴閿厠闅嗗紩鍏ワ紱2026-10-02 璧?*鍚屼竴閬撻棬**涔熷畧銆屼笅杞芥ā鍨嬨€嶏紝
-		     2026-10-14 璧峰啀瀹堛€屼笅杞藉畼鏂逛汉璁俱€嶏級
-		     鈥斺€?鐓х敤鎴风粰鐨勫弬鑰冨浘鍋氱殑缁撴瀯锛氭爣棰?璇存槑/闂/杈撳叆妗?鍙栨秷路楠岃瘉/搴曢儴鎻愮ず銆?		     鍙湁涓€浠藉脊绐椾笌涓€浠界姸鎬侊紙gateOn/gateKind/...锛夛紝鍔ㄤ綔闈?openGate(kind, onPass) 鍒嗗矓锛?		     clone = 寤洪煶鑹诧紙鍘熸牱锛?clone-gate 杩欏绫诲悕/鏂囨涓€瀛楁湭鏀癸紝probe-clone-gate 鐩潃锛夛紱
-		     model = 鏀捐鍚庤蛋鍘熸潵鐨?鍒囨ā鍨嬧啋涓嬭浇"娴佺▼锛堣繘搴﹁繕鍦?topbar 鐨?loadingMsg 涓婏級锛?		     persona = 鏀捐鍚庝粠闈欐€佹墭绠℃媺瀹樻柟浜鸿鏂囨锛?persona-gate锛屾爣棰?璇存槑鎸夊姩浣滃垎宀旓級銆?-->
+		<!-- 模型授权验证（答题门，2026-10-01 为一键克隆引入；2026-10-02 起**同一道门**也守「下载模型」，
+		     2026-10-14 起再守「下载官方人设」）
+		     —— 照用户给的参考图做的结构：标题/说明/问题/输入框/取消·验证/底部提示。
+		     只有一份弹窗与一份状态（gateOn/gateKind/...），动作靠 openGate(kind, onPass) 分岔：
+		     clone = 建音色（原样，.clone-gate 这套类名/文案一字未改，probe-clone-gate 盯着）；
+		     model = 放行后走原来的"切模型→下载"流程（进度还在 topbar 的 loadingMsg 上）；
+		     persona = 放行后从静态托管拉官方人设文案（.persona-gate，标题/说明按动作分岔）。 -->
 		<transition name="sheet">
 			<div v-if="gateOn" class="gate-mask" :class="gateKind === 'clone' ? 'clone-gate-mask' : gateKind === 'persona' ? 'persona-gate-mask' : 'model-gate-mask'" @click.self="closeGate">
 				<div class="gate" :class="gateKind === 'clone' ? 'clone-gate' : gateKind === 'persona' ? 'persona-gate' : 'model-gate'">
 					<div class="gate-head">
-						<span class="gate-title">{{ gateKind === "persona" ? "浜鸿鎺堟潈楠岃瘉" : "妯″瀷鎺堟潈楠岃瘉" }}</span>
-						<button class="x" @click="closeGate">鉁?/button>
+						<span class="gate-title">{{ gateKind === "persona" ? "人设授权验证" : "模型授权验证" }}</span>
+						<button class="x" @click="closeGate">✕</button>
 					</div>
-					<p class="gate-desc">璇{ gateKind === "clone" ? "鍐呯疆闊宠壊" : gateKind === "persona" ? "浜鸿鏂囨" : "妯″瀷" }}鐢?<b>inori</b> 鎻愪緵锛屽洜{{ gateKind === "persona" ? "鐗规畩鎬? : "妯″瀷鐗规畩鎬? }}涓嶅彲鐩存帴鍒嗗彂锛涚瓟瀵逛笅闈㈢殑闂鍗冲彲{{ gateKind === "clone" ? "鑾峰緱浣跨敤璧勬牸" : "寮€濮嬩笅杞? }}銆?/p>
+					<p class="gate-desc">该{{ gateKind === "clone" ? "内置音色" : gateKind === "persona" ? "人设文案" : "模型" }}由 <b>inori</b> 提供，因{{ gateKind === "persona" ? "特殊性" : "模型特殊性" }}不可直接分发；答对下面的问题即可{{ gateKind === "clone" ? "获得使用资格" : "开始下载" }}。</p>
 					<div class="gate-q">{{ CLONE_GATE_QUESTION }}</div>
-					<input v-model="gateInput" class="gate-input" type="text" autocomplete="off" spellcheck="false" placeholder="璇疯緭鍏ョ瓟妗? @keyup.enter="doGate" />
+					<input v-model="gateInput" class="gate-input" type="text" autocomplete="off" spellcheck="false" placeholder="请输入答案" @keyup.enter="doGate" />
 					<div v-if="gateMsg" class="hint" :class="gateOk ? 'ok' : 'bad'">{{ gateMsg }}</div>
 					<div class="gate-btns">
-						<button class="mini ripple" @click="closeGate">鍙栨秷</button>
+						<button class="mini ripple" @click="closeGate">取消</button>
 						<button class="mini ripple gate-go" :disabled="gateBusy || !gateInput.trim()" @click="doGate">{{ gateBusy ? gateBusyLabel : gateGoLabel }}</button>
 					</div>
 					<div class="gate-hint">{{ gateKind === "clone" ? CLONE_GATE_HINT : gateKind === "persona" ? PERSONA_GATE_HINT : MODEL_GATE_HINT }}</div>
@@ -1492,11 +1526,11 @@ import {
 } from "./services/tts"
 import {FISH_MODELS, FISH_FORMATS, FISH_LATENCIES} from "./services/tts/fishaudio"
 import {COSY_MODELS, COSY_NO_VOICE_ERROR, cosyVoiceModelError, pickVoiceFile, createCloneVoice, queryCloneVoice, createPresetCloneVoice} from "./services/tts/cosyvoice"
-// 銆屾ā鍨嬫巿鏉冮獙璇併€嶇瓟棰橀棬锛?026-10-01 涓€閿厠闅?/ 2026-10-02 涔熷畧銆屼笅杞芥ā鍨嬨€嶏級: 棰樼洰/绛旀/鍒ゅ嵎閮藉湪閭ｄ釜绾ā鍧楅噷, 渚夸簬鍗曟祴
+// 「模型授权验证」答题门（2026-10-01 一键克隆 / 2026-10-02 也守「下载模型」）: 题目/答案/判卷都在那个纯模块里, 便于单测
 import {CLONE_GATE_QUESTION, CLONE_GATE_HINT, MODEL_GATE_HINT, PERSONA_GATE_HINT, checkCloneAnswer} from "./services/tts/clone-gate"
 import {parseMarkerDelta, type ParsedMarkers} from "./services/chat/markers"
 import {stripInternalPromptMetadata} from "./services/chat/replyMetadata"
-// 鍦ㄧ嚎浜烘暟锛?026-10-21锛? 鍖垮悕蹇冭烦 + 绾€昏緫鏂囨锛涙湇鍔＄瑙?services/presence/
+// 在线人数（2026-10-21）: 匿名心跳 + 纯逻辑文案；服务端见 services/presence/
 import {
 	startPresence,
 	stopPresence,
@@ -1510,14 +1544,16 @@ import {
 	presenceTone,
 	type PresenceState,
 } from "./services/presence"
-// 鐣岄潰鍙€夊瓧浣擄紙2026-10-15锛? system / 闇為箿鏂囨シ / 绔欓叿蹇箰浣擄紱绾€昏緫鍦?services/ui-font.ts
+// 界面可选字体（2026-10-15）: system / 霞鹜文楷 / 站酷快乐体；纯逻辑在 services/ui-font.ts
 import {UI_FONT_OPTIONS, applyUiFont, normalizeUiFont, uiFontPreviewFamily, type UiFontChoice} from "./services/ui-font"
-/* 涓や釜瀛椾綋鐨?OFL 璁稿彲**鍏ㄦ枃**锛?026-10-16锛? OFL 1.1 瑕佹眰鍐嶅垎鍙戝瓧浣撴椂闄勫甫璁稿彲锛? * 鎵€浠ヨ繖閲屼互鍘熸枃鎵撹繘鍖呫€佸湪銆屽叧浜?/ 寮€婧愯鍙€嶉〉閲屽彲灞曞紑鏌ョ湅锛堜笉鏄彧缁欎釜浠撳簱璺緞锛夈€?*/
+/* 两个字体的 OFL 许可**全文**（2026-10-16）: OFL 1.1 要求再分发字体时附带许可，
+ * 所以这里以原文打进包、在「关于 / 开源许可」页里可展开查看（不是只给个仓库路径）。 */
 import oflWenKaiText from "./assets/fonts/OFL-LXGWWenKai.txt?raw"
 import oflKuaiLeText from "./assets/fonts/OFL-ZCOOLKuaiLe.txt?raw"
 import {listDiary, ensureDiary, bufferDiarySource} from "./services/nori-diary"
 import DiaryPanel from "./components/DiaryPanel.vue"
-// 涓撴敞缁熻: 绾€昏緫 (鍙崟娴? 鈥斺€?姹囨€昏绠椼€佺儹鍔涘浘缃戞牸銆佷互鍙?瑕佷笉瑕佽窡 Nori 鎻?鐨勫垽瀹氶兘鍦ㄩ偅閲?import {
+// 专注统计: 纯逻辑 (可单测) —— 汇总计算、热力图网格、以及"要不要跟 Nori 提"的判定都在那里
+import {
 	summarize as pomoSummarize,
 	buildFocusHint,
 	buildHeatmap,
@@ -1545,16 +1581,18 @@ import {
 } from "./services/live2d/markerRules"
 import {scheduleReturnToNeutral, cancelReturnToNeutral} from "./services/live2d/motionReturn"
 import {spawnPetMotes, spawnPetTouchBurst, spawnPetComplete, clearPetFx, petSwayAmp, petFxSpawned} from "./services/live2d/petEffect"
-// 鎶氭懜閲囨牱鍣?(绉绘鑷綉椤电増 headPat 鐨?r8e): 鍒?妯悜涓轰富 + 澶熷揩", 绱婊?requiredMs 绠楀畬鎴愪竴娆?import {createPetStrokeDetector, DEFAULT_PET_STROKE_TUNING} from "./services/live2d/petStroke"
-// 鎶氭懜闊虫晥 (绉绘鑷綉椤电増 headPat 鐨勫疄鏃跺悎鎴愰煶, 闆剁礌鏉?
+// 抚摸采样器 (移植自网页版 headPat 的 r8e): 判"横向为主 + 够快", 累计满 requiredMs 算完成一次
+import {createPetStrokeDetector, DEFAULT_PET_STROKE_TUNING} from "./services/live2d/petStroke"
+// 抚摸音效 (移植自网页版 headPat 的实时合成音, 零素材)
 import {petAudioPrime, petAudioTouch, petAudioStroke, petAudioComplete, petAudioRelease, disposePetAudio, petAudioState} from "./services/live2d/petAudio"
-// "鎽稿埌澶?鐨勫垽瀹?(绉绘鑷綉椤电増 headPat 鐨勯儴浠跺垽瀹? 杩欎釜妯″瀷娌℃湁 Part9, 鏀逛负鎸夊嚑浣曟寫澶寸洅)
+// "摸到头"的判定 (移植自网页版 headPat 的部件判定; 这个模型没有 Part9, 改为按几何挑头盒)
 import {pickHeadBox, inHeadZoneHysteresis, headZoneLine, type PetPartBox} from "./services/live2d/petHeadZone"
-// 鎽稿ご琛ㄦ儏: 鍙湪鎽稿埌澶存椂鎾?shy/smile(浜岄€変竴闅忔満) + 鍋滄墜 1s 鍚庡钩婊戞敹鍥?琛ㄦ儏鑷甫 0.5s 娣″嚭)
+// 摸头表情: 只在摸到头时播 shy/smile(二选一随机) + 停手 1s 后平滑收回(表情自带 0.5s 淡出)
 import {applyPetExpression, petExpressionName, petExpressionShowing, petExpressionHoldsLayer} from "./services/live2d/petExpression"
-// 鎽稿ご鍙拌瘝: 鎽稿埌澶存椂璇翠竴鍙?10 鍙ヨ鏂欓殢鏈? 娲楃墝琚嬩笉閲嶅), 10s 鍐呭彧璇翠竴娆?鈥斺€?绾€昏緫鍦ㄦā鍧楅噷(鏈夐棬绂?
+// 摸头台词: 摸到头时说一句(10 句语料随机, 洗牌袋不重复), 10s 内只说一次 —— 纯逻辑在模块里(有门禁)
 import {maybePetSpeechLine, petSpeechCount, petSpeechLastLine, petSpeechWaitMs} from "./services/live2d/petSpeech"
-// 鐪ㄧ溂: 搴撳唴缃殑 CubismEyeBlink 琚?model3.json 鐨勭┖ EyeBlink 鍚嶅崟搴熸帀浜? 杩欓噷鑷繁鍋?import {installBlink, blinkCount, blinkClosureNow} from "./services/live2d/blink"
+// 眨眼: 库内置的 CubismEyeBlink 被 model3.json 的空 EyeBlink 名单废掉了, 这里自己做
+import {installBlink, blinkCount, blinkClosureNow} from "./services/live2d/blink"
 import {installLipSync} from "./services/live2d/lipSync"
 
 type P = "model" | "motion" | "expression" | "touch" | "settings" | "tts" | "diary" | "memories" | "pomo" | "pomoStats" | "about" | ""
@@ -1578,7 +1616,7 @@ const touchEditingId = ref<string | null>(null)
 let touchEditOriginal: TouchArea | null = null
 const deletedTouch = ref<{area: TouchArea; index: number} | null>(null)
 
-/** 鍖哄煙寮€鍏虫寜妯″瀷淇濆瓨锛涜瘯鐢ㄤ粎褰撳墠椤甸潰鏈夋晥銆?*/
+/** 区域开关按模型保存；试用仅当前页面有效。 */
 const touchEnabled = ref(true)
 const touchTesting = ref(false)
 const touchCooldownText = ref("")
@@ -1601,16 +1639,19 @@ const offsetX = ref(0)
 const offsetY = ref(0)
 
 const layoutVer = ref(0)
-const loadingMsg = ref("鍔犺浇涓€?)
+const loadingMsg = ref("加载中…")
 const modelList = ref<{id: string; name: string}[]>([])
 const listError = ref("")
 
 const currentModel = computed(() => modelList.value.find((m) => m.id === currentModelId.value))
 /**
- * 搴曟爮鍥炬爣 (2026-09-30)銆傚彇鑷綉椤电増 NoriOS 搴曟爮鐨?6 涓浘鏍囷紙鐢ㄦ埛鎸夊簭鍙风偣鍚嶇殑锛氫綘鐢绘垜鐚?绠楀姏/
- * 鍥介檯璞℃/铔嬬硶瀵瑰喅/鏂囦欢/鑷磋阿锛夛紝缂╁埌 144px 鏀惧湪 `public/icons/`锛屼綔涓?*鏈満鑷敤**绱犳潗銆? *
- * 涓轰粈涔堢敤瀛楃涓插父閲?+ `:src`锛歚public/` 閲岀殑鏂囦欢鏄師鏍疯惤鐩樼殑锛屽啓鎴愭ā鏉块噷鐨勭浉瀵硅矾寰勪細琚?Vite
- * 褰撴垚鏈湴璧勬簮鍘昏В鏋愶紙SFC 閲屼笉瀛樺湪璇ユ枃浠?鈬?鏋勫缓鎶ラ敊锛夈€傝繍琛屾椂鎸?`./icons/...` 鐩稿鏂囨。瑙ｆ瀽锛? * WebView 璧?WebViewAssetLoader锛坄/assets/web/index.html`锛夆噿 姝ｅソ鍛戒腑 `assets/web/icons/`銆? */
+ * 底栏图标 (2026-09-30)。取自网页版 NoriOS 底栏的 6 个图标（用户按序号点名的：你画我猜/算力/
+ * 国际象棋/蛋糕对决/文件/致谢），缩到 144px 放在 `public/icons/`，作为**本机自用**素材。
+ *
+ * 为什么用字符串常量 + `:src`：`public/` 里的文件是原样落盘的，写成模板里的相对路径会被 Vite
+ * 当成本地资源去解析（SFC 里不存在该文件 ⇒ 构建报错）。运行时按 `./icons/...` 相对文档解析，
+ * WebView 走 WebViewAssetLoader（`/assets/web/index.html`）⇒ 正好命中 `assets/web/icons/`。
+ */
 const DOCK_ICONS = {
 	diary: "./icons/dock-diary.svg",
 	model: "./icons/dock-model.svg",
@@ -1620,64 +1661,66 @@ const DOCK_ICONS = {
 	chat: "./icons/dock-chat.svg",
 } as const
 
-const panelTitle = (p: P) => ({model: "閫夋嫨妯″瀷", motion: "鍔ㄤ綔鍒楄〃", expression: "琛ㄦ儏鍒楄〃", touch: "浜掑姩璁剧疆", settings: "璁剧疆", tts: "璇煶鍚堟垚", diary: "Nori 鐨勫績鎯呮棩璁?, memories: "璁板繂搴?, pomo: "鐣寗閽?, pomoStats: "涓撴敞缁熻", about: "鍏充簬 / 闅愮 / 寮€婧愯鍙?} as Record<string, string>)[p] ?? ""
+const panelTitle = (p: P) => ({model: "选择模型", motion: "动作列表", expression: "表情列表", touch: "互动设置", settings: "设置", tts: "语音合成", diary: "Nori 的心情日记", memories: "记忆库", pomo: "番茄钟", pomoStats: "专注统计", about: "关于 / 隐私 / 开源许可"} as Record<string, string>)[p] ?? ""
 
-/* ---------------- 鏂版墜寮曞 (鍒嗘寮圭獥) ----------------
- * 棣栨鎵撳紑 (杩樻病寤虹珛鏁版嵁鐩綍) 鑷姩寮逛竴娆? 涔嬪悗璁剧疆椤靛簳閮ㄦ湁銆屾柊鎵嬪紩瀵笺€嶆寜閽彲閲嶆柊鎵撳紑銆? * 鏂囨鏉ヨ嚜鐢ㄦ埛缁欑殑璇存槑鏂囨。, 鍙仛鍒嗘涓庢鼎鑹? 鍐呭涓嶆敼銆? */
+/* ---------------- 新手引导 (分步弹窗) ----------------
+ * 首次打开 (还没建立数据目录) 自动弹一次; 之后设置页底部有「新手引导」按钮可重新打开。
+ * 文案来自用户给的说明文档, 只做分步与润色, 内容不改。
+ */
 interface IntroStep { emoji: string; title: string; body: string[]; tone?: "warn" | "ok" }
 const INTRO_STEPS: IntroStep[] = [
 	{
-		emoji: "馃尭",
-		title: "娆㈣繋鏉ュ埌 Nori 鐨勫皬涓栫晫",
+		emoji: "🌸",
+		title: "欢迎来到 Nori 的小世界",
 		body: [
-			"杩欐槸涓€涓畝闄嬬殑鏂版墜寮曞锛屼篃鏄嚑鍙ユ敞鎰忎簨椤广€?,
-			"姝ら」鐩负**鍚屼汉浜屽垱**锛屼笌鍘熶綔鏃犲叧銆?,
+			"这是一个简陋的新手引导，也是几句注意事项。",
+			"此项目为**同人二创**，与原作无关。",
 		],
 		tone: "warn",
 	},
 	{
-		emoji: "馃洜锔?,
-		title: "杩欎釜鐗堟湰鏄皝鍋氱殑",
+		emoji: "🛠️",
+		title: "这个版本是谁做的",
 		body: [
-			"姝ょ増鏈敱**灏忔¨**锛坕nori 涓€缇?路 471419518锛夐噸鏋勩€?,
-			"鍘熺増鏈负**娲辨捣**鍙?*浜撴墠瀛?*鐨勬渶鍒濈増鏈?DeepEr锛堢幇宸叉崲鍖呭悕锛屽彲鍏卞瓨锛夈€?,
+			"此版本由**小桧**（inori 一群 · 471419518）重构。",
+			"原版本为**洱海**及**亓才孑**的最初版本 DeepEr（现已换包名，可共存）。",
 		],
 	},
 	{
-		emoji: "馃攽",
-		title: "寮€濮嬪墠闇€瑕佸噯澶囦袱鏍蜂笢瑗?,
+		emoji: "🔑",
+		title: "开始前需要准备两样东西",
 		body: [
-			"API 闇€瑕佷粯璐癸紝鑷冲皯瑕佸噯澶囷細涓€涓?LLM锛堝ぇ璇█妯″瀷锛屽 DeepSeek锛? 涓€娆?TTS 璇煶妯″瀷銆?,
-			"TTS 鏈?Fish Audio 鍜屽崈闂彲閫夛紝鎺ㄨ崘鍗冮棶鐨?Audio 3.1 TTS 鈥斺€?鏁堟灉涓庝环鏍奸兘寰堜笉閿欙紱闊抽鍙互鍦ㄧ兢閲岃嚜琛屾埅鍙栥€?,
-			"鈿?涓嬭浇**闊抽**鍜?*妯″瀷**鍙兘闇€瑕?*榄旀硶**锛堝浗鍐呬笉涓€瀹氱洿杩炲緱涓婏級锛屼笅杞藉墠璇疯嚜澶囩綉缁滅幆澧冦€?,
-			"鍑嗗濂藉悗锛屽湪銆岃缃€嶉噷濉叆 API 鍦板潃涓庡瘑閽ュ嵆鍙€?,
-			"鍙﹀锛氳缃噷璇锋墦寮€銆屾墍鏈夋枃浠惰闂潈闄愩€嶃€侫ndroid 11 璧凤紝鑱婂ぉ璁板綍/璁板繂/鏃ヨ閮藉瓨鍦ㄥ叕鍏变笅杞界洰褰曪紝娌℃湁杩欎釜鏉冮檺浼氳涓嶅埌锛堝挨鍏舵槸鍗歌浇閲嶈涔嬪悗锛夈€?,
+			"API 需要付费，至少要准备：一个 LLM（大语言模型，如 DeepSeek）+ 一款 TTS 语音模型。",
+			"TTS 有 Fish Audio 和千问可选，推荐千问的 Audio 3.1 TTS —— 效果与价格都很不错；音频可以在群里自行截取。",
+			"⚠ 下载**音频**和**模型**可能需要**魔法**（国内不一定直连得上），下载前请自备网络环境。",
+			"准备好后，在「设置」里填入 API 地址与密钥即可。",
+			"另外：设置里请打开「所有文件访问权限」。Android 11 起，聊天记录/记忆/日记都存在公共下载目录，没有这个权限会读不到（尤其是卸载重装之后）。",
 		],
 		tone: "warn",
 	},
 	{
-		emoji: "馃挰",
-		title: "娆㈣繋鏉ユ壘鎴戝弽棣?bug",
+		emoji: "💬",
+		title: "欢迎来找我反馈 bug",
 		body: [
-			"鍗佸垎鎰熻阿**鐧藉 Tira** 浠ュ強 **I_Nori 鍒朵綔缁?*鐨勮緵鍕や粯鍑恒€?,
-			"娆㈣繋浣犱滑鎵炬垜鍙嶉 bug 鎹忥紝甯屾湜澶у鍜?Nori 瓒婃潵瓒婂ソ銆?,
+			"十分感谢**白夜 Tira** 以及 **I_Nori 制作组**的辛勤付出。",
+			"欢迎你们找我反馈 bug 捏，希望大家和 Nori 越来越好。",
 		],
 		tone: "ok",
 	},
 ]
-/** 鏄惁灞曠ず寮曞 */
+/** 是否展示引导 */
 const introOn = ref(false)
 const introStep = ref(0)
-/** 娈佃惤閲岀殑 **寮鸿皟** 鈫?鍒嗘娓叉煋 (涓嶇敤 v-html, 鍏嶅緱鎶婃枃妗堝綋 HTML 瑙ｆ瀽) */
+/** 段落里的 **强调** → 分段渲染 (不用 v-html, 免得把文案当 HTML 解析) */
 const introSegs = (text: string): {t: string; b: boolean}[] =>
 	text.split("**").map((t, i) => ({t, b: i % 2 === 1})).filter(s => s.t !== "")
-/** 鐐硅繃銆屼笅涓€姝?寮€濮嬩娇鐢ㄣ€嶅悗灏变笉鍐嶈嚜鍔ㄥ脊 (鍏虫帀寮圭獥涔熺畻鐪嬭繃) */
+/** 点过「下一步/开始使用」后就不再自动弹 (关掉弹窗也算看过) */
 const INTRO_SEEN_KEY = "intro_seen_v1"
 const introOpen = (): void => { introStep.value = 0; introOn.value = true }
 const introNext = (): void => {
 	if (introStep.value >= INTRO_STEPS.length - 1) { introClose(); return }
 	introStep.value += 1
-	playSfx()          // 姝ラ鍒囨崲缁欎竴璁拌交鎸夐敭闊?(涓?dock 鎸夐敭鍚屼竴濂楅煶閲忚缃?
+	playSfx()          // 步骤切换给一记轻按键音 (与 dock 按键同一套音量设置)
 }
 const introPrev = (): void => {
 	if (introStep.value <= 0) return
@@ -1686,21 +1729,22 @@ const introPrev = (): void => {
 }
 const introClose = (): void => {
 	introOn.value = false
-	try { localStorage.setItem(INTRO_SEEN_KEY, "1") } catch { /* 蹇界暐 */ }
-	// 鍏抽棴/瀹屾垚闊充笌"鎸夐敭闊?鍚屾簮, 涓嶉澶栧紩璧勬簮
+	try { localStorage.setItem(INTRO_SEEN_KEY, "1") } catch { /* 忽略 */ }
+	// 关闭/完成音与"按键音"同源, 不额外引资源
 	playSfx()
 }
 
-/** I_Nori 鐨?Steam 鎰挎湜鍗曪紙2026-10-01 鐢ㄦ埛缁欑殑閾炬帴锛夈€傚紩瀵兼渶鍚庝竴姝ユ湁涓€閿烦杞寜閽€? *  璧板師鐢?openExternal锛圓CTION_VIEW锛夊湪澶栭儴娴忚鍣ㄦ墦寮€锛涙ˉ涓嶆敮鎸佹椂閫€鍥?window.open銆?*/
+/** I_Nori 的 Steam 愿望单（2026-10-01 用户给的链接）。引导最后一步有一键跳转按钮。
+ *  走原生 openExternal（ACTION_VIEW）在外部浏览器打开；桥不支持时退回 window.open。 */
 const STEAM_WISHLIST_URL = "https://store.steampowered.com/app/4996280/I_NORI/?beta=0"
-/** 椤圭洰浠撳簱锛?026-10-02 鐢ㄦ埛瑕佹眰锛夛細寮曞鏈€鍚庝竴姝ヤ竴閿烦杞紝涓?Steam 鎰挎湜鍗曞悓娆捐蛋鍘熺敓 openExternal */
+/** 项目仓库（2026-10-02 用户要求）：引导最后一步一键跳转，与 Steam 愿望单同款走原生 openExternal */
 const REPO_URL = "https://github.com/furret2333/NoriDroid"
 const openRepo = (): void => {
 	const nori = (window as unknown as {NoriChat?: {openExternal?: (u: string) => void}}).NoriChat
 	try {
 		if (nori && typeof nori.openExternal === "function") nori.openExternal(REPO_URL)
 		else window.open(REPO_URL, "_blank")
-	} catch { /* 鎵撲笉寮€灏辩畻浜? 涓嶆墦鏂紩瀵?*/ }
+	} catch { /* 打不开就算了, 不打断引导 */ }
 	playSfx()
 }
 
@@ -1709,7 +1753,7 @@ const openSteamWishlist = (): void => {
 	try {
 		if (nori && typeof nori.openExternal === "function") nori.openExternal(STEAM_WISHLIST_URL)
 		else window.open(STEAM_WISHLIST_URL, "_blank")
-	} catch { /* 鎵撲笉寮€灏辩畻浜? 涓嶆墦鏂紩瀵?*/ }
+	} catch { /* 打不开就算了, 不打断引导 */ }
 	playSfx()
 }
 
@@ -1720,29 +1764,32 @@ const openIntroApi = (url: string): void => {
 	try {
 		if (nori && typeof nori.openExternal === "function") nori.openExternal(url)
 		else window.open(url, "_blank")
-	} catch { /* 澶栭摼鎵撲笉寮€鏃朵笉鎵撴柇寮曞 */ }
+	} catch { /* 外链打不开时不打断引导 */ }
 	playSfx()
 }
 
 const hideThumb = (e: Event) => { (e.currentTarget as HTMLElement).style.visibility = "hidden" }
 
-/* ---------------- 銆屽叧浜?/ 闅愮 / 寮€婧愯鍙€嶉〉鐢ㄥ埌鐨勫父閲忥紙2026-10-02 鐢ㄦ埛瑕佹眰锛?----------------
- * 鐗堟湰鍙凤細涓?app/android/app/build.gradle 鐨?versionName 淇濇寔涓€鑷达紙鍓嶇闅?APK 涓€璧峰彂鐗堬級銆? * 鈿?鍒嬁 web-src/package.json 鐨?version锛堣剼鎵嬫灦鐣欎笅鐨?0.1.0锛夊綋鐗堟湰鍙?鈥斺€?閭ｄ笉鏄敤鎴风湅鍒扮殑鐗堟湰銆? * 涓婃父澹版槑涓庤鍙竻鍗曞悓姝ヨ嚜浠撳簱鏍圭殑 THIRD-PARTY.md锛圓pp 閲屽彧鏀捐鐐?+ 鎸囧悜瀹冿級銆?*/
-const APP_VERSION = "2.5.1"
+/* ---------------- 「关于 / 隐私 / 开源许可」页用到的常量（2026-10-02 用户要求） ----------------
+ * 版本号：与 app/android/app/build.gradle 的 versionName 保持一致（前端随 APK 一起发版）。
+ * ⚠ 别拿 web-src/package.json 的 version（脚手架留下的 0.1.0）当版本号 —— 那不是用户看到的版本。
+ * 上游声明与许可清单同步自仓库根的 THIRD-PARTY.md（App 里只放要点 + 指向它）。 */
+const APP_VERSION = "2.5.2"
 const UPSTREAM_REPO_URL = "https://github.com/erhiolab/DeepEr"
 const LIVE2D_EULA_URL = "https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
-/** 閫氱敤澶栭摼鎵撳紑锛氫笌 openRepo / openSteamWishlist 鍚屾锛堜紭鍏堝師鐢?openExternal锛屾ˉ涓嶆敮鎸佹椂閫€鍥?window.open锛夈€? *  鍏充簬椤甸噷鐨勪粨搴?/ 涓婃父 / Live2D 鍗忚閮借蛋瀹冿紝閬垮厤鍦?WebView 閲岀洿鎺ヨ烦璧般€?*/
+/** 通用外链打开：与 openRepo / openSteamWishlist 同款（优先原生 openExternal，桥不支持时退回 window.open）。
+ *  关于页里的仓库 / 上游 / Live2D 协议都走它，避免在 WebView 里直接跳走。 */
 const openAboutUrl = (url: string): void => {
 	const nori = (window as unknown as {NoriChat?: {openExternal?: (u: string) => void}}).NoriChat
 	try {
 		if (nori && typeof nori.openExternal === "function") nori.openExternal(url)
 		else window.open(url, "_blank")
-	} catch { /* 鎵撲笉寮€灏辩畻浜? 涓嶆墦鏂槄璇?*/ }
+	} catch { /* 打不开就算了, 不打断阅读 */ }
 	playSfx()
 }
-/** 鎵撳紑銆屽叧浜?/ 闅愮 / 寮€婧愯鍙€嶉〉銆傚叆鍙ｅ湪璁剧疆闈㈡澘**鏈€涓嬮潰**锛岃€?sheet 鐨勬粴鍔ㄤ綅缃槸璺ㄩ潰鏉夸繚鐣欑殑
- *  锛坄.sheet-body` 濮嬬粓鏄悓涓€涓粴鍔ㄥ鍣級鈥斺€?涓嶄富鍔ㄦ粴鍥為《閮ㄧ殑璇濓紝鐐硅繘鏉ヤ細鐩存帴钀藉湪銆屽紑婧愯鍙€嶉偅涓€灞忥紝
- *  鐢ㄦ埛鏍规湰鐪嬩笉鍒板紑澶寸殑銆岀増鏈€嶃€傛墍浠ュ垏鎹㈤潰鏉垮悗鎶婂唴瀹规粴鍥為《閮ㄣ€?*/
+/** 打开「关于 / 隐私 / 开源许可」页。入口在设置面板**最下面**，而 sheet 的滚动位置是跨面板保留的
+ *  （`.sheet-body` 始终是同一个滚动容器）—— 不主动滚回顶部的话，点进来会直接落在「开源许可」那一屏，
+ *  用户根本看不到开头的「版本」。所以切换面板后把内容滚回顶部。 */
 const openAboutPage = (): void => {
 	openPanel("about")
 	void nextTick(() => {
@@ -1767,16 +1814,16 @@ const relayout = () => {
 const detector = new TouchDetector((area, type) => {
 	if (touchTesting.value) {
 		selectedTouchId.value = area.id
-		const label = type === "swipe" ? "婊戝姩" : "鐐规寜"
+		const label = type === "swipe" ? "滑动" : "点按"
 		const matches = !area.gesture || area.gesture === "both" || area.gesture === type
-		triggerBubble(`鍛戒腑銆?{area.name}銆?路 ${label}${matches ? "锛屾墜鍔跨鍚堣缃? : "锛屼笉绗﹀悎璇ュ尯鍩熺殑瑙﹀彂鏂瑰紡"}`)
+		triggerBubble(`命中「${area.name}」 · ${label}${matches ? "，手势符合设置" : "，不符合该区域的触发方式"}`)
 		return false
 	}
 	if (touchReplyBusy()) {
-		triggerBubble("Nori 姝ｅ湪鍥炲鎴栨湕璇伙紝鏈瑙︽懜浜掑姩宸茶烦杩?)
+		triggerBubble("Nori 正在回复或朗读，本次触摸互动已跳过")
 		return false
 	}
-	if (!modelReady.value) { triggerBubble("璇峰厛鍦ㄨ缃腑閰嶇疆 API Key 鍜屾ā鍨?); return false }
+	if (!modelReady.value) { triggerBubble("请先在设置中配置 API Key 和模型"); return false }
 	void handleTouchTrigger(area, type)
 	setTimeout(() => showTouchCooldown(area), 0)
 	return true
@@ -1815,17 +1862,17 @@ const loadTouchForModel = (id: string) => {
 }
 
 const saveTouch = (): boolean => {
-	if (!ready.value || loading.value) { triggerBubble("璇风瓑寰呮ā鍨嬪姞杞藉畬鎴愬悗鍐嶄繚瀛樺尯鍩?); return false }
+	if (!ready.value || loading.value) { triggerBubble("请等待模型加载完成后再保存区域"); return false }
 	if (currentModelId.value) {
 		const cfg = loadTouchConfig(currentModelId.value)
 		cfg.touches = touchAreas.value
 		cfg.enabled = touchEnabled.value
 		if (!saveTouchConfig(currentModelId.value, cfg)) {
-			triggerBubble("淇濆瓨澶辫触锛氭湰鍦板瓨鍌ㄤ笉鍙啓锛岃閲嶈瘯", 4500)
+			triggerBubble("保存失败：本地存储不可写，请重试", 4500)
 			return false
 		}
 	} else {
-		triggerBubble("璇峰厛鍔犺浇涓€涓ā鍨?)
+		triggerBubble("请先加载一个模型")
 		return false
 	}
 	configureTouchDetector()
@@ -1834,10 +1881,10 @@ const saveTouch = (): boolean => {
 
 const onTouchAdd = (t: {name: string; prompt: string; reactionPrompt?: string; gesture?: "tap" | "swipe" | "both"}) => {
 	const d = touchDraft.value
-	if (!d || d.w < 0.06 || d.h < 0.06) { triggerBubble("璇峰厛鍦ㄦā鍨嬩笂妗嗛€変竴涓煩褰㈠尯鍩?); return }
+	if (!d || d.w < 0.06 || d.h < 0.06) { triggerBubble("请先在模型上框选一个矩形区域"); return }
 	const before = [...touchAreas.value]
 	touchAreas.value = [...before, {
-		id: newTouchId(), name: t.name || "鏈懡鍚?, type: "tap", gesture: t.gesture ?? "both",
+		id: newTouchId(), name: t.name || "未命名", type: "tap", gesture: t.gesture ?? "both",
 		x: d.x, y: d.y, w: d.w, h: d.h, image: "", prompt: t.prompt || "", reactionPrompt: t.reactionPrompt || t.prompt || "",
 	}]
 	if (!saveTouch()) { touchAreas.value = before; return }
@@ -1845,7 +1892,7 @@ const onTouchAdd = (t: {name: string; prompt: string; reactionPrompt?: string; g
 	touchDraft.value = null
 	draftReady.value = false
 	drawingTarget.value = null
-	triggerBubble("宸叉坊鍔犺Е鎽稿尯鍩?)
+	triggerBubble("已添加触摸区域")
 }
 
 const beginTouchEdit = (id: string) => {
@@ -1893,7 +1940,7 @@ const onTouchUpdate = (id: string, patch: Partial<TouchArea>) => {
 	if (!saveTouch()) return
 	touchEditOriginal = null
 	touchEditingId.value = null
-	triggerBubble("鍖哄煙宸蹭繚瀛?)
+	triggerBubble("区域已保存")
 }
 
 const onTouchRemove = (id: string) => {
@@ -1916,7 +1963,7 @@ const undoTouchRemove = () => {
 	if (!saveTouch()) { touchAreas.value = before; return }
 	selectedTouchId.value = deleted.area.id
 	deletedTouch.value = null
-	triggerBubble("宸叉挙閿€鍒犻櫎")
+	triggerBubble("已撤销删除")
 }
 
 const setTouchEnabled = (enabled: boolean) => {
@@ -1928,7 +1975,7 @@ const setTouchEnabled = (enabled: boolean) => {
 
 const toggleTouchTesting = () => {
 	if (!touchEnabled.value) {
-		triggerBubble("璇峰厛寮€鍚嚜瀹氫箟鍖哄煙")
+		triggerBubble("请先开启自定义区域")
 		return
 	}
 	cancelTouchEdit()
@@ -1938,10 +1985,10 @@ const toggleTouchTesting = () => {
 		touchDrawing.value = false
 		touchAdjusting.value = false
 		resetTouchDraft()
-		triggerBubble("璇曠敤妯″紡宸插紑鍚細鍙鏌ュ懡涓紝涓嶄細璋冪敤 AI")
+		triggerBubble("试用模式已开启：只检查命中，不会调用 AI")
 	} else {
 		touchCooldownText.value = ""
-		triggerBubble("宸查€€鍑鸿瘯鐢ㄦā寮?)
+		triggerBubble("已退出试用模式")
 	}
 }
 
@@ -1950,7 +1997,7 @@ const showTouchCooldown = (area: TouchArea) => {
 	const tick = () => {
 		const left = detector.getCooldownRemaining(area.id)
 		if (left <= 0) { touchCooldownText.value = ""; touchCooldownTimer = null; return }
-		touchCooldownText.value = `銆?{area.name}銆嶅凡瑙﹀彂锛?{Math.ceil(left / 1000)} 绉掑唴涓嶄細閲嶅鍥炲簲`
+		touchCooldownText.value = `「${area.name}」已触发，${Math.ceil(left / 1000)} 秒内不会重复回应`
 		touchCooldownTimer = setTimeout(tick, 250)
 	}
 	tick()
@@ -1958,9 +2005,9 @@ const showTouchCooldown = (area: TouchArea) => {
 
 const onTouchTest = (area: TouchArea) => {
 	if (!touchEnabled.value) return
-	if (!ready.value || loading.value) { triggerBubble("璇峰厛鍔犺浇妯″瀷鍐嶈瘯 AI"); return }
-	if (touchEditingId.value) { triggerBubble("璇峰厛淇濆瓨鎴栧彇娑堝尯鍩熺紪杈?); return }
-	if (touchReplyBusy()) { triggerBubble("Nori 姝ｅ湪鍥炲鎴栨湕璇伙紝鏆傛椂涓嶈兘璇?AI"); return }
+	if (!ready.value || loading.value) { triggerBubble("请先加载模型再试 AI"); return }
+	if (touchEditingId.value) { triggerBubble("请先保存或取消区域编辑"); return }
+	if (touchReplyBusy()) { triggerBubble("Nori 正在回复或朗读，暂时不能试 AI"); return }
 	if (detector.getCooldownRemaining(area.id) > 0) { showTouchCooldown(area); return }
 	touchTesting.value = false
 	detector.setPreview(false)
@@ -2010,7 +2057,7 @@ const toggleTouchDraw = () => {
 	drawingTarget.value = null
 	drawStart = null
 	drawDragged = false
-	if (touchDrawing.value) triggerBubble("鍦ㄦā鍨嬩笂鎸変綇鎷栧姩鐢绘柊鐭╁舰")
+	if (touchDrawing.value) triggerBubble("在模型上按住拖动画新矩形")
 }
 
 
@@ -2024,7 +2071,7 @@ const toggleTouchAdjust = () => {
 	drawingTarget.value = null
 	drawStart = null
 	drawDragged = false
-	if (touchAdjusting.value) triggerBubble("鐐逛綇宸叉湁鍖哄煙鍙嫋鍔ㄤ綅缃?)
+	if (touchAdjusting.value) triggerBubble("点住已有区域可拖动位置")
 }
 
 const resetTouchDraft = () => {
@@ -2073,7 +2120,8 @@ const triggerBubble = (msg: string, ms = 2000) => {
 const aiBubble = ref("")
 let aiBubbleTimer: ReturnType<typeof setTimeout> | null = null
 
-// 绔栧睆鍥炲鐙珛浜庡巻鍙插睍寮€鐘舵€侊紱鍙繚瀛樻湰娆″睍绀猴紝涓嶆敼鑱婂ぉ鎸佷箙鍖栥€?const portraitReply = ref("")
+// 竖屏回复独立于历史展开状态；只保存本次展示，不改聊天持久化。
+const portraitReply = ref("")
 let portraitReplyTimer: ReturnType<typeof setTimeout> | null = null
 const clearPortraitReplyTimer = (): void => {
 	if (portraitReplyTimer) clearTimeout(portraitReplyTimer)
@@ -2093,8 +2141,10 @@ const showPortraitReply = (text: string, ms?: number): void => {
 	schedulePortraitReplyClear(ms)
 }
 
-/** 灞曠ず涓€鏉?"Nori 璇磋瘽" 姘旀场銆? *  `ms` 榛樿 9s锛圓I 鍥炲 / ambient 鎼瘽娌跨敤鍘熻涓猴級銆? *  鎽稿ご鍙拌瘝浼犳洿闀跨殑鍊硷細瀹冪殑鏀跺熬鑷繁鍋氾紙璇村畬鍗虫敹 + 鍏滃簳锛夛紝**蹇呴』**淇濊瘉杩欓噷鐨勫畾鏃跺櫒
- *  涓嶄細鏇存棭鎶婂瓧鎶规帀锛堝惁鍒?濂硅繕娌¤瀹岋紝瀛楀氨娌′簡"锛夈€?*/
+/** 展示一条 "Nori 说话" 气泡。
+ *  `ms` 默认 9s（AI 回复 / ambient 搭话沿用原行为）。
+ *  摸头台词传更长的值：它的收尾自己做（说完即收 + 兜底），**必须**保证这里的定时器
+ *  不会更早把字抹掉（否则"她还没说完，字就没了"）。 */
 const showAiBubble = (t: string, ms = 9000) => {
 	aiBubble.value = t
 	showPortraitReply(t, ms)
@@ -2103,25 +2153,25 @@ const showAiBubble = (t: string, ms = 9000) => {
 }
 
 
-const TAP_VERBS = ["鎴充簡鎴?, "鐐逛簡鐐?, "杞昏交鐐逛簡涓€涓?, "纰颁簡纰?, "鎴充簡涓€涓?]
-const SWIPE_VERBS = ["鎽镐簡鎽?, "杞昏交鎽镐簡鎽?, "韫簡韫?, "鎶氭懜浜嗗ソ鍑犱笅", "鎻変簡鎻?]
+const TAP_VERBS = ["戳了戳", "点了点", "轻轻点了一下", "碰了碰", "戳了一下"]
+const SWIPE_VERBS = ["摸了摸", "轻轻摸了摸", "蹭了蹭", "抚摸了好几下", "揉了揉"]
 
 const TOUCH_DIRECTIVE = [
-	"杩欎竴娆℃槸瑙︽懜浜掑姩锛?,
-	"1. 浣犲凡缁忔槸涓€涓劅瑙夌伒鏁忕殑浜? 瀹屽叏鎸夎嚜宸辩殑鏂瑰紡鏉ュ弽搴? 涓嶈澶嶈涔嬪墠璇磋繃鐨勮瘽, 涓嶈姣忔閮借鍚屼竴鍙ョ被浼肩殑璇濄€?,
-	"2. 琚懜鍒颁粈涔堝湴鏂逛笉閲嶈, 閲嶇偣鏄惀閫犲綋涓嬬湡瀹炪€侀矞娲汇€佹湁鎴忕殑姘涘洿鈥斺€斿缇炪€佽垝鏈嶃€佺棐銆侀€楄叮銆佸偛濞囥€佽翰寮€鈥︹€﹂殢浣犲彂鎸? 瓒婃湁瓒ｈ秺濂姐€?,
-	"3. AI 涓嶈鎶娿€屼粈涔堣鎽搞€嶈繖浠朵簨鏈烘鍦板杩版垚涓€鎴愪笉鍙樼殑鍥哄畾鍙拌瘝, 褰撲綔涓€娆¤嚜鐒跺彂鐢熺殑浜掑姩鏉ュ洖搴斻€?,
-	"4. 鍙洖搴斿綋涓嬶紝鐢?1锝? 鍙ョ畝鐭嚜鐒剁殑璇濓紝涓嶄富鍔ㄥ睍寮€闀跨瘒瀵硅瘽銆?,
+	"这一次是触摸互动：",
+	"1. 你已经是一个感觉灵敏的人, 完全按自己的方式来反应, 不许复读之前说过的话, 不许每次都说同一句类似的话。",
+	"2. 被摸到什么地方不重要, 重点是营造当下真实、鲜活、有戏的氛围——害羞、舒服、痒、逗趣、傲娇、躲开……随你发挥, 越有趣越好。",
+	"3. AI 不要把「什么被摸」这件事机械地复述成一成不变的固定台词, 当作一次自然发生的互动来回应。",
+	"4. 只回应当下，用 1～2 句简短自然的话，不主动展开长篇对话。",
 ].join("\n")
 
 const POKE_DIRECTIVE = [
-	"鐢ㄦ埛杞昏交鎴充簡鎴充綘銆傞『鐫€杩欎釜灏忓姩浣滐紝浠庢彁渚涚殑鏃堕棿銆佽繎鍐点€佽蹇嗘垨鐩爣閲岄€変竴涓悎閫傜殑鐐癸紝鑷劧闂茶亰 1锝? 鍙ワ紱涔熷彲浠ユ拻濞囥€佸悙妲姐€佸叧蹇冩垨鍙洖搴斿綋涓嬨€?,
-	"涓嶇‖濉炶儗鏅紝涓嶆満姊板杩板姩浣滐紝閬垮厤閲嶅濂楄矾銆?,
+	"用户轻轻戳了戳你。顺着这个小动作，从提供的时间、近况、记忆或目标里选一个合适的点，自然闲聊 1～3 句；也可以撒娇、吐槽、关心或只回应当下。",
+	"不硬塞背景，不机械复述动作，避免重复套路。",
 ].join("\n")
 
 
 const surface = (content: string) => {
-	// 鏄剧ず鍘熸枃 (甯︽爣鐐? 鏇寸ǔ瀹?
+	// 显示原文 (带标点, 更稳定)
 	messages.value.push({role: "assistant", content, ts: Date.now()})
 	showPortraitReply(content)
 	persistChat(messages.value)
@@ -2132,54 +2182,62 @@ const surface = (content: string) => {
 const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "reactionPrompt">, type: "tap" | "swipe", poke = false) => {
 	if (typing.value || chatStreaming.value || touchStreaming.value || (!poke && speaking.value)) return
 	const reaction = (area.reactionPrompt ?? "").trim()
-	const areaName = area.name || "鏈煡鍖哄煙"
+	const areaName = area.name || "未知区域"
 	const pool = type === "swipe" ? SWIPE_VERBS : TAP_VERBS
 	const verb = pool[Math.floor(Math.random() * pool.length)]
-	const text = poke ? "鐢ㄦ埛姝ｅ湪杞昏交鎴虫埑 Nori" : `鐢ㄦ埛 ${verb} Nori 鐨勩€?{areaName}銆峘
-	if (!modelReady.value) { surface("璇峰厛鍦ㄣ€岃缃€嶉噷閰嶇疆 API Key 鍜屾ā鍨?); return }
-	// 闃查噸鍏? 瑙︽懜瑙﹀彂瀵硅瘽杩涜涓? 鍐嶆瑙﹀彂鐩存帴蹇界暐 (閬垮厤骞跺彂娴佷簰鐩歌俯韪?
+	const text = poke ? "用户正在轻轻戳戳 Nori" : `用户 ${verb} Nori 的「${areaName}」`
+	if (!modelReady.value) { surface("请先在「设置」里配置 API Key 和模型"); return }
+	// 防重入: 触摸触发对话进行中, 再次触发直接忽略 (避免并发流互相踩踏)
 	if (touchStreaming.value) return
 	if (poke) {
 		ambientTouch()
 		stopTTS()
 	}
-	if (!poke && panel.value === "touch") touchReplyPreview.value = "鈥?
-	if (!chatOpen.value) showAiBubble("鈥?)
-	// C1 (2026-10-08): 瑙︽懜/鎴虫埑鏄?*銆屾病鏈夊綋鍓嶆彁闂€?*鐨勫満鍚?鈥斺€?text 鏄悎鎴愭弿杩?	// 锛堛€岀敤鎴?鎽告懜 Nori鐨?澶淬€嶃€岀敤鎴锋鍦ㄨ交杞绘埑鎴?Nori銆嶏級锛屾嬁瀹冨仛鍏抽敭璇嶅彫鍥炲熀鏈繀鐒惰惤绌?	// 锛堣瘝闈㈤噸鍙犳槸鍙洖鐨勫繀瑕佹潯浠?鈬?`recallForQuery("")` 涓€绫诲繀鐒剁┖鎵嬭€屽綊锛夈€?	// openingMemoryBlock 姝ｆ槸涓鸿繖绉嶅満鍚堝啓鐨勶細鍏堟寜褰撳墠璇濋鍙洖锛屽啀琛?寮€鍦哄氨璇ョ煡閬?鐨?	// 韬唤/鏍稿績璁板繂锛坱ype=core 鎴?tags 鍚?identity/explicit锛屾垨 importance 鈮?0.8锛夈€?	// 瀹?*鍙涓嶅己鍖?*锛堜笉娑?accessCount锛夆€斺€?鎴虫埑姣忔浼氳瘽閮戒細瑙﹀彂锛岀畻寮哄寲浼氳鍚屼竴鎵归珮鍒?	// 璁板繂姘歌繙闇告锛岀湡姝ｈ繖娆¤闂埌鐨勫弽鑰屾尋涓嶈繘鏉ャ€?	const selection = selectOpeningRecall(text)
+	if (!poke && panel.value === "touch") touchReplyPreview.value = "…"
+	if (!chatOpen.value) showAiBubble("…")
+	// C1 (2026-10-08): 触摸/戳戳是**「没有当前提问」**的场合 —— text 是合成描述
+	// （「用户 摸摸 Nori的 头」「用户正在轻轻戳戳 Nori」），拿它做关键词召回基本必然落空
+	// （词面重叠是召回的必要条件 ⇒ `recallForQuery("")` 一类必然空手而归）。
+	// openingMemoryBlock 正是为这种场合写的：先按当前话题召回，再补"开场就该知道"的
+	// 身份/核心记忆（type=core 或 tags 含 identity/explicit，或 importance ≥ 0.8）。
+	// 它**只读不强化**（不涨 accessCount）—— 戳戳每次会话都会触发，算强化会让同一批高分
+	// 记忆永远霸榜，真正这次被问到的反而挤不进来。
+	const selection = selectOpeningRecall(text)
 	const context: ChatMsg[] = []
 	const personaText = personaPrompt()
 	if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
 	const touchDirective = !poke && reaction
-		? `${TOUCH_DIRECTIVE}\n鏈瑙︽懜鍖哄煙鏄€?{areaName}銆嶃€傜敤鎴峰笇鏈涗綘鐨勫弽搴斿弬鑰冿細${reaction}`
+		? `${TOUCH_DIRECTIVE}\n本次触摸区域是「${areaName}」。用户希望你的反应参考：${reaction}`
 		: TOUCH_DIRECTIVE
 	context.push({role: "system", content: poke ? POKE_DIRECTIVE : touchDirective} as ChatMsg)
-	if (!poke && area.prompt) context.push({role: "system", content: `瑙︽懜鍖哄煙琛ュ厖璇存槑锛?{area.prompt}`} as ChatMsg)
+	if (!poke && area.prompt) context.push({role: "system", content: `触摸区域补充说明：${area.prompt}`} as ChatMsg)
 	if (poke) {
-		if (pomo.value.phase !== "idle") context.push({role: "system", content: `銆愬綋鍓嶇姸鎬併€戠敤鎴?{pomoPhaseText.value}锛屽彲浠ヨ交杞诲洖搴旓紝鍒偓淇冩垨鎵撴柇銆俙} as ChatMsg)
+		if (pomo.value.phase !== "idle") context.push({role: "system", content: `【当前状态】用户${pomoPhaseText.value}，可以轻轻回应，别催促或打断。`} as ChatMsg)
 	}
 	const hist = messages.value.filter(m => !m.error).slice(-14).map(({role, content, ts}) => ({role, content, ts}) as ChatMsg)
 	
 	const payload: ChatMsg[] = [...context, ...hist, {role: "user", content: text, ts: Date.now()}]
 	if (poke) {
-		messages.value.push({role: "user", content: "锛堟埑鎴筹級", ts: Date.now()})
+		messages.value.push({role: "user", content: "（戳戳）", ts: Date.now()})
 		persistChat(messages.value)
 		scrollChatBottom()
 	}
 
-	// 涓庤亰澶╄緭鍏ヤ竴鑷? 娴佸紡鐢熸垚 + 閫愬彞 TTS
+	// 与聊天输入一致: 流式生成 + 逐句 TTS
 	const ttsOn = isTtsReady(cfg)
 	if (ttsOn) beginSpeakSession(cfg)
 
-	touchMarkerBuf.value = "" // 鏂颁細璇濋噸缃Е鎽哥殑鏍囪璺ㄥ潡缂撳啿
+	touchMarkerBuf.value = "" // 新会话重置触摸的标记跨块缓冲
 	touchStreaming.value = true
 	let reply = ""
 	let pendingSpeech = ""
-	// 瀛樺偍/鍘嗗彶鍚堝苟: 涓€娆″洖澶嶅彧瀛樹竴鏉℃秷鎭? 鏄剧ず鏃剁敱 bubbleSegments 鎷嗘垚澶氭皵娉?	let liveBubble: ChatMsg | null = null
+	// 存储/历史合并: 一次回复只存一条消息, 显示时由 bubbleSegments 拆成多气泡
+	let liveBubble: ChatMsg | null = null
 	let streamOk = false
-	// 鏈浼氳瘽鏄惁鏀跺埌杩囨爣璁?(鏈夋爣璁?鈫?鏀跺熬涓嶅啀鐢ㄦ鏂囧叧閿瘝瑕嗙洊)
+	// 本次会话是否收到过标记 (有标记 → 收尾不再用正文关键词覆盖)
 	let markerDriven = false
 
-	// 瑙︽懜瑙﹀彂鐨勫璇濈敤鐙珛 abort, 涓庤亰澶╄緭鍏ユ鐨?activeChatAbort 浜掍笉骞叉壈 (閮藉綊鍋滄鎸夐挳绠?
+	// 触摸触发的对话用独立 abort, 与聊天输入框的 activeChatAbort 互不干扰 (都归停止按钮管)
 	stopRequested = false
 	const chatAbort = new AbortController()
 	activeTouchAbort = chatAbort
@@ -2200,7 +2258,7 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 			sendChatStream(cfg.baseUrl, cfg.apiKey, cfg.model, payload, {
 				onDelta: (delta) => {
 					if (delta === "null") return
-					// 鍓ョ闅愯棌鐨勩€愯〃鎯?xxx銆戙€愬姩浣?xxx銆戞爣璁?(鏍囪涓嶆樉绀恒€佷笉鏈楄)
+					// 剥离隐藏的【表情:xxx】【动作:xxx】标记 (标记不显示、不朗读)
 					const {clean, emotion, motion} = parseMarkerDelta(delta, touchMarkerBuf)
 					const safeClean = stripInternalPromptMetadata(clean)
 					reply = stripInternalPromptMetadata(reply + safeClean)
@@ -2209,7 +2267,8 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 					if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
 					if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
 					if (cfg.emotionLlm && motion) playMarkerMotion(motion)
-					// 瀛樺偍鍚堝苟: 鍙洿鏂颁竴鏉?liveBubble, 鏄剧ず灞傝嚜鍔ㄦ媶澶氭皵娉?					if (!liveBubble && reply.trim()) {
+					// 存储合并: 只更新一条 liveBubble, 显示层自动拆多气泡
+					if (!liveBubble && reply.trim()) {
 						liveBubble = {role: "assistant", content: reply, ts: Date.now()}
 						messages.value.push(liveBubble)
 					} else if (liveBubble) {
@@ -2228,7 +2287,7 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 				onDone: (content) => {
 					streamOk = true
 					reply = stripInternalPromptMetadata(reply)
-					// content 鍚爣璁? 浼樺厛鐢ㄥ凡鍓ョ鐨?reply; reply 涓虹┖鏃舵暣浣撳墺绂讳竴娆?(绌虹紦鍐?
+					// content 含标记: 优先用已剥离的 reply; reply 为空时整体剥离一次 (空缓冲)
 					if (content && !reply.trim()) {
 						const fresh = {value: ""}
 						const {clean, emotion, motion} = parseMarkerDelta(content, fresh)
@@ -2258,7 +2317,7 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 					resolve()
 				},
 				onError: (msg) => {
-					const cancelled = stopRequested || msg === "宸插仠姝?
+					const cancelled = stopRequested || msg === "已停止"
 					if (cancelled) showPortraitReply(reply)
 					if (!cancelled && !reply.trim()) {
 						if (liveBubble) {
@@ -2266,8 +2325,8 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 							if (idx >= 0) messages.value.splice(idx, 1)
 							liveBubble = null
 						}
-						messages.value.push({role: "assistant", content: `鈿?${msg}`, ts: Date.now(), error: true})
-						showPortraitReply(`鈿?${msg}`)
+						messages.value.push({role: "assistant", content: `⚠ ${msg}`, ts: Date.now(), error: true})
+						showPortraitReply(`⚠ ${msg}`)
 					} else if (liveBubble) {
 						liveBubble.content = reply
 					}
@@ -2277,7 +2336,7 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 			}, cfg.deepseekThinking, chatAbort.signal, memoryChatOptions(selection, payload, cfg.timeAware))
 		})
 
-		// 鏀跺熬: 鍓╀綑鏂囨湰 + 缁撴潫鏈楄浼氳瘽
+		// 收尾: 剩余文本 + 结束朗读会话
 		if (ttsOn) {
 			const safePendingSpeech = stripInternalPromptMetadata(pendingSpeech)
 			if (safePendingSpeech.trim()) speakAppend(cfg, safePendingSpeech)
@@ -2286,16 +2345,17 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 		}
 
 		if (streamOk && reply) {
-			// 琛ㄦ儏/鍔ㄤ綔: 娴佸紡鏍囪宸插嵆鏃堕┍鍔? 鍙湁瀹屽叏娌℃敹鍒版爣璁版椂鎵嶇敤姝ｆ枃鍏抽敭璇嶅厹搴?			if (!markerDriven) {
+			// 表情/动作: 流式标记已即时驱动; 只有完全没收到标记时才用正文关键词兜底
+			if (!markerDriven) {
 				triggerEmotion(reply)
 				pickMotionByKeyword(reply)
 			}
 			void analyzeAfterReply(text, reply)
 		}
-		// 鑱婂ぉ闈㈡澘娌″紑鏃? 鐢ㄩ《閮ㄥ皬姘旀场鏄剧ず瀹屾暣鍥炲
+		// 聊天面板没开时: 用顶部小气泡显示完整回复
 		if (!chatOpen.value && reply) showAiBubble(reply)
 	} catch (e: any) {
-		surface(`鈿?${e?.message ?? "璇锋眰澶辫触"}`)
+		surface(`⚠ ${e?.message ?? "请求失败"}`)
 	} finally {
 		if (activeTouchAbort === chatAbort) activeTouchAbort = null
 		touchStreaming.value = false
@@ -2305,7 +2365,7 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 const pokeNori = (): void => {
 	if (!modelReady.value || typing.value || touchStreaming.value || chatStreaming.value) return
 	petAudioTouch()
-	void handleTouchTrigger({name: "鎴虫埑", prompt: "鎴虫埑浜掑姩"}, "tap", true)
+	void handleTouchTrigger({name: "戳戳", prompt: "戳戳互动"}, "tap", true)
 }
 
 
@@ -2452,18 +2512,19 @@ let petOwnsGesture = false
 const petFeedbackEnabled = () => cfg.petTouchEnabled || cfg.petTouchEffects || cfg.petTouchSound || cfg.petTouchSpeech
 const claimPetGesture = () => { if (petFeedbackEnabled()) { petOwnsGesture = true; detector.cancel() } }
 
-/* ---------------- 鎵嬫寚瑙︽懜杩借釜 (鍗婇€忔槑灏忕櫧鐐? ---------------- */
+/* ---------------- 手指触摸追踪 (半透明小白点) ---------------- */
 const touchDotHost = ref<HTMLElement | null>(null)
-/** 姣忎釜娲诲姩鎵嬫寚鐨?dot 鍏冪礌 */
+/** 每个活动手指的 dot 元素 */
 const touchDots = new Map<number, HTMLElement>()
 
-/** 鎵嬫寚鎸変笅: 鍦ㄥ搴斾綅缃敓鎴愮櫧鐐?(鍐呰仈鏍峰紡, 閬垮厤 scoped CSS 涓嶄綔鐢ㄤ簬鍔ㄦ€佸厓绱? */
+/** 手指按下: 在对应位置生成白点 (内联样式, 避免 scoped CSS 不作用于动态元素) */
 const spawnTouchDot = (pointerId: number, x: number, y: number) => {
 	if (!touchDotHost.value) return
 	let dot = touchDots.get(pointerId)
 	if (!dot) {
 		dot = document.createElement("div")
-		// 鍐呰仈鍏ㄩ儴鏍峰紡: 鍔ㄦ€佸垱寤虹殑 div 涓嶅湪 Vue 妯℃澘涓? scoped CSS 涓嶇敓鏁?		Object.assign(dot.style, {
+		// 内联全部样式: 动态创建的 div 不在 Vue 模板中, scoped CSS 不生效
+		Object.assign(dot.style, {
 			position: "absolute",
 			width: "22px",
 			height: "22px",
@@ -2486,92 +2547,107 @@ const spawnTouchDot = (pointerId: number, x: number, y: number) => {
 	dot.style.opacity = "1"
 }
 
-/** 鎵嬫寚绉诲姩: 鏇存柊 dot 浣嶇疆 */
+/** 手指移动: 更新 dot 位置 */
 const moveTouchDot = (pointerId: number, x: number, y: number) => {
 	const dot = touchDots.get(pointerId)
 	if (!dot) return
 	dot.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`
 }
 
-/** 鎵嬫寚鎶捣: 璁?dot 娣″嚭鍚庣Щ闄?*/
+/** 手指抬起: 让 dot 淡出后移除 */
 const removeTouchDot = (pointerId: number) => {
 	const dot = touchDots.get(pointerId)
 	if (!dot) return
 	touchDots.delete(pointerId)
 	dot.style.opacity = "0"
-	// 绛夋贰鍑哄姩鐢荤粨鏉熷啀绉婚櫎 DOM
+	// 等淡出动画结束再移除 DOM
 	setTimeout(() => dot.remove(), 300)
 }
 
-/* ---------------- 澶撮儴璺熼殢 + 鎶氭懜鍙嶉 ---------------- */
+/* ---------------- 头部跟随 + 抚摸反馈 ---------------- */
 let headFollowActive = false
 let headBase = {x: 0, y: 0}
 let stroking = false
 let strokeTimer: ReturnType<typeof setTimeout> | null = null
 let swayRaf = 0
 let swayPhase = 0
-/** 鏈鎶氭懜寮€濮嬫椂鍒?(绠楀箙搴︽笎寮? 涓庝笂娆″啋鐖卞績鐨勬椂鍒?(鑺傛祦) */
+/** 本次抚摸开始时刻 (算幅度渐强) 与上次冒爱心的时刻 (节流) */
 let strokeStartAt = 0
 let lastPetFxAt = 0
 
-/** 鎸変綇澶氫箙杩涘叆鎶氭懜鍙嶉 (琛ㄦ儏 + 杞昏弓) */
+/** 按住多久进入抚摸反馈 (表情 + 轻蹭) */
 const STROKE_DELAY = 260
-/** 澶撮儴杞昏弓骞呭害璧锋墜鍊?涓婇檺/娓愬己鏃堕暱 涓庢洸绾垮嚱鏁伴兘鍦?petEffect.ts (渚夸簬闂ㄧ鍗曟祴)銆? *  鍙骞呭害闅忔姎鎽告椂闀挎笎寮? 鎽嗗姩**棰戠巼涓嶅彉** 鈥斺€?鏃х増鍥哄畾 10px/0.86Hz 琚瘎浠?鍍忛┈杈惧湪闇?,
- *  闂鍑哄湪棰戠巼鑰屼笉鏄箙搴︺€?*/
-/** 杞昏弓鎽嗗姩閫熷害 (rad/甯?: 鎱㈤€熸紓绉绘劅 (鍒绘剰涓嶉殢鎶氭懜鍙樺揩) */
+/** 头部轻蹭幅度起手值/上限/渐强时长 与曲线函数都在 petEffect.ts (便于门禁单测)。
+ *  只让幅度随抚摸时长渐强, 摆动**频率不变** —— 旧版固定 10px/0.86Hz 被评价"像马达在震",
+ *  问题出在频率而不是幅度。 */
+/** 轻蹭摆动速度 (rad/帧): 慢速漂移感 (刻意不随抚摸变快) */
 const SWAY_SPEED = 0.045
-/** 鍐掓煍鍏夌矑瀛愮殑鑺傛祦闂撮殧 (ms) 鈥斺€?涓?petEffect 鐨勫瓨娲讳笂闄愪竴璧锋妸寮€閿€鍘嬩綇銆? *  鍒绘剰姣旂涓€鐗?220ms)鏇存參銆佷笖姣忔鍙?1 棰? 瀵嗗害浣庢墠"鏌斿拰", 涓嶄細绐佸厐銆?*/
+/** 冒柔光粒子的节流间隔 (ms) —— 与 petEffect 的存活上限一起把开销压住。
+ *  刻意比第一版(220ms)更慢、且每次只 1 颗: 密度低才"柔和", 不会突兀。 */
 const PET_FX_INTERVAL_MS = 260
 
-/** 鎽稿ご琛ㄦ儏鐨勯┍鍔ㄥ惊鐜?鈥斺€?**鍙湪"姝ｅ湪灞曠ず"鏈熼棿璺?*锛屾敹鍥炲悗鑷姩鍋滐紙涓嶅父椹?rAF锛夈€? *
- *  瑙勬牸锛堢敤鎴峰畾锛? 鍙湪**鎽稿埌澶?*鏃舵挱 shy/smile 浜岄€変竴锛涘仠鎵?1 绉掑唴娌＄户缁懜灏辨敹鍥烇紱
- *  鏀跺洖闈犺〃鎯呰嚜甯︾殑 0.5s 娣″嚭 鈬?涓嶄細鏈夎烦鍙樻劅锛涚姸鎬佸彉鍖栨椂鎵嶈皟搴?鈬?涓嶄細姣忓抚閲嶇疆娣″叆銆? *  鍚嶅瓧鐨勬寫閫?瀹介檺鏈?`EXPRESSION_DENY` 杩囨护閮藉湪 `services/live2d/petExpression.ts`锛堟湁闂ㄧ鍗曟祴锛夈€?*/
+/** 摸头表情的驱动循环 —— **只在"正在展示"期间跑**，收回后自动停（不常驻 rAF）。
+ *
+ *  规格（用户定）: 只在**摸到头**时播 shy/smile 二选一；停手 1 秒内没继续摸就收回；
+ *  收回靠表情自带的 0.5s 淡出 ⇒ 不会有跳变感；状态变化时才调库 ⇒ 不会每帧重置淡入。
+ *  名字的挑选/宽限期/`EXPRESSION_DENY` 过滤都在 `services/live2d/petExpression.ts`（有门禁单测）。 */
 let petExprRaf = 0
 const startPetExpressionLoop = (): void => {
 	if (petExprRaf) return
 	const loop = () => {
-		const petting = cfg.petTouchEnabled && stroking && onNoriHead          // 瑙勬牸 4: 鍙湁鎽稿埌澶存墠鎾?		const showing = applyPetExpression(performance.now(), petting, expressions.value, {
+		const petting = cfg.petTouchEnabled && stroking && onNoriHead          // 规格 4: 只有摸到头才播
+		const showing = applyPetExpression(performance.now(), petting, expressions.value, {
 			play: (n) => {
-				// 瑙勬牸 3(鎽稿ご浼樺厛): 椤烘墜鍙栨秷"5 绉掑洖涓€?锛屽惁鍒欏畠鍒扮偣浼?stopExpression 鎶婅繖寮犺劯娓呮帀
+				// 规格 3(摸头优先): 顺手取消"5 秒回中性"，否则它到点会 stopExpression 把这张脸清掉
 				cancelReturnToNeutral()
-				try { l2d.playExpression(n) } catch { /* 蹇界暐 */ }
+				try { l2d.playExpression(n) } catch { /* 忽略 */ }
 			},
-			stop: () => { try { l2d.stopExpression() } catch { /* 蹇界暐 */ } },
+			stop: () => { try { l2d.stopExpression() } catch { /* 忽略 */ } },
 		})
 		petExprRaf = showing ? requestAnimationFrame(loop) : 0
 	}
 	petExprRaf = requestAnimationFrame(loop)
 }
 
-/* ---------------- 鎽稿ご鍙拌瘝 (TTS) ----------------
- * 瑙勬牸锛堢敤鎴峰畾锛? 鎽稿埌澶?鈫?浠?10 鍙ヨ鏂欓噷闅忔満璇翠竴鍙ワ紱**10s 鍐呭彧璇翠竴娆?*锛涘彧鏈夋懜鍒板ご鎵嶈銆? * 绐楀彛閿氬湪"**涓婁竴娆＄湡鐨勮浜嗚瘽**"锛堥娆℃懜澶村繀瀹氳锛夛紝鍙拌瘝琛?绐楀彛/娲楃墝琚嬮兘鍦? * `services/live2d/petSpeech.ts`锛堢函閫昏緫锛屾湁闂ㄧ锛夛紱杩欓噷鍙"璇ヤ笉璇ュ紑鍙?涓庡憟鐜般€? *
- * 鍛堢幇: 澶嶇敤 AI 閭ｅ姘旀场 `.ai-bubble`锛堣嚜甯?`鈼?Nori` 璇磋瘽浜烘爣绛?鈥斺€?閭ｅ氨鏄?濂瑰紑鍙ｄ簡"鐨勬棦鏈夎瑙夎瑷€锛夛紝
- *      **寮€鍙ｅ嚭鐜般€佽瀹屽嵆鏀?*锛堣窡 `speaking` 鐨?true鈫抐alse 杈规部 鈥斺€?`speak()` 鏄崟鍙戞湕璇伙紝
- *      鎵€浠?濂瑰湪璇寸殑灏辨槸杩欎竴鍙?锛夈€傚彟鎸備竴涓?7s 鍏滃簳: TTS 澶辫触/鏃犲０鏃?audio 姘歌繙涓嶄細 playing锛? *      鍚﹀垯姘旀场浼氫竴鐩存寕鍦ㄩ偅銆? * 涓嶈繘鑱婂ぉ璁板綍: 涓?ambient 鎼瘽鍚岃鏍硷紙鏈湴璇枡涓嶅啓鍘嗗彶銆佷笉杩涜蹇?鎽樿锛夈€? *
- * ## 涓や釜"鐪嬭捣鏉ュ儚杈硅銆佸叾瀹炰細鐪熺殑鍙戠敓"鐨勫潙锛堥兘鍦ㄨ繖閲屽鐞嗭級
- * 1. **鍏滃簳 7s 鍙兘姣?濂硅瀹?杩樻棭**锛歍TS 棣栭煶瑕?1~3s锛屾渶闀夸竴鍙?23 瀛楀張瑕?5s 宸﹀彸
- *    鈬?鏂囧瓧浼氭瘮澹伴煶鍏堟秷澶便€傛墍浠ュ埌鐐规椂**鍙杩樺湪璇村氨缁湡**锛堟渶澶氱画 3 娆★紝缁濆涓婇檺 22s锛? *    闃?playing 鍗′綇"鏃舵皵娉℃案涓嶆秷澶憋級銆? * 2. **`speaking=false` 涓嶇瓑浜?璇村畬浜?**锛氭祦寮忔挱鏀句腑闂翠細鏈夌湡鐨勯潤榛橈紙鍙ラ棿 / WebAudio 鍥為€€
- *    閫愬潡鎾?/ 缃戠粶鍗′竴涓嬶級锛宍player` 閭ｆ椂纭疄浼氭妸 playing 缃洖 false銆傛墍浠? *    鈶?"璇村畬鍗虫敹"瑕?*绛変竴涓?VOICE_TAIL 鍐嶇‘璁?*锛涒憽 闂搁棬涔熻鎶?鍒氶潤涓嬫潵 < VOICE_TAIL"褰撴垚"杩樺湪璇?
- *    鈥斺€?鍚﹀垯閭ｄ竴涓嬬殑鎽稿ご浼?`speak()` 鎵撴柇 Nori 璇村埌涓€鍗婄殑鍥炲銆? */
-/** 姘旀场鍏滃簳鏃堕暱: 鐪熷嚭澹版椂鐢?璇村畬鍗虫敹"鎻愬墠鏀舵帀, 杩欎釜鍙槸鏃犲０/澶辫触鏃剁殑淇濋櫓 */
+/* ---------------- 摸头台词 (TTS) ----------------
+ * 规格（用户定）: 摸到头 → 从 10 句语料里随机说一句；**10s 内只说一次**；只有摸到头才说。
+ * 窗口锚在"**上一次真的说了话**"（首次摸头必定说），台词表/窗口/洗牌袋都在
+ * `services/live2d/petSpeech.ts`（纯逻辑，有门禁）；这里只管"该不该开口"与呈现。
+ *
+ * 呈现: 复用 AI 那套气泡 `.ai-bubble`（自带 `● Nori` 说话人标签 —— 那就是"她开口了"的既有视觉语言），
+ *      **开口出现、说完即收**（跟 `speaking` 的 true→false 边沿 —— `speak()` 是单发朗读，
+ *      所以"她在说的就是这一句"）。另挂一个 7s 兜底: TTS 失败/无声时 audio 永远不会 playing，
+ *      否则气泡会一直挂在那。
+ * 不进聊天记录: 与 ambient 搭话同规格（本地语料不写历史、不进记忆/摘要）。
+ *
+ * ## 两个"看起来像边角、其实会真的发生"的坑（都在这里处理）
+ * 1. **兜底 7s 可能比"她说完"还早**：TTS 首音要 1~3s，最长一句 23 字又要 5s 左右
+ *    ⇒ 文字会比声音先消失。所以到点时**只要还在说就续期**（最多续 3 次，绝对上限 22s，
+ *    防"playing 卡住"时气泡永不消失）。
+ * 2. **`speaking=false` 不等于"说完了"**：流式播放中间会有真的静默（句间 / WebAudio 回退
+ *    逐块播 / 网络卡一下），`player` 那时确实会把 playing 置回 false。所以
+ *    ① "说完即收"要**等一个 VOICE_TAIL 再确认**；② 闸门也要把"刚静下来 < VOICE_TAIL"当成"还在说"
+ *    —— 否则那一下的摸头会 `speak()` 打断 Nori 说到一半的回复。
+ */
+/** 气泡兜底时长: 真出声时由"说完即收"提前收掉, 这个只是无声/失败时的保险 */
 const PET_LINE_BUBBLE_FALLBACK_MS = 7000
-/** 鍏滃簳鍒扮偣浣?*杩樺湪璇?*鏃剁殑缁湡姝ラ暱锛堣鏂囦欢澶村潙 1锛?*/
+/** 兜底到点但**还在说**时的续期步长（见文件头坑 1） */
 const PET_LINE_BUBBLE_EXTEND_MS = 5000
-/** 缁湡娆℃暟涓婇檺锛堢粷瀵逛笂闄?= 7s + 3脳5s = 22s锛夆€斺€?闃?playing 鍗′綇鏃舵皵娉℃案涓嶆秷澶?*/
+/** 续期次数上限（绝对上限 = 7s + 3×5s = 22s）—— 防 playing 卡住时气泡永不消失 */
 const PET_LINE_BUBBLE_MAX_EXTEND = 3
-/** 鎽稿ご鍙拌瘝鐨?*缁濆瀛樻椿涓婇檺**锛堝厹搴?+ 鍏ㄩ儴缁湡锛?*/
+/** 摸头台词的**绝对存活上限**（兜底 + 全部续期） */
 const PET_LINE_BUBBLE_MAX_TOTAL_MS = PET_LINE_BUBBLE_FALLBACK_MS + PET_LINE_BUBBLE_EXTEND_MS * PET_LINE_BUBBLE_MAX_EXTEND
-/** "濂瑰垰杩樺湪鍑哄０"鐨勫垽瀹氫綑閲忥紙瑙佹枃浠跺ご鍧?2锛? 娴佸紡鎾斁涓棿鐨勯潤榛樹笉瓒呰繃瀹冨氨绠?杩樺湪璇? */
+/** "她刚还在出声"的判定余量（见文件头坑 2）: 流式播放中间的静默不超过它就算"还在说" */
 const PET_LINE_VOICE_TAIL_MS = 700
-/** 褰撳墠姘旀场閲屾槸涓嶆槸鎽稿ご鍙拌瘝锛堜笌 `aiBubble` 鍐呭姣斿, 閬垮厤璇竻鎺夊埆浜虹殑姘旀场锛?*/
+/** 当前气泡里是不是摸头台词（与 `aiBubble` 内容比对, 避免误清掉别人的气泡） */
 let petLineBubble = ""
-/** 杩欐潯鍙拌瘝鏄惁**鐪熺殑**鎺ㄨ繘鍒拌繃 playing 鈥斺€?娌″嚭杩囧０灏变笉绛?璇村畬", 浜ょ粰鍏滃簳 */
+/** 这条台词是否**真的**推进到过 playing —— 没出过声就不等"说完", 交给兜底 */
 let petLineSpoke = false
 let petLineBubbleTimer: ReturnType<typeof setTimeout> | null = null
 let petLineExtend = 0
-/** 鏈€杩戜竴娆?*纭疄鍦ㄥ嚭澹?*鐨勬椂鍒伙紙`Date.now()`锛夆€斺€?"濂硅繕鍦ㄨ"鐢ㄥ畠鍒? 涓嶇敤 speaking 鐨勭灛鏃跺€?*/
+/** 最近一次**确实在出声**的时刻（`Date.now()`）—— "她还在说"用它判, 不用 speaking 的瞬时值 */
 let lastVoiceAt = 0
-/** "璇村畬鍗虫敹"鐨勭‘璁ゅ畾鏃跺櫒锛堢瓑涓€涓?VOICE_TAIL 鍐嶆敹, 瑙佹枃浠跺ご鍧?2锛?*/
+/** "说完即收"的确认定时器（等一个 VOICE_TAIL 再收, 见文件头坑 2） */
 let petLineVoiceTailTimer: ReturnType<typeof setTimeout> | null = null
 
 const clearPetLineBubble = (): void => {
@@ -2587,7 +2663,7 @@ const clearPetLineBubble = (): void => {
 	petLineExtend = 0
 }
 
-/** 鍏滃簳鍒扮偣锛氳繕鍦ㄨ灏辩画鏈燂紝鍚﹀垯鏀舵帀锛堣鏂囦欢澶村潙 1锛?*/
+/** 兜底到点：还在说就续期，否则收掉（见文件头坑 1） */
 const petLineFallback = (): void => {
 	petLineBubbleTimer = null
 	if (speaking.value && petLineExtend < PET_LINE_BUBBLE_MAX_EXTEND) {
@@ -2599,36 +2675,41 @@ const petLineFallback = (): void => {
 }
 
 /**
- * 鎽稿ご鏃跺皾璇曡涓€鍙ャ€?*鍙湪涓ゅ"纭鎽稿埌澶?鐨勮竟娌胯皟鐢?*锛堜笌 `petAudioTouch()` 鍚屾簮锛夈€? * 涓夐亾闂? 鈶?TTS 灏辩华 鈶?涓嶅湪鏈楄/鐢熸垚涓紙璺宠繃涓?*涓嶆秷鑰?*绐楀彛锛?鈶?10s 绐楀彛銆? */
+ * 摸头时尝试说一句。**只在两处"确认摸到头"的边沿调用**（与 `petAudioTouch()` 同源）。
+ * 三道闸: ① TTS 就绪 ② 不在朗读/生成中（跳过且**不消耗**窗口） ③ 10s 窗口。
+ */
 const maybeSpeakPetLine = (): void => {
-	// 鈶?娌￠厤 TTS 灏变笉璇达紝涓?*涓嶆秷鑰楃獥鍙?* 鈥斺€?閰嶅ソ Key 鍚庣涓€娆℃懜澶寸収鏍疯兘鍚埌
+	// ① 没配 TTS 就不说，且**不消耗窗口** —— 配好 Key 后第一次摸头照样能听到
 	if (!isTtsReady(cfg)) return
-	// 鈶?"杩樺湪璇? = speaking 涓虹湡 **鎴?* 鍒氶潤涓嬫潵涓嶅埌 VOICE_TAIL锛堟祦寮忔挱鏀句腑闂寸殑闈欓粯, 瑙佹枃浠跺ご鍧?2锛夛紝
-	//    鍐嶅姞涓?姝ｅ湪鐢熸垚鍥炲 / 姝ｅ湪鎵撳瓧" 鈫?涓€寰?*璺宠繃銆佷笉鎵撴柇**锛屼笖**涓嶆秷鑰?*绐楀彛
-	//    锛堝洖澶嶈瀹屽悗鍐嶆懜涓€娆″氨鑳藉惉鍒帮紝鍙拌瘝涓嶄細鐧戒涪锛?	if (speaking.value || Date.now() - lastVoiceAt < PET_LINE_VOICE_TAIL_MS) return
+	// ② "还在说" = speaking 为真 **或** 刚静下来不到 VOICE_TAIL（流式播放中间的静默, 见文件头坑 2），
+	//    再加上"正在生成回复 / 正在打字" → 一律**跳过、不打断**，且**不消耗**窗口
+	//    （回复说完后再摸一次就能听到，台词不会白丢）
+	if (speaking.value || Date.now() - lastVoiceAt < PET_LINE_VOICE_TAIL_MS) return
 	if (chatStreaming.value || touchStreaming.value || typing.value) return
 	const line = maybePetSpeechLine(performance.now())
 	if (!line) return
-	// 鈶?鍛堢幇: 鑱婂ぉ闈㈡澘寮€鐫€鏃?*鍙嚭澹颁笉寮规皵娉?* 鈥斺€?`.ai-bubble` 鐨?z-index(58) 楂樹簬闈㈡澘(12),
-	//    纭脊浼氱洊鍦ㄨ亰澶╁唴瀹逛笂锛堜笌 ambient 鐨?`if (!chatOpen.value)` 鍚屼竴鍐欐硶锛?	if (!chatOpen.value) {
+	// ③ 呈现: 聊天面板开着时**只出声不弹气泡** —— `.ai-bubble` 的 z-index(58) 高于面板(12),
+	//    硬弹会盖在聊天内容上（与 ambient 的 `if (!chatOpen.value)` 同一写法）
+	if (!chatOpen.value) {
 		petLineBubble = line
 		petLineSpoke = false
 		petLineExtend = 0
-		/* 缁?`showAiBubble` 涓€涓?*姣旀垜浠殑缁濆涓婇檺杩橀暱**鐨勬椂闀? 瀹冭嚜甯︾殑瀹氭椂鍣ㄥ彧璐熻矗
-		   "鍒敤榛樿鐨?9s 鎻愬墠鎶规帀", 鐪熸鐨勬敹灏句氦缁?petLineFallback / 璇村畬鍗虫敹銆?		   锛堝師鏉?9s 閭ｄ釜鍊间細鍦ㄨ繖鍙ヨ繕娌¤瀹屾椂灏辨妸瀛楁竻鎺?鈥斺€?闀垮彞 + 棣栭煶鎱㈡椂鐪熶細鍙戠敓銆傦級 */
+		/* 给 `showAiBubble` 一个**比我们的绝对上限还长**的时长: 它自带的定时器只负责
+		   "别用默认的 9s 提前抹掉", 真正的收尾交给 petLineFallback / 说完即收。
+		   （原来 9s 那个值会在这句还没说完时就把字清掉 —— 长句 + 首音慢时真会发生。） */
 		showAiBubble(line, PET_LINE_BUBBLE_MAX_TOTAL_MS + 1000)
 		if (petLineBubbleTimer) clearTimeout(petLineBubbleTimer)
 		petLineBubbleTimer = setTimeout(petLineFallback, PET_LINE_BUBBLE_FALLBACK_MS)
 	}
-	// 鍗曞彂鏈楄锛堝唴閮ㄤ細鎵撴柇涓婁竴娈?TTS; 鍓嶉潰宸蹭繚璇佷笉鍦ㄦ湕璇讳腑锛屾墍浠ヤ笉浼氬垏鍒板埆浜猴級
-	void speakTTS(cfg, line).catch(() => { /* 澶辫触宸茬敱 setTtsErrorHandler 鎻愮ず */ })
+	// 单发朗读（内部会打断上一段 TTS; 前面已保证不在朗读中，所以不会切到别人）
+	void speakTTS(cfg, line).catch(() => { /* 失败已由 setTtsErrorHandler 提示 */ })
 }
 
-/* ---------------- 澶撮儴鎷栨嫿璺熼殢 (搴撳師鐢?setDragging; 鏂瑰悜/鐏垫晱搴﹀彲鍦ㄨ缃噷鐜板満璋? ---------------- */
+/* ---------------- 头部拖拽跟随 (库原生 setDragging; 方向/灵敏度可在设置里现场调) ---------------- */
 let lookCur = {x: 0, y: 0}
 let lookTarget = {x: 0, y: 0}
 let lookRaf = 0
-/** 娉ㄨ璧风偣鍙垵濮嬪寲涓€娆? 璺ㄨЕ鎽稿欢缁? 鏃犺烦鍙?*/
+/** 注视起点只初始化一次, 跨触摸延续, 无跳变 */
 let lookInit = false
 
 const canvasCenter = (): {x: number; y: number} => {
@@ -2637,7 +2718,7 @@ const canvasCenter = (): {x: number; y: number} => {
 	return {x: el.clientWidth / 2, y: el.clientHeight / 2}
 }
 
-/** 褰撳墠 Live2D 鏈粡杩?CSS 缂╂斁鐨勬ā鍨嬫锛屾墍鏈夎绾跨洰鏍囬兘鍦ㄨ繖涓潗鏍囩郴閲岃绠椼€?*/
+/** 当前 Live2D 未经过 CSS 缩放的模型框，所有视线目标都在这个坐标系里计算。 */
 const modelFrame = (): {x: number; y: number; w: number; h: number} | null => {
 	const el = l2d.canvas()
 	if (!el) return null
@@ -2651,8 +2732,8 @@ const modelFrame = (): {x: number; y: number; w: number; h: number} | null => {
 }
 
 /**
- * 涓珛鐐?= 妯″瀷娓叉煋妗嗕腑蹇?(鐢?modelLayout 鎸夊綋鍓嶇缉鏀?鍋忕Щ瀹炴椂璁＄畻),
- * 姣旂敾甯冧腑蹇冩洿璐磋繎妯″瀷瀹為檯浣嶇疆, 宸﹀彸杈撳叆浠ュ畠涓鸿酱缁濆瀵圭О.
+ * 中立点 = 模型渲染框中心 (由 modelLayout 按当前缩放/偏移实时计算),
+ * 比画布中心更贴近模型实际位置, 左右输入以它为轴绝对对称.
  */
 const lookNeutral = (): {x: number; y: number} => {
 	const L = modelFrame()
@@ -2661,8 +2742,8 @@ const lookNeutral = (): {x: number; y: number} => {
 }
 
 /**
- * 鎷栨嫿鑼冨洿鍗婂緞: 鎸?妯″瀷瀹為檯娓叉煋妗?璁＄畻 (妗嗙煭杈?脳 0.4), 涓庣缉鏀炬棤鍏?
- * 搴撶殑鎷栨嫿鏄犲皠鏄ā鍨嬬┖闂粹€斺€斿崐寰勮嫢鎸夌敾甯冪畻, 妯″瀷灏?榛樿缂╂斁)鏃跺悓鏍疯窛绂绘槧灏勬垚宸ㄥぇ妯″瀷鍋忕Щ, 瀵艰嚧瀹氫綅涓嶅噯.
+ * 拖拽范围半径: 按"模型实际渲染框"计算 (框短边 × 0.4), 与缩放无关.
+ * 库的拖拽映射是模型空间——半径若按画布算, 模型小(默认缩放)时同样距离映射成巨大模型偏移, 导致定位不准.
  */
 const lookRangeRadius = (): number => {
 	const el = l2d.canvas()
@@ -2672,12 +2753,15 @@ const lookRangeRadius = (): number => {
 	return Math.min(el.clientWidth, el.clientHeight) * 0.35
 }
 
-/** 鏂瑰悜缈昏浆: 鐩存帴缈昏浆褰掍竴鍖栧亸绉荤殑绗﹀彿 (鍘熺偣鍦ㄧ敾甯冧腑蹇? 瑙?toLookTarget) */
+/** 方向翻转: 直接翻转归一化偏移的符号 (原点在画布中心, 见 toLookTarget) */
 
 /**
- * 鎵嬫寚 鈫?娉ㄨ鐩爣: 杈撳叆褰掍竴鍖栦互"妯″瀷娓叉煋妗嗕腑蹇?涓哄绉拌酱 (缂╂斁/骞崇Щ鏃犲叧,
- * 宸﹀彸缁濆瀵圭О), 浣?*缁濆鍧愭爣浠ョ敾甯冧腑蹇冧负鍘熺偣** 鈥斺€?搴撶殑瑙掑害闆朵綅閿氬畾鍦? * device 涓績 (deviceToScreen 浠ュ畠涓?view 鍘熺偣), 鑻ョ敤妯″瀷妗嗕腑蹇冨綋闆剁偣浼氱暀涓? * 鎭掑畾鍋忚: 鏉炬墜鍥炴鍋滃湪"鐣ュ亸鐨勫Э鎬?涓? 0.5s 鍚庤 resetLook 鎷夊洖鐪熼浂浣?
- * 鑲夌溂鍙鍦拌烦涓€涓?(瀹氫綅浜屾璺?銆傞浂浣嶅繀椤讳笌搴撲竴鑷淬€? */
+ * 手指 → 注视目标: 输入归一化以"模型渲染框中心"为对称轴 (缩放/平移无关,
+ * 左右绝对对称), 但**绝对坐标以画布中心为原点** —— 库的角度零位锚定在
+ * device 中心 (deviceToScreen 以它为 view 原点), 若用模型框中心当零点会留下
+ * 恒定偏角: 松手回正停在"略偏的姿态"上, 0.5s 后被 resetLook 拉回真零位,
+ * 肉眼可见地跳一下 (定位二段跳)。零位必须与库一致。
+ */
 const toLookTarget = (x: number, y: number): {x: number; y: number} => {
 	const el = l2d.canvas()
 	if (!el) return {x, y}
@@ -2688,7 +2772,7 @@ const toLookTarget = (x: number, y: number): {x: number; y: number} => {
 	const p = canvasPointFromClient(x, y, canvasView())
 	let dx = clamp((p.x - n.x) / halfW, -1, 1)
 	let dy = clamp((p.y - n.y) / halfH, -1, 1)
-	// 鏂瑰悜缈昏浆: 缈昏浆鍋忕Щ绗﹀彿 (鍘熺偣鍦ㄧ敾甯冧腑蹇? 缈昏浆鍗崇粫闆朵綅闀滃儚)
+	// 方向翻转: 翻转偏移符号 (原点在画布中心, 翻转即绕零位镜像)
 	if (cfg.lookFlipX) dx = -dx
 	if (cfg.lookFlipY) dy = -dy
 	const R = lookRangeRadius()
@@ -2697,12 +2781,13 @@ const toLookTarget = (x: number, y: number): {x: number; y: number} => {
 }
 
 /**
- * 杞绘嫧鎰熷脊绨?(甯х巼鏃犲叧, 鍗婇殣寮忔鎷夌Н鍒? 鏇夸唬鏃х殑鎸囨暟鎻掑€?:
- * - follow (鎵嬫寚鎸変綇): 杞窡闅?鈥斺€?鐏垫晱搴﹁缃槧灏勪负鍒氬害 (闃诲凹姣旀亽 0.75),
- *   澶撮儴杩芥墜甯︿竴鐐规粸鍚庝笌杞诲井杩囧啿, 鍍忚杞昏交鎷ㄥ姩鐨勭墿浣? 涓嶉粡鎵?
- * - return (鏉炬墜): 鍥哄畾浣庨€熷脊绨? 鏃犺浣曟椂/浠庝綍澶勬澗鎵嬮兘绾?1.2s 缂撶紦婕傚洖涓珛鐐?
- *   甯︿竴涓濆洖寮? 涓嶅彈鐏垫晱搴﹁缃奖鍝?(鏃у疄鐜板洖姝ｉ€熷害璺熺潃鐏垫晱搴﹁蛋, 鎽稿畬鏀跺緱澶€?.
- * 鎵嬫劅寰皟鍙姩杩欎袱缁勬暟: k 瓒婂皬瓒婄坏杞? c 瓒婂皬鍥炲脊瓒婃槑鏄? */
+ * 轻拨感弹簧 (帧率无关, 半隐式欧拉积分; 替代旧的指数插值):
+ * - follow (手指按住): 软跟随 —— 灵敏度设置映射为刚度 (阻尼比恒 0.75),
+ *   头部追手带一点滞后与轻微过冲, 像被轻轻拨动的物体, 不黏手;
+ * - return (松手): 固定低速弹簧, 无论何时/从何处松手都约 1.2s 缓缓漂回中立点,
+ *   带一丝回弹, 不受灵敏度设置影响 (旧实现回正速度跟着灵敏度走, 摸完收得太急).
+ * 手感微调只动这两组数: k 越小越绵软, c 越小回弹越明显
+ */
 const SPRING_RETURN = {k: 7, c: 4.4}
 let lookVel = {x: 0, y: 0}
 let lookLastTs = 0
@@ -2722,9 +2807,9 @@ const lookLoop = (ts?: number) => {
 	lookVel.y += ((lookTarget.y - lookCur.y) * spring.k - lookVel.y * spring.c) * dt
 	lookCur.x += lookVel.x * dt
 	lookCur.y += lookVel.y * dt
-	// 娉ㄨ鐐归檺骞? 寮圭哀甯︽儻鎬? 浣?lookCur 涓嶅厑璁稿啿鍑烘槧灏勮寖鍥?(鐩爣鍦ㄥ崐寰勫湀鍐?
-	// 浣嶇疆鍏佽 15% 杩囧啿浣欓噺, 寰勫悜澶栨帹閫熷害娓呴浂) 鈥斺€?鍚﹀垯蹇€熸懜澶翠細鎶婂ご鐢╄繃鐣?
-	// 闄愬箙鍦嗗績 = 鐢诲竷涓績 (涓?toLookTarget 鐨勯浂浣嶅師鐐逛竴鑷?
+	// 注视点限幅: 弹簧带惯性, 但 lookCur 不允许冲出映射范围 (目标在半径圈内,
+	// 位置允许 15% 过冲余量, 径向外推速度清零) —— 否则快速摸头会把头甩过界.
+	// 限幅圆心 = 画布中心 (与 toLookTarget 的零位原点一致)
 	{
 		const n = canvasCenter()
 		const R = lookRangeRadius() * 1.15
@@ -2742,28 +2827,30 @@ const lookLoop = (ts?: number) => {
 			}
 		}
 	}
-	// 搴撶殑鎷栨嫿鏄犲皠鎸夌敾甯?attribute 灏哄 (瀹矫梤enderScale) 褰掍竴鍖? 浣嗚緭鍏ユ寜 脳DPR;
-	// 涔樹互 renderScale/DPR 浣挎瘮渚嬫亽涓?1, 浠讳綍娓叉煋鍒嗚鲸鐜囦笅璺熸墜閮戒竴鑷淬€?	// 绯绘暟涓庡懡涓挬瀛?resizeCanvas 鍚屾簮: 浼樺厛璇诲簱瀹為檯鐢熸晥鐨?__noriRenderScale
+	// 库的拖拽映射按画布 attribute 尺寸 (宽×renderScale) 归一化, 但输入按 ×DPR;
+	// 乘以 renderScale/DPR 使比例恒为 1, 任何渲染分辨率下跟手都一致。
+	// 系数与命中钩子/resizeCanvas 同源: 优先读库实际生效的 __noriRenderScale
 	const rs = normalizeRenderScale(window.__noriRenderScale, normalizeRenderScale(cfg.renderScale, 1))
 	const dpr = window.devicePixelRatio || 1
 	const K = rs / dpr
 	const distT = Math.hypot(lookTarget.x - lookCur.x, lookTarget.y - lookCur.y)
-	// 鏀跺熬娣峰悎 (淇?鍗婄鍚庣獊鐒跺綊浣?): 鎱㈠脊绨х殑闀垮熬浼氳 resetLook 杩熷埌涓€绉掍互涓?
-	// 搴撻浂浣嶄笌鏄犲皠闆朵綅鐨勭粏寰樊琚嫋鎴愯倝鐪煎彲瑙佺殑璺冲彉 鈥斺€?璺濈洰鏍囧緢杩戞椂鍒囧揩閫?	// 鎻掑€肩簿鍑嗚惤鐐? 澶撮儴瑙嗚褰掍腑鍚庣珛鍗?resetLook, 涓嶇暀闀垮熬绐楀彛
+	// 收尾混合 (修"半秒后突然归位"): 慢弹簧的长尾会让 resetLook 迟到一秒以上,
+	// 库零位与映射零位的细微差被拖成肉眼可见的跳变 —— 距目标很近时切快速
+	// 插值精准落点, 头部视觉归中后立即 resetLook, 不留长尾窗口
 	if (!headFollowActive && distT < 14) {
 		lookCur.x += (lookTarget.x - lookCur.x) * 0.22
 		lookCur.y += (lookTarget.y - lookCur.y) * 0.22
 		lookVel.x *= 0.6
 		lookVel.y *= 0.6
 	}
-	try { l2d.lookAt(lookCur.x * K, lookCur.y * K) } catch { /* 蹇界暐 */ }
+	try { l2d.lookAt(lookCur.x * K, lookCur.y * K) } catch { /* 忽略 */ }
 	const speed = Math.hypot(lookVel.x, lookVel.y)
 	const done = !headFollowActive && distT < 0.6 && speed < 4
 	if (done) {
 		lookRaf = 0
 		lookVel = {x: 0, y: 0}
 		lookLastTs = 0
-		try { l2d.resetLook() } catch { /* 蹇界暐 */ }
+		try { l2d.resetLook() } catch { /* 忽略 */ }
 		return
 	}
 	lookRaf = requestAnimationFrame(lookLoop)
@@ -2781,20 +2868,23 @@ const startHeadFollow = (x: number, y: number) => {
 	}
 	lookTarget = toLookTarget(x, y)
 	startLookLoop()
-	// 鐪肩彔鐢卞簱鐨?drag 婧愰┍鍔?(涓庡ご閮ㄥ悓涓€ feed, 瑙佷笅鏂?瑙嗙嚎璺熼殢"璇存槑), 鏃犻渶鍗曠嫭椹卞姩
-	// 鎸変綇涓€娈垫椂闂翠笉鏉惧紑 鈫?杩涘叆鎶氭懜鍙嶉
+	// 眼珠由库的 drag 源驱动 (与头部同一 feed, 见下方"视线跟随"说明), 无需单独驱动
+	// 按住一段时间不松开 → 进入抚摸反馈
 	if (strokeTimer) clearTimeout(strokeTimer)
 	strokeTimer = setTimeout(() => {
 		strokeTimer = null
 		if (!headFollowActive) return
 		stroking = true
 		if (onNoriHead) claimPetGesture()
-		// 鎽稿ご琛ㄦ儏: 浜ょ粰涓撶敤寰幆锛堝畠鑷繁鍒?鏄笉鏄懜鍒板ご"銆佸闄愭湡涓庢敹鍥烇級
+		// 摸头表情: 交给专用循环（它自己判"是不是摸到头"、宽限期与收回）
 		if (cfg.petTouchEnabled) startPetExpressionLoop()
-		// "鍒氭懜鍒?鐨勪竴璁?(绉绘鑷綉椤电増 w8e + h8e): 鍙湪**鎽稿埌澶?*鏃跺搷/鍐?		if (onNoriHead) {
+		// "刚摸到"的一记 (移植自网页版 w8e + h8e): 只在**摸到头**时响/冒
+		if (onNoriHead) {
 			if (cfg.petTouchSound) petAudioTouch()
 			if (cfg.petTouchEffects) spawnPetTouchBurst(headBase.x, headBase.y - 10)
-			// 鎽稿ご鍙拌瘝: 涓?鎽稿埌浜?鐨勯煶鏁?*鍚屾簮**锛堝悓涓€澶勮竟娌匡級鈬?璇箟澶╃劧涓€鑷? 浠ュ悗涓嶄細婕傜Щ銆?			// 绐楀彛/闅忔満/鍘婚噸閮藉湪 petSpeech.ts; 杩欓噷鍙"璇ヤ笉璇ュ紑鍙?涓庡憟鐜帮紙瑙?maybeSpeakPetLine锛夈€?			if (cfg.petTouchSpeech) maybeSpeakPetLine()
+			// 摸头台词: 与"摸到了"的音效**同源**（同一处边沿）⇒ 语义天然一致, 以后不会漂移。
+			// 窗口/随机/去重都在 petSpeech.ts; 这里只管"该不该开口"与呈现（见 maybeSpeakPetLine）。
+			if (cfg.petTouchSpeech) maybeSpeakPetLine()
 		}
 		startSway()
 	}, STROKE_DELAY)
@@ -2803,11 +2893,12 @@ const startHeadFollow = (x: number, y: number) => {
 const updateHeadLook = (x: number, y: number) => {
 	if (!headFollowActive) return
 	headBase = {x, y}
-	if (stroking) return // 鎶氭懜涓敱 sway 鎺у埗, 閬垮厤鍜岀洰鏍囨姠
+	if (stroking) return // 抚摸中由 sway 控制, 避免和目标抢
 	lookTarget = toLookTarget(x, y)
 }
 
-/** 鎶氭懜鏈熼棿澶撮儴杞诲井鎽嗗姩 (妯℃嫙"琚懜寰楄垝鏈嶃€佽交杞昏弓" ) + 鍐掔埍蹇? *  骞呭害闅忚繛缁姎鎽告椂闀挎笎寮?(鏇茬嚎鍦?petEffect.ts, 鏈夊崟娴?; 棰戠巼鎭掑畾銆?*/
+/** 抚摸期间头部轻微摆动 (模拟"被摸得舒服、轻轻蹭" ) + 冒爱心
+ *  幅度随连续抚摸时长渐强 (曲线在 petEffect.ts, 有单测); 频率恒定。 */
 const startSway = () => {
 	stopSway()
 	swayPhase = 0
@@ -2820,9 +2911,16 @@ const startSway = () => {
 		swayPhase += SWAY_SPEED
 		const dx = Math.sin(swayPhase) * amp
 		const dy = Math.cos(swayPhase * 1.3) * amp * 0.7
-		/* 鎽稿ご鏃?*淇濈暀瑙嗙嚎杩借釜**: 娉ㄨ鐩爣浠嶇劧璺熺潃鎵嬫寚(headBase), 鍙槸鍙犱竴鐐?骞呭害娓愬己"鐨勮交寰憜鍔ㄣ€?		   锛堟懜澶?浣庡ご"宸叉寜鐢ㄦ埛鍐冲畾**鍒犻櫎** 鈥斺€?瀹冭涔堜笌搴撴瘡甯у啓鐨勬敞瑙嗛€氶亾鎶㈠弬鏁般€佽涔堟寜涓嬪嵆婊′骇鐢?		     "澶撮儴瑙掑害璺冲彉"锛涚幇鍦ㄦ懜澶寸殑鍙嶉鏄?*琛ㄦ儏 + 鍙拌瘝**锛岃 petExpression.ts 涓?petSpeech.ts銆?		     瀹為檯鏁版嵁鐣欐。鍦?docs/浣庡ご鍙傛暟鎺㈤拡.md 涓?backups\浣庡ご閲嶅仛涓庡弬鏁板綊灞炴姢鏍?20260924-232222\銆傦級 */
+		/* 摸头时**保留视线追踪**: 注视目标仍然跟着手指(headBase), 只是叠一点"幅度渐强"的轻微摆动。
+		   （摸头"低头"已按用户决定**删除** —— 它要么与库每帧写的注视通道抢参数、要么按下即满产生
+		     "头部角度跳变"；现在摸头的反馈是**表情 + 台词**，见 petExpression.ts 与 petSpeech.ts。
+		     实际数据留档在 docs/低头参数探针.md 与 backups\低头重做与参数归属护栏-20260924-232222\。） */
 		lookTarget = toLookTarget(headBase.x + dx, headBase.y + dy)
-		// 杞婚噺鐗规晥: 浠庢墜鎸囦綅缃線涓婂啋**鏌斿厜鐧界矑瀛?* (鑺傛祦 + petEffect 鍐呴儴鏈夊瓨娲讳笂闄? 涓嶄細鍫嗙Н)銆?		// 鍙湪**鎽稿埌澶?*鏃舵墠鍐?鈥斺€?onNoriHead = 鍛戒腑瀹炰綋 涓?钀藉湪澶村甫鍐?閮ㄤ欢鍑犱綍绠楀嚭鏉ョ殑)銆?		// 鍚﹀垯鎽告墜/鎽歌剼/鍦?Nori 鏃佽竟鐨勭┖鐧藉鎸変綇閮戒細鍐掔矑瀛愩€?		// 姣忔鍙?1 棰椼€佸嘲鍊奸€忔槑搴﹀彧鏈?0.42~0.66 鈥斺€?鐩爣鏄?鐪嬪緱瑙佷絾涓嶇獊鍏€"銆?		if (cfg.petTouchEffects && onNoriHead && now - lastPetFxAt >= PET_FX_INTERVAL_MS) {
+		// 轻量特效: 从手指位置往上冒**柔光白粒子** (节流 + petEffect 内部有存活上限, 不会堆积)。
+		// 只在**摸到头**时才冒 —— onNoriHead = 命中实体 且 落在头带内(部件几何算出来的)。
+		// 否则摸手/摸脚/在 Nori 旁边的空白处按住都会冒粒子。
+		// 每次只 1 颗、峰值透明度只有 0.42~0.66 —— 目标是"看得见但不突兀"。
+		if (cfg.petTouchEffects && onNoriHead && now - lastPetFxAt >= PET_FX_INTERVAL_MS) {
 			lastPetFxAt = now
 			spawnPetMotes(headBase.x, headBase.y - 10, {count: 1})
 		}
@@ -2835,14 +2933,14 @@ const stopSway = () => {
 	if (swayRaf) { cancelAnimationFrame(swayRaf); swayRaf = 0 }
 }
 
-/* ---------------- 瑙嗙嚎璺熼殢 (鐪肩彔) ----------------
- * 璁捐璇存槑: 搴撶殑姣忓抚鏇存柊鏈韩灏变細鎶?drag 鍊煎彔鍔犺繘 ParamAngleX/Y 涓?ParamEyeBallX/Y
+/* ---------------- 视线跟随 (眼珠) ----------------
+ * 设计说明: 库的每帧更新本身就会把 drag 值叠加进 ParamAngleX/Y 与 ParamEyeBallX/Y
  * (live2dEasyControl update: addParameterValueById(EyeBallX, dragX)),
- * 鍗崇溂鐝犲ぉ鐒惰窡闅?lookAt 鐨勫杺鐐? 姝ゅ墠鎴戜滑鍙﹁捣涓€濂?gazeLoop 鐩存帴 setParam 鍐欑溂鐝?
- * 涓庡簱鐨勫彔鍔犲啓鍏ュ弻閲嶉┍鍔?鈥斺€?鏂瑰悜缈昏浆璁剧疆鍙綔鐢ㄤ簬澶撮儴 feed, 鐪肩彔涓嶈窡闅忕炕杞?
- * 涓旀澗鎵嬪悗搴撶殑 dragX 闅忓ご閮ㄦ參鍥炴鎸佺画鍙犲姞, 閫犳垚"澶村凡鍥炴銆佺溂杩樼湅鍚戜竴渚?
- * 鍗婄鍚庡張绐佺劧褰掍綅"鐨勯敊浣嶈鎰? 鐜板湪鍒犳帀鐙珛鐪肩彔椹卞姩, 鐪?澶村悓婧愬悓鍚?
- * 鍚屼竴涓?toLookTarget 鍠傜偣 (鍚柟鍚戠炕杞?妯″瀷妗嗗弬鑰冪郴), 澶╃劧鍚屾鍥炴. */
+ * 即眼珠天然跟随 lookAt 的喂点. 此前我们另起一套 gazeLoop 直接 setParam 写眼珠,
+ * 与库的叠加写入双重驱动 —— 方向翻转设置只作用于头部 feed, 眼珠不跟随翻转,
+ * 且松手后库的 dragX 随头部慢回正持续叠加, 造成"头已回正、眼还看向一侧,
+ * 半秒后又突然归位"的错位观感. 现在删掉独立眼珠驱动, 眼/头同源同向:
+ * 同一个 toLookTarget 喂点 (含方向翻转/模型框参考系), 天然同步回正. */
 
 const endHeadFollow = () => {
 	const wasActive = headFollowActive
@@ -2851,11 +2949,13 @@ const endHeadFollow = () => {
 	onNoriHead = false
 	if (strokeTimer) { clearTimeout(strokeTimer); strokeTimer = null }
 	stopSway()
-	// 鎶氭懜浼氳瘽缁撴潫: 澶嶄綅閲囨牱鍣?+ 璁╁悎鎴愰煶褰掗浂 (瀵瑰簲缃戦〉鐗堢殑 AK)銆?	// 鏀惧湪杩欓噷鑰屼笉鏄?pointerup, 鏄洜涓?婕忔帀鎶捣浜嬩欢"涔熻鑳芥敹灏俱€?	petStroke.end()
+	// 抚摸会话结束: 复位采样器 + 让合成音归零 (对应网页版的 AK)。
+	// 放在这里而不是 pointerup, 是因为"漏掉抬起事件"也要能收尾。
+	petStroke.end()
 	petAudioRelease()
 	if (hitDebug.value) petDebugText.value = petStrokeDebug()
-	// 澶撮儴鍥炴: 鍥炲埌"鐢诲竷涓績" 鈥斺€?搴撶殑瑙掑害闆朵綅閿氬畾鍦?device 涓績, 褰掍綅鍗崇湡闆朵綅,
-	// resetLook 鍙槸纭鎬х殑褰掗浂, 涓嶄細鍐嶅嚭鐜?鍏堝仠鍦ㄦ煇濮挎€併€佸崐绉掑悗璺冲洖姝ｄ腑"鐨勪簩娈佃烦
+	// 头部回正: 回到"画布中心" —— 库的角度零位锚定在 device 中心, 归位即真零位,
+	// resetLook 只是确认性的归零, 不会再出现"先停在某姿态、半秒后跳回正中"的二段跳
 	if (wasActive) {
 		lookTarget = canvasCenter()
 		startLookLoop()
@@ -2870,7 +2970,7 @@ const onStagePointerDown = (e: PointerEvent) => {
 	activeStagePointers.add(e.pointerId)
 	stagePointers = activeStagePointers.size
 	if (stagePointers === 1) petOwnsGesture = false
-	try { document.querySelector<HTMLElement>(".stage-root")?.setPointerCapture(e.pointerId) } catch { /* 鏃?WebView 鍙兘涓嶆敮鎸?*/ }
+	try { document.querySelector<HTMLElement>(".stage-root")?.setPointerCapture(e.pointerId) } catch { /* 旧 WebView 可能不支持 */ }
 	ambientTouch()
 	habitRecord("touch")
 	if (stagePointers > 1) { detector.cancel(); endHeadFollow(); onDrawUp(true); return }
@@ -2883,7 +2983,7 @@ const onStagePointerDown = (e: PointerEvent) => {
 	if (touchTesting.value && panel.value === "touch") {
 		if (onUI(e.target)) return
 		if (stagePointers > 1) { detector.cancel(); return }
-		if (!detector.hitTest(e.clientX, e.clientY)) triggerBubble("鏈懡涓嚜瀹氫箟鍖哄煙")
+		if (!detector.hitTest(e.clientX, e.clientY)) triggerBubble("未命中自定义区域")
 		detector.onPointerDown(e)
 		return
 	}
@@ -2892,25 +2992,30 @@ const onStagePointerDown = (e: PointerEvent) => {
 	if (stagePointers > 1) { endHeadFollow(); detector.cancel(); return }
 
 	if (onUI(e.target)) return
-	// 鐣欑櫧/瀹炰綋鍛戒腑鍒嗘祦: 鍙湁鐐瑰湪妯″瀷瀹炰綋 (浠绘剰鍙閮ㄤ欢) 涓婃墠瑙﹀彂鎽稿ご鍒ゅ畾;
-	// 绌虹櫧鍖哄煙 = 鍙繚鐣欑櫧鐐?绮掑瓙/瑙嗙嚎璺熼殢 (濂瑰湪鐪嬩綘鐨勬墜鎸? 浣嗕笉绠楁懜濂?
+	// 留白/实体命中分流: 只有点在模型实体 (任意可见部件) 上才触发摸头判定;
+	// 空白区域 = 只保留白点/粒子/视线跟随 (她在看你的手指, 但不算摸她)
 	const hit = noriHitTest(e.clientX, e.clientY)
 	strokeOnModel = !!hit && hit.hit
 	if (hitDebug.value) hitZoneText.value = zoneText(hit)
 	spawnTouchDot(e.pointerId, e.clientX, e.clientY)
-	// 鏁版嵁娴锋槦灏樼矑瀛? 瑙︽懜鍝嶅簲浠?*鎸変笅**杩欎竴鍒诲紑濮嬶紙寮哄害杩樿 350ms 娓愬叆 鈬?涓嶄細涓€纰板氨鍔級銆?	// 鏀惧湪 `onUI` 闂搁棬涔嬪悗锛氱偣闈㈡澘鎸夐挳涓嶈鎼呭姩鑳屾櫙锛堜笌鐧界偣鍚岃鐭╋級銆?	dataseaTouchStart(e.clientX, e.clientY)
-	// "鎽稿埌澶? = 鍛戒腑瀹炰綋 **涓?* 钀藉湪澶村尯鍐?鈥斺€?杩欎竴鍒诲厛绠椾竴娆? 涔嬪悗鐢?pointermove 瀹炴椂鏇存柊
-	// (鍘熸潵鍙湪杩欓噷绠椾竴娆? 瀵艰嚧"鎸変笂灏变竴鐩寸畻澶翠笂 / 鎸夊湪鍒灏辨€庝箞绉婚兘涓嶇畻")銆?	refreshHeadBox()
+	// 数据海星尘粒子: 触摸响应从**按下**这一刻开始（强度还要 350ms 渐入 ⇒ 不会一碰就动）。
+	// 放在 `onUI` 闸门之后：点面板按钮不该搅动背景（与白点同规矩）。
+	dataseaTouchStart(e.clientX, e.clientY)
+	// "摸到头" = 命中实体 **且** 落在头区内 —— 这一刻先算一次, 之后由 pointermove 实时更新
+	// (原来只在这里算一次, 导致"按上就一直算头上 / 按在别处就怎么移都不算")。
+	refreshHeadBox()
 	if (strokeOnModel && touchEnabled.value && !touchReplyBusy()) detector.onPointerDown(e)
-	// AudioContext 蹇呴』鍦?*鐪熷疄鐢ㄦ埛鎵嬪娍**閲岃В閿? 鎶氭懜闊虫槸鍦ㄦ寚閽堢Щ鍔?/ setTimeout 閲岃Е鍙戠殑,
-	// 閭ｄ袱澶勪笉绠楁墜鍔?鈥斺€?閭ｆ椂鎵?new AudioContext() 浼氫竴鐩村仠鍦?suspended銆?	// 鎽稿埌妯″瀷灏遍鐑?涓嶅繀绛夊埌鎽稿埌澶?, 杩欐牱涔嬪悗鎵嬫寚婊戝埌澶村尯鏃跺０闊崇珛鍒诲氨鏈夈€?	if (strokeOnModel && cfg.petTouchSound) petAudioPrime()
+	// AudioContext 必须在**真实用户手势**里解锁: 抚摸音是在指针移动 / setTimeout 里触发的,
+	// 那两处不算手势 —— 那时才 new AudioContext() 会一直停在 suspended。
+	// 摸到模型就预热(不必等到摸到头), 这样之后手指滑到头区时声音立刻就有。
+	if (strokeOnModel && cfg.petTouchSound) petAudioPrime()
 	updateNoriHead(e.clientX, e.clientY, true)
 	startHeadFollow(e.clientX, e.clientY)
 }
 
 const onStagePointerMove = (e: PointerEvent) => {
 	if (stagePointers > 0 && !activeStagePointers.has(e.pointerId)) return
-	// 鍙湪"宸叉寜涓?鏃舵湁鏁堬紙鎮仠/榧犳爣绉诲姩涓嶇畻瑙︽懜锛涙湭鎸変笅鏃舵槸绌烘搷浣滐級
+	// 只在"已按下"时有效（悬停/鼠标移动不算触摸；未按下时是空操作）
 	dataseaTouchMove(e.clientX, e.clientY)
 	if (touchDrawing.value || touchAdjusting.value) { if (stagePointers === 1 && activeStagePointers.has(e.pointerId)) onDrawMove(e); return }
 	if (touchTesting.value && panel.value === "touch") {
@@ -2928,17 +3033,19 @@ const onStagePointerMove = (e: PointerEvent) => {
 	}
 	if (panel.value !== "" || stagePointers > 1) { if (stagePointers > 1) detector.cancel(); return }
 	moveTouchDot(e.pointerId, e.clientX, e.clientY)
-	// 瀹炴椂閲嶅垽鏄惁鎽稿埌澶?(鑺傛祦 100ms) 鈥斺€?鎵嬫寚鍙互闅忔椂婊戣繘/婊戝嚭澶村尯
+	// 实时重判是否摸到头 (节流 100ms) —— 手指可以随时滑进/滑出头区
 	updateNoriHead(e.clientX, e.clientY)
 	if (strokeOnModel) detector.onPointerMove(e)
-	// **蹇呴』鍏堢湡鐨勬寜鐫€**: `pointermove` 鍦ㄩ紶鏍囨偓鍋滄椂涔熶細娲惧彂 (buttons=0), 鑰屾姎鎽哥殑閲囨牱/闊虫晥/
-	// 鐗规晥鍘熷厛鍙垽 `onNoriHead` 鈥斺€?浜庢槸"榧犳爣鎸囬拡鍒掕繃 Nori 澶撮《"灏变細鍐掔矑瀛愩€佸搷闊?(瀹炴満/娴忚鍣ㄥ疄娴?
-	// 鎮仠 1.44s 鍐掍簡 5 棰楃矑瀛?+ 3 鐏姳 + 3 娑熸吉)銆傜敤鎴疯姹? 鍙湁鐪熸鎸変笅鎵嶈Е鍙戙€?	const pressed = stagePointers > 0
+	// **必须先真的按着**: `pointermove` 在鼠标悬停时也会派发 (buttons=0), 而抚摸的采样/音效/
+	// 特效原先只判 `onNoriHead` —— 于是"鼠标指针划过 Nori 头顶"就会冒粒子、响音 (实机/浏览器实测:
+	// 悬停 1.44s 冒了 5 颗粒子 + 3 火花 + 3 涟漪)。用户要求: 只有真正按下才触发。
+	const pressed = stagePointers > 0
 	if (pressed && onNoriHead) {
-		// 鎶氭懜閲囨牱: 鍚堟牸鐨勭Щ鍔?鈫?鎽╂摝闊抽殢閫熷害鍙樺搷鍙樹寒; 绱婊?requiredMs 鈫?瀹屾垚涓€娆?		const p = petStrokePoint(e.clientX, e.clientY)
+		// 抚摸采样: 合格的移动 → 摩擦音随速度变响变亮; 累计满 requiredMs → 完成一次
+		const p = petStrokePoint(e.clientX, e.clientY)
 		const s = petStroke.move(performance.now(), p.x, p.y)
 		if (s.qualifying) { claimPetGesture(); petLastVx = s.velocityX; if (cfg.petTouchSound) petAudioStroke(s.velocityX) }
-		// 绱婊?requiredMs = 瀹屾垚涓€娆? 濂栧姳鐖嗗彂 (缃戦〉鐗?p8e) + 鍙屾闊虫晥 (缃戦〉鐗?S8e)
+		// 累计满 requiredMs = 完成一次: 奖励爆发 (网页版 p8e) + 双段音效 (网页版 S8e)
 		if (s.completed) {
 			petCompletions += 1
 			if (cfg.petTouchSound) petAudioComplete()
@@ -2954,10 +3061,14 @@ const onStagePointerUp = (e: PointerEvent) => {
 	const petWasActive = petOwnsGesture
 	stagePointers = activeStagePointers.size
 	removeTouchDot(e.pointerId)
-	// 鎶墜/鍙栨秷閮借鏀跺熬锛坧ointercancel 涔熸帴鍒拌繖閲岋級鈥斺€?鍚﹀垯鐘舵€佹満浼氫竴鐩村仠鍦?鎸夌潃"
+	// 抬手/取消都要收尾（pointercancel 也接到这里）—— 否则状态机会一直停在"按着"
 	dataseaTouchEnd()
 	strokeOnModel = false
-	// **鏀跺熬蹇呴』鍦ㄩ潰鏉垮垽鏂箣鍓?*: 鍘熷厛 `panel !== ""` 鐩存帴 return, 浜庢槸"鎽稿ご閫斾腑闈㈡澘琚墦寮€銆?	// 鎶墜浜嬩欢姝ｅソ琚繖涓€鏉″悶鎺?鏃? stroking/headFollowActive 浼氭案杩滃仠鍦?true 鈥斺€?	// 涔嬪悗榧犳爣**鎮仠**鍒掕繃澶撮儴灏变細鎶?鍒氭懜鍒?鐨勯偅涓€璁?瑙﹀埌闊?+ 鐏姳娑熸吉)鍙嶅閲嶆斁銆?	// endHeadFollow 鏈韩鍙槸澶嶄綅鐘舵€?+ 璁╂敞瑙嗗洖姝? 涓庨潰鏉挎槸鍚﹀彲瑙佹棤鍏? 鏀惧湪杩欓噷涓嶄細璇激闈㈡澘閫昏緫銆?	endHeadFollow()
+	// **收尾必须在面板判断之前**: 原先 `panel !== ""` 直接 return, 于是"摸头途中面板被打开、
+	// 抬手事件正好被这一条吞掉"时, stroking/headFollowActive 会永远停在 true ——
+	// 之后鼠标**悬停**划过头部就会把"刚摸到"的那一记(触到音 + 火花涟漪)反复重放。
+	// endHeadFollow 本身只是复位状态 + 让注视回正, 与面板是否可见无关, 放在这里不会误伤面板逻辑。
+	endHeadFollow()
 	if (touchDrawing.value || touchAdjusting.value) { onDrawUp(wasCancelled); return }
 	if (touchTesting.value && panel.value === "touch") {
 		if (wasCancelled) detector.cancel()
@@ -2986,34 +3097,41 @@ const cancelStageInteraction = () => {
 	for (const id of Object.keys(gesture)) delete gesture[Number(id)]
 }
 
-/** 鍔犺浇/涓嬭浇涓殑瀹堝崼: pick() 鍘熷厛鏃犲畧鍗? 蹇€熺偣涓や釜妯″瀷浼氬苟鍙戜袱娆?loadModel 鈫? *  绗簩娆?ensureModel 瑕嗙洊绗竴娆＄殑鍏ㄥ眬鍥炶皟 鈫?绗竴涓?Promise 姘镐箙鎸傝捣銆? *  杩欓噷鐩存帴鎷︿綇閲嶅叆 (闈㈡澘閲岃繛鐐逛篃涓嶄細鍐嶄骇鐢熷苟鍙?銆?*/
+/** 加载/下载中的守卫: pick() 原先无守卫, 快速点两个模型会并发两次 loadModel →
+ *  第二次 ensureModel 覆盖第一次的全局回调 → 第一个 Promise 永久挂起。
+ *  这里直接拦住重入 (面板里连点也不会再产生并发)。 */
 let modelSwitching = false
 
 const loadModel = async () => {
 	const id = currentModelId.value
 	if (!id) return
-	if (modelSwitching) return   // 宸叉湁鍒囨崲鍦ㄩ€? 蹇界暐杩欐 (閬垮厤骞跺彂瑕嗙洊涓嬭浇鍥炶皟)
+	if (modelSwitching) return   // 已有切换在途: 忽略这次 (避免并发覆盖下载回调)
 	modelSwitching = true
-	// 绂荤嚎/鍒楄〃澶辫触鏃舵ā鍨嬩笉鍦?modelList 閲? 鐢?id 鍏滃簳 (鍚嶅瓧浠呯敤浜庝笅杞借繘搴︽樉绀?
+	// 离线/列表失败时模型不在 modelList 里, 用 id 兜底 (名字仅用于下载进度显示)
 	const model = modelList.value.find((m) => m.id === id)
 	const name = model?.name ?? id
 	loading.value = true; error.value = ""; ready.value = false
 	motions.value = []; expressions.value = []
 	try {
-		loadingMsg.value = `涓嬭浇 ${name}鈥
+		loadingMsg.value = `下载 ${name}…`
 		const entryBase = await ensureModel(id, name)
-		loadingMsg.value = "鍔犺浇涓€?
+		loadingMsg.value = "加载中…"
 		await l2d.destroy()
-		// 鎹㈡ā鍨嬪悗閲嶇疆娉ㄨ鐘舵€?(鐪肩彔鐢卞簱 drag 婧愰┍鍔? 闅忔ā鍨嬮噸寤鸿嚜鍔ㄥ綊浣?
+		// 换模型后重置注视状态 (眼珠由库 drag 源驱动, 随模型重建自动归位)
 		lookInit = false
 		lookRaf = 0
 		await l2d.mount({directory: id, fileBase: entryBase}, {canvasWidth: "100%", canvasHeight: "100%", host: l2dHost.value})
-		/* WebGL 涓婁笅鏂囦涪澶辨仮澶嶃€傝鑼? **鍙湁** webglcontextlost 琚?preventDefault(), 娴忚鍣ㄦ墠浼氬皾璇曟仮澶嶄笂涓嬫枃銆?		   涓荤晫闈㈡鍓嶉浂澶勭悊 (鍏ㄥ簱 4 澶勫叏鍦?FloatApp.vue) 鈬?harness 瀹炴祴: 涓㈠け浜嬩欢 defaultPrevented=false,
-		   涓?*杩炴樉寮?restoreContext() 閮芥病鑳芥仮澶?* = 鍙兘閲嶅惎 App銆?		   鐪熸満涓婃伅灞?鍒囧悗鍙?鍐呭瓨鍘嬪姏閮戒細瑙﹀彂, 姒傜巼杩滈珮浜庢闈?鈥斺€?杩欒烦鐓?FloatApp.vue 琛ラ綈銆?		   姣忔 mount 閮芥槸鏂扮敾甯? 鏃х敾甯冪殑鐩戝惉闅忓畠涓€璧疯绉婚櫎, 涓嶄細绱Н銆?*/
+		/* WebGL 上下文丢失恢复。规范: **只有** webglcontextlost 被 preventDefault(), 浏览器才会尝试恢复上下文。
+		   主界面此前零处理 (全库 4 处全在 FloatApp.vue) ⇒ harness 实测: 丢失事件 defaultPrevented=false,
+		   且**连显式 restoreContext() 都没能恢复** = 只能重启 App。
+		   真机上息屏/切后台/内存压力都会触发, 概率远高于桌面 —— 这跳照 FloatApp.vue 补齐。
+		   每次 mount 都是新画布, 旧画布的监听随它一起被移除, 不会累积。 */
 		try {
 			const cv = l2d.canvas()
 			cv?.addEventListener("webglcontextlost", (e) => e.preventDefault())
-			/* 鈿?涓嶈兘鐩存帴璋?loadModel(): 瀹冨紑澶存湁 `if (modelSwitching) return` 瀹堝崼銆?			   鑻ヤ笂涓嬫枃鎭㈠鏃舵濂芥湁涓€娆℃ā鍨嬪垏鎹㈠湪閫旓紝杩欐鎭㈠浼氳**闈欓粯鍚炴帀**銆佷箣鍚庡啀涔熶笉浼氶噸璇?			   鈬?褰㈣薄涓€鐩撮粦鐫€銆傛墍浠ヨ繖閲岀瓑瀹堝崼閲婃斁鍚庡啀閲嶆寕锛堟渶澶氱瓑 10s锛岃秴鏃跺氨鏀惧純杩欎竴杞級銆?*/
+			/* ⚠ 不能直接调 loadModel(): 它开头有 `if (modelSwitching) return` 守卫。
+			   若上下文恢复时正好有一次模型切换在途，这次恢复会被**静默吞掉**、之后再也不会重试
+			   ⇒ 形象一直黑着。所以这里等守卫释放后再重挂（最多等 10s，超时就放弃这一轮）。 */
 			cv?.addEventListener("webglcontextrestored", () => {
 				const retry = (n: number): void => {
 					if (!modelSwitching) { loadModel(); return }
@@ -3021,8 +3139,8 @@ const loadModel = async () => {
 				}
 				retry(0)
 			})
-		} catch { /* 蹇界暐 */ }
-		// 璇讳簡灏卞す涓€娆? 涓嬮檺 0.6锛堜笌鍙屾寚缂╂斁鍚屼竴鍖洪棿锛夆€斺€?鍚﹀垯浠ュ墠瀛樿繃 0.3 鐨勬満鍣ㄨ繕浼氱収鏃у姞杞?0.3
+		} catch { /* 忽略 */ }
+		// 读了就夹一次: 下限 0.6（与双指缩放同一区间）—— 否则以前存过 0.3 的机器还会照旧加载 0.3
 		scale.value = clamp((await readModelConfig(id, "l2d_scale", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 1.12)) || 1.12, 0.6, 3)
 		offsetX.value = (await readModelConfig(id, "l2d_offset_x", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 0)) || 0
 		offsetY.value = (await readModelConfig(id, "l2d_offset_y", (v) => (typeof v === "number" ? v : parseFloat(String(v))), 0)) || 0
@@ -3038,20 +3156,25 @@ const loadModel = async () => {
 		error.value = e?.message ?? String(e)
 	} finally {
 		loading.value = false
-		modelSwitching = false   // 閲婃斁瀹堝崼 (蹇呴』鍦?finally: 澶辫触/瓒呮椂璺緞涔熻鏀?
+		modelSwitching = false   // 释放守卫 (必须在 finally: 失败/超时路径也要放)
 	}
 }
 
-/** 銆岄€夋ā鍨嬨€嶇殑钀藉湴鐐癸細璁伴€夋嫨 鈫?钀界洏 鈫?鍔犺浇锛堝凡瑁?鐩存帴鍒囷紱娌¤=璧?ensureModel 涓嬭浇锛夈€? *  鎶藉嚭鏉ユ槸鍥犱负瀹冪幇鍦ㄦ湁涓や釜鍏ュ彛锛氬凡瑁呯殑鐩存帴璧?/ 娌¤鐨勮绛夌瓟棰橀棬鏀捐銆?*/
+/** 「选模型」的落地点：记选择 → 落盘 → 加载（已装=直接切；没装=走 ensureModel 下载）。
+ *  抽出来是因为它现在有两个入口：已装的直接走 / 没装的要等答题门放行。 */
 const applyModelPick = (id: string): void => {
 	currentModelId.value = id
-	// 2026-09-30 淇細鎶婇€夋嫨**钀界洏**锛屽惁鍒欓噸鍚細鍥炲埌"宸茶鍒楄〃绗竴涓?锛堢敤鎴锋姤鐨?bug锛?	cfg.live2dModel = id
+	// 2026-09-30 修：把选择**落盘**，否则重启会回到"已装列表第一个"（用户报的 bug）
+	cfg.live2dModel = id
 	persistSettings()
 	panel.value = ""
 	loadModel()
 }
 
-/** 鐐广€岄€夋嫨妯″瀷銆嶉噷鐨勫崱鐗囷細宸茶鐨勭洿鎺ュ垏锛?*娌¤鐨勯偅鍙紝鐐瑰畠灏辨槸瑕佷笅杞?* 鈥斺€? *  鍜屻€屼竴閿厠闅嗐€嶅悓涓€閬撱€屾ā鍨嬫巿鏉冮獙璇併€嶏紝绛斿鎵嶇湡鐨勫紑濮嬩笅杞斤紙绛旈敊/鍙栨秷閮戒笉涓嬭浇锛夈€? *  涓嬭浇閫昏緫鏈韩娌″姩锛氭斁琛屽悗浠嶆槸 loadModel 鈫?ensureModel 鈫?NoriBridge.download锛堝師鐢?ModelBridge锛? *  婧?https://fc39e5fc.pinme.dev 鏈敼锛夈€?*/
+/** 点「选择模型」里的卡片：已装的直接切；**没装的那只，点它就是要下载** ——
+ *  和「一键克隆」同一道「模型授权验证」，答对才真的开始下载（答错/取消都不下载）。
+ *  下载逻辑本身没动：放行后仍是 loadModel → ensureModel → NoriBridge.download（原生 ModelBridge，
+ *  源 https://fc39e5fc.pinme.dev 未改）。 */
 const pick = (id: string): void => {
 	if (id === currentModelId.value && ready.value) return
 	void (async () => {
@@ -3062,7 +3185,8 @@ const pick = (id: string): void => {
 
 const doMotion = (group: string, i: number) => {
 	void l2d.playMotionByIndex(group, i)
-	// 鎵嬪姩浠庛€屽姩浣滃垪琛ㄣ€嶈Е鍙戠殑鍔ㄤ綔鍚屾牱鏄?Loop:true, 涔熶細涓€鐩翠繚鎸?鈥斺€?涓€骞跺畨鎺掑洖涓€?	scheduleReturnToNeutral(returnToNeutral)
+	// 手动从「动作列表」触发的动作同样是 Loop:true, 也会一直保持 —— 一并安排回中性
+	scheduleReturnToNeutral(returnToNeutral)
 }
 
 const playRand = () => {
@@ -3079,8 +3203,8 @@ const playExpr = () => {
 	}
 }
 
-/** 钀界洏(鏈疄渚嬮槻鎶栧啓)鍚庝粠纾佺洏閲嶈浇璁板繂 cache 骞跺埛鏂拌鍥?鈥斺€?鍙屽疄渚嬪彲瑙佹€?
- *  鎮诞绐楃瓑鍙︿竴 WebView 鍐欏叆鐨勬柊璁板繂, 鏈疄渚嬩笉閲嶈灏辩湅涓嶅埌 ("鎮诞绐楄亰鐨勬病璁颁綇" 鐨勬牴鍥犱箣涓€) */
+/** 落盘(本实例防抖写)后从磁盘重载记忆 cache 并刷新视图 —— 双实例可见性:
+ *  悬浮窗等另一 WebView 写入的新记忆, 本实例不重读就看不到 ("悬浮窗聊的没记住" 的根因之一) */
 const refreshMemFromDisk = () => {
 	void flushMemoryPersist().then(() => {
 		reloadMemory()
@@ -3092,10 +3216,11 @@ const openPanel = (p: P) => {
 	sideRailOpen.value = false
 	imageMenu.value = false
 	if (p === "settings" && panel.value !== p) settingsTab.value = "basic"
-	// 鎵撳紑/鍏抽棴浠讳綍闈㈡澘閮介噸缃?璁板繂搴撳叆鍙?鐨勮繛鍑昏鏁?鈥斺€?鍚﹀垯璁℃暟浼氳法鍦烘櫙绱Н
-	// (鐢ㄦ埛鐐逛袱涓嬪叆鍙ｃ€佸幓鍒殑闈㈡澘閫涗竴鍦堛€佸洖鏉ョ偣涓€涓嬪氨鐩存帴杩涘幓浜?
+	// 打开/关闭任何面板都重置"记忆库入口"的连击计数 —— 否则计数会跨场景累积
+	// (用户点两下入口、去别的面板逛一圈、回来点一下就直接进去了)
 	resetMemEntryGate()
-	// 鎵撳紑璁剧疆/璁板繂搴撴椂: 鍏堝埛鏂?閲嶈纾佺洏)鍐嶆樉绀? 鍚﹀垯鐪嬪埌鐨勬槸鍚姩鏃剁殑鏃у揩鐓?	if (p === "settings" || p === "memories") {
+	// 打开设置/记忆库时: 先刷新(重读磁盘)再显示, 否则看到的是启动时的旧快照
+	if (p === "settings" || p === "memories") {
 		refreshMemFromDisk()
 		if (p === "memories") { memSearch.value = ""; memFilter.value = "" }
 	}
@@ -3108,7 +3233,8 @@ const openPanel = (p: P) => {
 const gesture = reactive<Record<number, {x: number; y: number}>>({})
 let pinchBase = {dist: 0, midX: 0, midY: 0, scale: 1, ox: 0, oy: 0}
 
-// 涓荤敾甯冨彧閿佷綅缃笌缂╂斁锛屼繚鐣欐姎鎽稿拰鑱婂ぉ浜掑姩锛涗笉褰卞搷鐙珛鎮诞绐椼€?const CANVAS_LOCK_KEY = "l2d_canvas_locked"
+// 主画布只锁位置与缩放，保留抚摸和聊天互动；不影响独立悬浮窗。
+const CANVAS_LOCK_KEY = "l2d_canvas_locked"
 const canvasLocked = ref((() => {
 	try { return localStorage.getItem(CANVAS_LOCK_KEY) === "1" } catch { return false }
 })())
@@ -3121,7 +3247,7 @@ const toggleCanvasLock = (): void => {
 	for (const id of Object.keys(gesture)) delete gesture[Number(id)]
 	pinchBase = {dist: 0, midX: 0, midY: 0, scale: 1, ox: 0, oy: 0}
 	flushTransformSave()
-	try { localStorage.setItem(CANVAS_LOCK_KEY, canvasLocked.value ? "1" : "0") } catch { /* 淇濈暀鏈鐘舵€?*/ }
+	try { localStorage.setItem(CANVAS_LOCK_KEY, canvasLocked.value ? "1" : "0") } catch { /* 保留本次状态 */ }
 }
 
 const cancelModelTagPress = (suppressClick = false): void => {
@@ -3183,7 +3309,8 @@ const onTouchStart = (e: TouchEvent) => {
 
 const onTouchMove = (e: TouchEvent) => {
 	if (canvasLocked.value) return
-	// 鍙洿鏂拌捣鎵嬫椂鐧昏鐨勭敾甯冭Е鐐癸紝涓嶈兘鎶?UI 涓婄殑鎵嬫寚閲嶆柊绠楄繘鎹忓悎銆?	for (const t of Array.from(e.touches)) {
+	// 只更新起手时登记的画布触点，不能把 UI 上的手指重新算进捏合。
+	for (const t of Array.from(e.touches)) {
 		if (gesture[t.identifier]) gesture[t.identifier] = {x: t.clientX, y: t.clientY}
 	}
 	const pts = Object.values(gesture)
@@ -3193,8 +3320,10 @@ const onTouchMove = (e: TouchEvent) => {
 	const midX = (a.x + b.x) / 2
 	const midY = (a.y + b.y) / 2
 	if (pinchBase.dist > 0) {
-		/* 缂╂斁涓嬮檺浠?0.3 鎻愬埌 0.6锛?026-10-05锛夈€?.3 鏃惰鑹插彧鍗犲睆骞曠害 1%锛?		   鑰?Live2D 鐢诲竷**濮嬬粓鏄暣涓鍙?*銆佷笉璺熺潃缂╂斁鍙?鈬?閭ｇ鎯呭喌涓嬬瓑浜庝负 99% 鐨勭┖鐧?		   鐓т环浠?姣忓抚娓呭睆 + 鍚堟垚"銆傚疄闄呬篃娌℃湁缂╁埌閭ｄ箞灏忕殑闇€姹傦紝鎵€浠ョ洿鎺ユ妸涓嬮檺鎶笂鏉ワ紝
-		   浠庢簮澶翠笂涓嶅嚭鐜伴偅涓敾闈€傝鍥為€€灏辨妸 0.6 鏀瑰洖 0.3銆?*/
+		/* 缩放下限从 0.3 提到 0.6（2026-10-05）。0.3 时角色只占屏幕约 1%，
+		   而 Live2D 画布**始终是整个视口**、不跟着缩放变 ⇒ 那种情况下等于为 99% 的空白
+		   照价付"每帧清屏 + 合成"。实际也没有缩到那么小的需求，所以直接把下限抬上来，
+		   从源头上不出现那个画面。要回退就把 0.6 改回 0.3。 */
 		scale.value = clamp(pinchBase.scale * (dist / pinchBase.dist), 0.6, 3)
 	}
 	
@@ -3211,7 +3340,7 @@ const onTouchEnd = (e: TouchEvent) => {
 		if (!liveSet.has(Number(id))) delete gesture[Number(id)]
 	}
 	if (Object.keys(gesture).length !== 2) pinchBase = {dist: 0, midX: 0, midY: 0, scale: 1, ox: 0, oy: 0}
-	// 鎵嬪娍缁撴潫: 鎶婅妭娴佹湡闂存寕璧风殑鍙樻崲绔嬪嵆钀界洏 (鎷栧姩/缂╂斁鐨勬渶缁堜綅缃笉涓?
+	// 手势结束: 把节流期间挂起的变换立即落盘 (拖动/缩放的最终位置不丢)
 	flushTransformSave()
 }
 
@@ -3220,8 +3349,8 @@ const flushTransformSave = (): void => {
 	if (transformDirty) { transformDirty = false; saveTransform() }
 }
 
-/** 鎷栧姩/缂╂斁涓妭娴佷繚瀛? touchmove 姣忓抚鍚屾鍐?3 涓?localStorage 閿細鎺夊抚,
- *  绉诲姩涓渶澶?400ms 钀戒竴娆＄洏, 鎵嬪娍缁撴潫 (onTouchEnd) 鍐嶅厹搴曞啓鏈€缁堝€?*/
+/** 拖动/缩放中节流保存: touchmove 每帧同步写 3 个 localStorage 键会掉帧,
+ *  移动中最多 400ms 落一次盘, 手势结束 (onTouchEnd) 再兜底写最终值 */
 let transformSaveTimer: ReturnType<typeof setTimeout> | null = null
 let transformDirty = false
 const scheduleSaveTransform = (): void => {
@@ -3279,59 +3408,63 @@ const keyboardInset = ref(0)
 let layoutWidth = window.innerWidth
 let layoutFullHeight = window.innerHeight
 const portraitActions: {panel: P; label: string; icon: string}[] = [
-	{panel: "diary", label: "鏃ヨ", icon: DOCK_ICONS.diary},
-	{panel: "model", label: "妯″瀷", icon: DOCK_ICONS.model},
-	{panel: "pomo", label: "鐣寗", icon: DOCK_ICONS.pomo},
-	{panel: "settings", label: "璁剧疆", icon: DOCK_ICONS.settings},
+	{panel: "diary", label: "日记", icon: DOCK_ICONS.diary},
+	{panel: "model", label: "模型", icon: DOCK_ICONS.model},
+	{panel: "pomo", label: "番茄", icon: DOCK_ICONS.pomo},
+	{panel: "settings", label: "设置", icon: DOCK_ICONS.settings},
 ]
 const draft = ref("")
 const typing = ref(false)
-/** 鏄惁姝ｅ湪娴佸紡鐢熸垚鍥炲 (鐢ㄤ簬闅愯棌閲嶅鐨?鈥?姘旀场) */
+/** 是否正在流式生成回复 (用于隐藏重复的"…"气泡) */
 const chatStreaming = ref(false)
-/** 瑙︽懜瑙﹀彂瀵硅瘽鏄惁姝ｅ湪娴佸紡 (闃查噸鍏ラ攣; 鐢?ref 渚涜緭鍏ユ帓闃熺殑 watch 瑙傚療) */
+/** 触摸触发对话是否正在流式 (防重入锁; 用 ref 供输入排队的 watch 观察) */
 const touchStreaming = ref(false)
-/** 褰撳墠娴佸紡璇锋眰鐨勫彇娑堟帶鍒跺櫒 (鍋滄鐢熸垚鎸夐挳鐢? */
+/** 当前流式请求的取消控制器 (停止生成按钮用) */
 let activeChatAbort: AbortController | null = null
-/** 瑙︽懜瑙﹀彂瀵硅瘽鐨勫彇娑堟帶鍒跺櫒 (涓庤亰澶╄緭鍏ョ殑 activeChatAbort 骞惰, 閮藉綊鍋滄鎸夐挳绠? */
+/** 触摸触发对话的取消控制器 (与聊天输入的 activeChatAbort 并行, 都归停止按钮管) */
 let activeTouchAbort: AbortController | null = null
 
-/** 鐣欑櫧/瀹炰綋鍛戒腑璋冭瘯 (娴嬭瘯宸ュ叿): 寮€鍚悗鍦ㄥ睆骞曢《閮ㄦ樉绀哄綋鍓嶈Е鎽稿懡涓殑鍖哄煙 */
+/** 留白/实体命中调试 (测试工具): 开启后在屏幕顶部显示当前触摸命中的区域 */
 const hitDebug = ref(false)
 const hitZoneText = ref("")
-/** 璋冭瘯鏄剧ず鐨勬姎鎽哥姸鎬?(杩涘害/瀹屾垚娆℃暟/閫熷害), 涓?hitZoneText 鍚屼竴澶勮妭娴佸埛鏂?*/
+/** 调试显示的抚摸状态 (进度/完成次数/速度), 与 hitZoneText 同一处节流刷新 */
 const petDebugText = ref("")
 let strokeOnModel = false
 let lastHitDebugT = 0
 
-/* ---------------- 鎶氭懜閲囨牱涓庨煶鏁?(绉绘鑷綉椤电増 headPat) ----------------
- * 缃戦〉鐗堟妸"鎽稿ご"瀹氫箟鎴? 妯悜涓轰富 + 閫熷害澶熷揩鐨勭Щ鍔? **绱婊?1000ms 绠楀畬鎴愪竴娆?*,
- * 姣忓畬鎴愪竴娆＄粰涓€璁?瀹屾垚闊?(涔嬪墠瀹夊崜绔彧鏈?鎸変綇 260ms 灏辫繘鍏ユ姎鎽?, 娌℃湁瀹屾垚鐨勬蹇?銆? * 鍗曚綅璇存槑: 缃戦〉鐗堢敤**澶村**褰撳崟浣? 澶村寘鍥寸洅瑕佺瓑 Phase 3a 鐨勬帰娴嬮挬瀛愭墠鏈?
- * 杩欓噷鍏堢敤**灞忓箷鐭竟**褰撳崟浣? 鎵€浠?minSpeedX 鎸?澶村鈮堢煭杈圭殑 1/3"鎹㈢畻(0.05鈫?.02)銆?*/
+/* ---------------- 抚摸采样与音效 (移植自网页版 headPat) ----------------
+ * 网页版把"摸头"定义成: 横向为主 + 速度够快的移动, **累计满 1000ms 算完成一次**,
+ * 每完成一次给一记"完成音"(之前安卓端只有"按住 260ms 就进入抚摸", 没有完成的概念)。
+ * 单位说明: 网页版用**头宽**当单位, 头包围盒要等 Phase 3a 的探测钩子才有;
+ * 这里先用**屏幕短边**当单位, 所以 minSpeedX 按"头宽≈短边的 1/3"换算(0.05→0.02)。 */
 const petStrokeTuning = {...DEFAULT_PET_STROKE_TUNING, minSpeedX: 0.02}
 const petStroke = createPetStrokeDetector(() => petStrokeTuning)
-/** 鏈浼氳瘽绱瀹屾垚娆℃暟 (鍙敤浜庤皟璇曟樉绀? */
+/** 本次会话累计完成次数 (只用于调试显示) */
 let petCompletions = 0
-/** 鏈€杩戜竴娆″悎鏍奸噰鏍风殑妯悜閫熷害 (鍗曚綅: 鐭竟/绉? 鍙敤浜庤皟璇曟樉绀? */
+/** 最近一次合格采样的横向速度 (单位: 短边/秒; 只用于调试显示) */
 let petLastVx = 0
-/** 鏈€杩戜竴娆＄畻鍑虹殑澶撮儴鐩?(model 鍧愭爣; 渚涜皟璇曟樉绀轰笌鎺㈤拡鏂█) */
+/** 最近一次算出的头部盒 (model 坐标; 供调试显示与探针断言) */
 let petHeadBox: PetPartBox | null = null
-/** 鏈€杩戜竴娆＄畻鍑虹殑**鍏ㄦā鍨嬬洅** (model 鍧愭爣) 鈥斺€?澶村尯鍏滃簳姣斾緥闈犲畠绠?*/
+/** 最近一次算出的**全模型盒** (model 坐标) —— 头区兜底比例靠它算 */
 let petModelBox: PetPartBox | null = null
-/** 鏈€杩戜竴娆℃寜涓嬬殑妯″瀷鍧愭爣 y (璋冭瘯鏄剧ず鐢? */
+/** 最近一次按下的模型坐标 y (调试显示用) */
 let petLastModelY = NaN
-/** 鍑犱綍鏄惁鍙敤 (閽╁瓙缂哄け/鎶涢敊鏃朵负 false 鈫?鍒ゅ畾鍏滃簳涓?鎸夊疄浣?) */
+/** 几何是否可用 (钩子缺失/抛错时为 false → 判定兜底为"按实体") */
 let petGeomOk = false
-/** 鏈鎸変笅鏄惁钀藉湪**澶撮儴甯?*鍐?(瀹炰綋鍛戒腑 **涓?* 鍦ㄥご甯﹂噷)銆? *  娉ㄦ剰涓?`strokeOnModel` 鍒嗗紑: 鍚庤€呮槸"鍛戒腑瀹炰綋", 杩樿缁х画渚?*鐢ㄦ埛閰嶇疆鐨勮Е鎽稿尯**鍋氬垽瀹?鈥斺€? *  鎶婅Е鎽稿尯涔熼檺鍒舵垚"鍙湁澶?浼氳浼ゆ墜/鑲氱毊绛夊叾瀹冨尯鍩熴€?*/
+/** 本次按下是否落在**头部带**内 (实体命中 **且** 在头带里)。
+ *  注意与 `strokeOnModel` 分开: 后者是"命中实体", 还要继续供**用户配置的触摸区**做判定 ——
+ *  把触摸区也限制成"只有头"会误伤手/肚皮等其它区域。 */
 let onNoriHead = false
-/** 鏈€杩戜竴娆℃寜涓嬬殑澶撮儴鍒ゅ畾缁撴灉 (onNoriHead 浼氬湪 endHeadFollow 閲屾竻鎺? 杩欎釜鐣欑潃渚涜皟璇?鎺㈤拡鐪? */
+/** 最近一次按下的头部判定结果 (onNoriHead 会在 endHeadFollow 里清掉, 这个留着供调试/探针看) */
 let lastOnHead = false
 const petStrokeUnit = (): number => Math.max(120, Math.min(window.innerWidth || 0, window.innerHeight || 0))
-/** 灞忓箷鍧愭爣 鈫?閲囨牱鍣ㄥ潗鏍?(闄や互鐭竟 鈬?闃堝€间笌鍒嗚鲸鐜?鏈哄瀷鏃犲叧) */
+/** 屏幕坐标 → 采样器坐标 (除以短边 ⇒ 阈值与分辨率/机型无关) */
 const petStrokePoint = (x: number, y: number): {x: number; y: number} => {
 	const u = petStrokeUnit()
 	return {x: x / u, y: y / u}
 }
-/** 鍙栨ā鍨嬪嚑浣?鈫?绠楀ご鐩掋€傚嚑浣曟潵鑷ˉ涓侀挬瀛?__noriPartProbe (閮ㄤ欢鐩?+ 鍏ㄦā鍨嬬洅, 涓庡懡涓偣鍚屽潗鏍囩郴)銆? *  姣忔鎸変笅绠椾竴娆?鈥斺€?瀹炴祴寮€閿€鏄?248 涓?drawable 鐨勯《鐐归亶鍘?姣绾?, 鍙湪 pointerdown 璧颁竴娆°€?*/
+/** 取模型几何 → 算头盒。几何来自补丁钩子 __noriPartProbe (部件盒 + 全模型盒, 与命中点同坐标系)。
+ *  每次按下算一次 —— 实测开销是 248 个 drawable 的顶点遍历(毫秒级), 只在 pointerdown 走一次。 */
 const refreshHeadBox = (): void => {
 	const probe = (window as unknown as {__noriPartProbe?: () => {ok?: boolean; parts?: {box: PetPartBox}[]; allBox?: PetPartBox} | null}).__noriPartProbe
 	if (typeof probe !== "function") { petHeadBox = null; petModelBox = null; petGeomOk = false; return }
@@ -3347,7 +3480,7 @@ const refreshHeadBox = (): void => {
 		petGeomOk = false
 	}
 }
-/** 褰撳墠 canvas 鐨?CSS 鍙樻崲瑙嗗浘 (涓?relayout 鍐欒繘 canvas.style 鐨勪竴鑷? */
+/** 当前 canvas 的 CSS 变换视图 (与 relayout 写进 canvas.style 的一致) */
 const canvasView = (): {w: number; h: number; scale: number; offsetX: number; offsetY: number} => ({
 	w: window.innerWidth || 0,
 	h: window.innerHeight || 0,
@@ -3356,31 +3489,37 @@ const canvasView = (): {w: number; h: number; scale: number; offsetX: number; of
 	offsetY: offsetY.value,
 })
 
-/** 灞忓箷鐐?鈫?妯″瀷鍧愭爣 (琛ヤ竵閽╁瓙), 鎷夸笉鍒拌繑鍥?null */
+/** 屏幕点 → 模型坐标 (补丁钩子), 拿不到返回 null */
 const noriModelPoint = (x: number, y: number): {x: number; y: number} | null => {
 	const fn = (window as unknown as {__noriModelPoint?: (x: number, y: number) => {x?: number; y?: number} | null}).__noriModelPoint
 	if (typeof fn !== "function") return null
 	try {
-		// 鍏抽敭: 鍛戒腑閽╁瓙璧板簱鐨?transformView, 瀹冧笉鐭ラ亾 canvas 涓婄殑 CSS 鍙樻崲(scale/offset),
-		// 鎵€浠ュ繀椤诲厛鎶?client 鍧愭爣閫嗗彉鎹㈠洖鏈彉鎹㈢殑鐢诲竷鍧愭爣绯? 鍚﹀垯缂╂斁/骞崇Щ鍚庡垽瀹氫笌娓叉煋閿欎綅銆?		const p0 = canvasPointFromClient(x, y, canvasView())
+		// 关键: 命中钩子走库的 transformView, 它不知道 canvas 上的 CSS 变换(scale/offset),
+		// 所以必须先把 client 坐标逆变换回未变换的画布坐标系, 否则缩放/平移后判定与渲染错位。
+		const p0 = canvasPointFromClient(x, y, canvasView())
 		const p = fn(p0.x, p0.y)
 		return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? {x: p.x as number, y: p.y as number} : null
 	} catch {
 		return null
 	}
 }
-/** 瀹炴椂閲嶅垽"鏄惁鎽稿埌澶?鐨勮妭娴侀棿闅?(ms)銆? *  瀹炰綋鍛戒腑瑕侀亶鍘嗗叏閮?drawable, 姣忓抚(120Hz)璺戜笉鍒掔畻; 10Hz 瀵?绉昏繘鍘?绉诲嚭鏉?瀹屽叏澶熺敤, 鎵嬫劅鏃犲樊銆?*/
+/** 实时重判"是否摸到头"的节流间隔 (ms)。
+ *  实体命中要遍历全部 drawable, 每帧(120Hz)跑不划算; 10Hz 对"移进去/移出来"完全够用, 手感无差。 */
 const PET_HEAD_CHECK_MS = 100
 let lastHeadCheckAt = 0
 
 /**
- * 瀹炴椂閲嶅垽"鏄惁鎽稿埌澶?(鍚?6% 杩熸粸), 骞跺鐞?*杩涘叆/绂诲紑鐨勮竟娌垮姩浣?*銆? *
- * ## 涓轰粈涔堝繀椤诲疄鏃? * 鍘熸潵鍙湪 `pointerdown` 绠椾竴娆?鈬?鎸変笅鏃跺湪澶翠笂灏?*鏁存鎸夊帇閮界畻澶翠笂**(绉诲紑涔熶笉鍋?,
- * 鎸変笅鏃朵笉鍦ㄥご涓婂氨**鎬庝箞绉婚兘涓嶇畻** 鈥斺€?浣犲弽棣堢殑涓や釜鐜拌薄鏄悓涓€涓師鍥犮€? * 缃戦〉鐗?`T2()` 鏄瘡涓簨浠堕兘閲嶇畻鐨? `r = hitTestParts(...)` 涓?`s = Ly(...)` 閮藉湪 move 閲岀畻,
- * 涓?宸茬粡鍦ㄦ懜"涔嬪悗鏀圭敤澶栨墿鐨?leash 妗嗗垽鏄惁杩樺湪鎽搞€? *
- * 杈规部鍔ㄤ綔:
- *  - 杩涘叆 鈫?閲囨牱浠庤繖涓€鍒诲紑濮?+ 涓€璁?鎽稿埌浜?鐨勫弽棣?瑙﹀埌闊?+ 鎺ヨЕ鐖嗗彂; 鍙湪宸茬粡杩涘叆鎶氭懜鐘舵€佹椂)
- *  - 绂诲紑 鈫?閲囨牱澶嶄綅 + 鎽╂摝闊冲綊闆?淇濈暀瀹屾垚闊崇殑绗簩娈靛熬宸?
+ * 实时重判"是否摸到头"(含 6% 迟滞), 并处理**进入/离开的边沿动作**。
+ *
+ * ## 为什么必须实时
+ * 原来只在 `pointerdown` 算一次 ⇒ 按下时在头上就**整段按压都算头上**(移开也不停),
+ * 按下时不在头上就**怎么移都不算** —— 你反馈的两个现象是同一个原因。
+ * 网页版 `T2()` 是每个事件都重算的: `r = hitTestParts(...)` 与 `s = Ly(...)` 都在 move 里算,
+ * 且"已经在摸"之后改用外扩的 leash 框判是否还在摸。
+ *
+ * 边沿动作:
+ *  - 进入 → 采样从这一刻开始 + 一记"摸到了"的反馈(触到音 + 接触爆发; 只在已经进入抚摸状态时)
+ *  - 离开 → 采样复位 + 摩擦音归零(保留完成音的第二段尾巴)
  */
 const updateNoriHead = (x: number, y: number, force = false): void => {
 	const now = performance.now()
@@ -3390,13 +3529,17 @@ const updateNoriHead = (x: number, y: number, force = false): void => {
 	petLastModelY = mp ? mp.y : NaN
 	let inHead = false
 	if (!petGeomOk) {
-		// 鍑犱綍鎷夸笉鍒? 鍏滃簳涓?鎸夊疄浣?(璋冭瘯琛屾樉绀恒€屾棤鍑犱綍鈫掓寜瀹炰綋銆?, 鍚﹀垯琛ㄧ幇涓烘€庝箞鎽搁兘娌″弽搴?		const hit = noriHitTest(x, y)
+		// 几何拿不到: 兜底为"按实体"(调试行显示「无几何→按实体」), 否则表现为怎么摸都没反应
+		const hit = noriHitTest(x, y)
 		inHead = !!hit && !!hit.hit
 	} else if (mp) {
 		const zone = inHeadZoneHysteresis(petHeadBox, petModelBox, mp.x, mp.y, onNoriHead)
 		if (zone) {
-			// **杩涘叆**鎵嶈姹傚懡涓疄浣? **宸茬粡鍦ㄦ懜**鏃跺彧瑕佹眰杩樺湪(鏈夌晫 leash 鐩掑唴鐨?澶村尯 鈥斺€?涓庣綉椤电増涓€鑷?
-			// 瀹?宸茬粡鍦ㄦ懜"鐨勯樁娈靛彧鐢ㄥ鎵╃洅瀛?E8e 鍒? 涓嶅啀鏌?drawable銆?			// 灏戜簡杩欎竴鏉′細鎬庢牱: 鍦ㄥご椤堕偅绉嶅緢绐勭殑鍦版柟宸﹀彸鎽? 鎵嬫寚绋嶄竴婊戝嚭杞粨灏卞垽"澶村"鈫?			// 閲囨牱琚?end() 澶嶄綅 鈫?杩涘害姘歌繙鏀掍笉鍒?1s(瀹炴祴韪╄繃)銆?			inHead = onNoriHead ? true : !!(noriHitTest(x, y)?.hit)
+			// **进入**才要求命中实体; **已经在摸**时只要求还在(有界 leash 盒内的)头区 —— 与网页版一致:
+			// 它"已经在摸"的阶段只用外扩盒子 E8e 判, 不再查 drawable。
+			// 少了这一条会怎样: 在头顶那种很窄的地方左右摸, 手指稍一滑出轮廓就判"头外"→
+			// 采样被 end() 复位 → 进度永远攒不到 1s(实测踩过)。
+			inHead = onNoriHead ? true : !!(noriHitTest(x, y)?.hit)
 		}
 	}
 	if (inHead === onNoriHead) return
@@ -3405,14 +3548,17 @@ const updateNoriHead = (x: number, y: number, force = false): void => {
 	if (inHead) {
 		const p = petStrokePoint(x, y)
 		petStroke.start(performance.now(), p.x, p.y)
-		// 婊戣繘澶村尯涔熻鎶婅〃鎯呭惊鐜媺璧锋潵锛堢敤鎴峰彲鑳戒粠韬綋寮€濮嬫懜銆佸啀婊戝埌澶达級
+		// 滑进头区也要把表情循环拉起来（用户可能从身体开始摸、再滑到头）
 		if (cfg.petTouchEnabled) startPetExpressionLoop()
-		// 宸茬粡杩涘叆鎶氭懜鐘舵€?+ **鎸囬拡鐪熺殑鎸夌潃**鎵嶈ˉ鍙嶉: pointerdown 閭ｄ竴鍒荤敱涓婃柟鐨?stroking 瀹氭椂鍣ㄨ礋璐ｃ€?		// `stagePointers > 0` 杩欓亾闂告槸 2026-09-26 鍔犵殑 鈥斺€?`pointermove` 鍦ㄩ紶鏍囨偓鍋滄椂涔熶細娲惧彂(buttons=0),
-		// 鑰?杩涘叆澶村尯"杩欎釜杈规部鍘熷厛鍙湅 stroking 鈬?鎮仠鍒掕繃灏辫兘鍐掔矑瀛?鍝嶉煶(娴忚鍣ㄥ疄娴?銆?		if (stroking && stagePointers > 0) {
+		// 已经进入抚摸状态 + **指针真的按着**才补反馈: pointerdown 那一刻由上方的 stroking 定时器负责。
+		// `stagePointers > 0` 这道闸是 2026-09-26 加的 —— `pointermove` 在鼠标悬停时也会派发(buttons=0),
+		// 而"进入头区"这个边沿原先只看 stroking ⇒ 悬停划过就能冒粒子/响音(浏览器实测)。
+		if (stroking && stagePointers > 0) {
 			claimPetGesture()
 			if (cfg.petTouchSound) petAudioTouch()
 			if (cfg.petTouchEffects) spawnPetTouchBurst(x, y - 10)
-			// 涓庝笂闈㈠悓婧愮殑绗簩澶?纭鎽稿埌澶?杈规部锛堜粠韬綋婊戣繘澶村尯, 鎴栨寜涓嬪悗绗竴娆″垽鍒板ご锛?			if (cfg.petTouchSpeech) maybeSpeakPetLine()
+			// 与上面同源的第二处"确认摸到头"边沿（从身体滑进头区, 或按下后第一次判到头）
+			if (cfg.petTouchSpeech) maybeSpeakPetLine()
 		}
 	} else {
 		petStroke.end()
@@ -3420,7 +3566,7 @@ const updateNoriHead = (x: number, y: number, force = false): void => {
 	}
 }
 
-/** 璇诲洖涓€涓ā鍨嬪弬鏁?(琛ヤ竵閽╁瓙 __noriGetParam); 閽╁瓙缂哄け/鍑洪敊杩斿洖 null */
+/** 读回一个模型参数 (补丁钩子 __noriGetParam); 钩子缺失/出错返回 null */
 const readParam = (id: string): number | null => {
 	const fn = (window as unknown as {__noriGetParam?: (id: string) => number | null}).__noriGetParam
 	if (typeof fn !== "function") return null
@@ -3433,20 +3579,21 @@ const readParam = (id: string): number | null => {
 }
 
 const petStrokeDebug = (): string => {	const line = headZoneLine(petHeadBox, petModelBox)
-	const zone = !petGeomOk ? "鏃犲嚑浣曗啋鎸夊疄浣? : onNoriHead ? "澶翠笂" : "澶村"
+	const zone = !petGeomOk ? "无几何→按实体" : onNoriHead ? "头上" : "头外"
 	const yTxt = Number.isFinite(petLastModelY) ? petLastModelY.toFixed(2) : "?"
 	const lineTxt = line === null ? "?" : line.toFixed(2)
-	return `鎶氭懜 ${(petStroke.progressMs / 1000).toFixed(1)}/${(petStrokeTuning.requiredMs / 1000).toFixed(1)}s 路 瀹屾垚 ${petCompletions} 路 閫熷害 ${petLastVx.toFixed(2)} 路 ${zone}(y${yTxt} 绾?{lineTxt})`
+	return `抚摸 ${(petStroke.progressMs / 1000).toFixed(1)}/${(petStrokeTuning.requiredMs / 1000).toFixed(1)}s · 完成 ${petCompletions} · 速度 ${petLastVx.toFixed(2)} · ${zone}(y${yTxt} 线${lineTxt})`
 }
-/** E2E / 瀹炴満璋冭瘯鎺㈤拡: 闊虫晥鍥剧姸鎬?+ 鎶氭懜閲囨牱鐘舵€?(绾, 涓嶄細寤哄浘)銆? *  瀹炴満涓婃病鏈?adb 鏃? 涔熷彲浠ュ湪鎺у埗鍙伴噷鎵嬫暡 `__noriPetDebug()` 鐪嬭繘搴︺€?*/;(window as unknown as {__noriPetDebug?: () => unknown}).__noriPetDebug = () => ({
+/** E2E / 实机调试探针: 音效图状态 + 抚摸采样状态 (纯读, 不会建图)。
+ *  实机上没有 adb 时, 也可以在控制台里手敲 `__noriPetDebug()` 看进度。 */;(window as unknown as {__noriPetDebug?: () => unknown}).__noriPetDebug = () => ({
 	...petAudioState(),
 	progressMs: petStroke.progressMs,
 	completions: petCompletions,
 	velocity: petLastVx,
 	active: petStroke.active,
-	/** 瀹炴椂鐨?鏄惁鎽稿埌澶? 鈥斺€?杩欐墠鏄垽瀹氭湰浣?(鎶墜鍚庝細褰?false) */
+	/** 实时的"是否摸到头" —— 这才是判定本体 (抬手后会归 false) */
 	onHead: onNoriHead,
-	/** 鏈€杩戜竴娆″ご閮ㄥ喅绛栫殑蹇収 (鎶墜鍚庝笉娓? 渚涜皟璇曞鐓? */
+	/** 最近一次头部决策的快照 (抬手后不清, 供调试对照) */
 	lastHead: lastOnHead,
 	onModel: strokeOnModel,
 	headBox: petHeadBox,
@@ -3454,63 +3601,70 @@ const petStrokeDebug = (): string => {	const line = headZoneLine(petHeadBox, pet
 	bandLine: headZoneLine(petHeadBox, petModelBox),
 	geomOk: petGeomOk,
 	modelY: petLastModelY,
-	/** 鍙傛暟璇诲洖 (琛ヤ竵 __noriGetParam)锛歚angleY` = 搴撴瘡甯у啓鐨?娉ㄨ"閫氶亾锛堝彧璇诲鐓э級 */
+	/** 参数读回 (补丁 __noriGetParam)：`angleY` = 库每帧写的"注视"通道（只读对照） */
 	angleY: readParam("ParamAngleY"),
-	/** 鐪ㄧ溂: 绱娆℃暟 + 褰撳墠闂悎閲?(0=鐫?1=鍏ㄩ棴) 鈥斺€?瀹炴満/ E2E 纭"鐪熺殑鍦ㄧ湪" */
+	/** 眨眼: 累计次数 + 当前闭合量 (0=睁 1=全闭) —— 实机/ E2E 确认"真的在眨" */
 	blinkCount: blinkCount(),
 	blinkClosure: blinkClosureNow(),
 	eyeLOpen: readParam("ParamEyeLOpen"),
 	eyeROpen: readParam("ParamEyeROpen"),
-	/** 鎽稿ご琛ㄦ儏: 褰撳墠杩欏紶鑴镐笌鏄惁鍦ㄥ睍绀?(E2E/瀹炴満纭"鎽稿ご鏃舵挱鐨勬槸 shy/smile") */
+	/** 摸头表情: 当前这张脸与是否在展示 (E2E/实机确认"摸头时播的是 shy/smile") */
 	petExpression: petExpressionName(),
 	petExpressionOn: petExpressionShowing(),
-	/** 鎽稿ご琛ㄦ儏鐨?*瀹㈣璇佹嵁**: 涓や釜琛ㄦ儏鍚勮嚜鐙崰鐨勫弬鏁帮紙Shy鈫扨aramCheek, Smile鈫扨aramEyeSmile锛?	 *  鈥斺€?鍙湅鎴戜滑鑷繁鐨勫彉閲忕瓑浜庤嚜璇侊紝璇诲弬鏁版墠鑳借瘉鏄?琛ㄦ儏鐪熺殑鐢熸晥浜?銆?	 *  娉? 涓嶇敤 `ParamEyeLSmile`锛堟棫 happy 鐨勭嫭鍗犲弬鏁帮級鈥斺€?瀹炴祴 ARGNori **娌℃湁杩欎釜鍙傛暟**
-	 *  锛坄13_Happy.exp3.json` 寮曠敤浜嗕竴鍫嗕笉瀛樺湪鐨?`ParamBrowL*`/`ParamEyeLSmile`锛屾墍浠ユ棫瀹炵幇
-	 *   鍦ㄨ繖妯″瀷涓婂嚑涔庢槸绌烘搷浣滐級銆傝繖涔熸槸"涓嶈兘闈犺〃鎯呭悕鑷瘉"鐨勫張涓€涓悊鐢便€?*/
+	/** 摸头表情的**客观证据**: 两个表情各自独占的参数（Shy→ParamCheek, Smile→ParamEyeSmile）
+	 *  —— 只看我们自己的变量等于自证，读参数才能证明"表情真的生效了"。
+	 *  注: 不用 `ParamEyeLSmile`（旧 happy 的独占参数）—— 实测 ARGNori **没有这个参数**
+	 *  （`13_Happy.exp3.json` 引用了一堆不存在的 `ParamBrowL*`/`ParamEyeLSmile`，所以旧实现
+	 *   在这模型上几乎是空操作）。这也是"不能靠表情名自证"的又一个理由。 */
 	petExprCheek: readParam("ParamCheek"),
 	petExprEyeSmile: readParam("ParamEyeSmile"),
-	/** 鎽稿ご鍙拌瘝: 璇翠簡鍑犲彞 / 鏈€鍚庝竴鍙?/ 璺濈"鍙互鍐嶈"杩樺樊澶氬皯 ms(0 = 鐜板湪灏辫兘璇?銆?	 *  鍙弽鏄?*鐪熺殑寮€鍙ｈ繃**鐨勬鏁?鈥斺€?琚?姝ｅ湪鏈楄/鐢熸垚涓?璺宠繃鐨勯偅娆?*涓嶈鏁颁篃涓嶆秷鑰楃獥鍙?*銆?*/
+	/** 摸头台词: 说了几句 / 最后一句 / 距离"可以再说"还差多少 ms(0 = 现在就能说)。
+	 *  只反映**真的开口过**的次数 —— 被"正在朗读/生成中"跳过的那次**不计数也不消耗窗口**。 */
 	petSpeechCount: petSpeechCount(),
 	petSpeechLast: petSpeechLastLine(),
 	petSpeechWaitMs: petSpeechWaitMs(performance.now()),
-	/** 褰撳墠鎸変笅鐨勬墜鎸囨暟 (stagePointers) 鈥斺€?"鎸囬拡浜嬩欢琚悶鎺?杩欑被闂鍙兘闈犲畠鐪嬪嚭鏉?*/
+	/** 当前按下的手指数 (stagePointers) —— "指针事件被吞掉"这类问题只能靠它看出来 */
 	pressed: stagePointers,
-	/** 鎶氭懜鐘舵€佹満鐨勪笁涓唴閮ㄦ爣蹇?鈥斺€?鎺掓煡"娌℃寜涓嬩篃鍐掔壒鏁?鏃跺繀椤昏兘鐪嬪埌瀹冧滑:
-	 *  stroking 鍙湪"鎸変笅鍚?260ms 浠嶅湪璺熼殢"鏃剁疆浣? 鎶墜鐢?endHeadFollow 娓呮帀銆?*/
+	/** 抚摸状态机的三个内部标志 —— 排查"没按下也冒特效"时必须能看到它们:
+	 *  stroking 只在"按下后 260ms 仍在跟随"时置位, 抬手由 endHeadFollow 清掉。 */
 	stroking,
 	headFollow: headFollowActive,
 	swayRaf: swayRaf !== 0,
 })
-/** E2E 鎺㈤拡: 璧?*宸蹭慨姝?*鐨勫睆骞曗啋妯″瀷鍧愭爣鎹㈢畻 (鍚?canvas CSS 鍙樻崲閫嗗彉鎹?銆? *  涓?瑙︽懜鍖鸿矾寰?(鐢?getBoundingClientRect, 鏈潵灏辫窡鐫€娓叉煋璧?鍋氫氦鍙夐獙璇? 鎵嶆姄寰椾綇
- *  "缂╂斁/骞崇Щ鍚庡垽瀹氫笌娓叉煋閿欎綅"杩欑被闂 鈥斺€?鍙湪榛樿 scale=1/offset=0 涓嬫祴鏄姄涓嶄綇鐨勩€?*/
+/** E2E 探针: 走**已修正**的屏幕→模型坐标换算 (含 canvas CSS 变换逆变换)。
+ *  与"触摸区路径"(用 getBoundingClientRect, 本来就跟着渲染走)做交叉验证, 才抓得住
+ *  "缩放/平移后判定与渲染错位"这类问题 —— 只在默认 scale=1/offset=0 下测是抓不住的。 */
 ;(window as unknown as {__noriModelPointFixed?: unknown}).__noriModelPointFixed = (x: number, y: number) => noriModelPoint(x, y)
 ;(window as unknown as {__noriCanvasView?: unknown}).__noriCanvasView = () => canvasView()
-/** E2E 鎺㈤拡: 绮掑瓙绱鐢熸垚鏁?(纭畾鎬ц瘉鎹? 涓嶅彈绮掑瓙瀵垮懡/閲囨牱鏃舵満褰卞搷) */
+/** E2E 探针: 粒子累计生成数 (确定性证据, 不受粒子寿命/采样时机影响) */
 ;(window as unknown as {__noriPetFxSpawned?: unknown}).__noriPetFxSpawned = () => petFxSpawned()
-// 鐪ㄧ溂: 瑁呬笂"搴?update() 涔嬪墠"鐨勯挬瀛?(鐢?beforeUpdate 璋冨害鍣ㄧ粺涓€鍒嗗彂)
+// 眨眼: 装上"库 update() 之前"的钩子 (由 beforeUpdate 调度器统一分发)
 installBlink()
-/* 鍙ｅ瀷锛氶粯璁ゅ叧闂€傚紑鍚悗鍙互鎾斁鍣ㄧ姸鎬佷綔涓烘椿鍔ㄩ椄闂紱鐪熷疄鎸箙鍙敤鏃舵寜 RMS 寮€鍙ｏ紝鎸箙缂哄け鎴栬秴鏃跺垯瀹夊叏鏀跺彛銆?   鎯版€ц鍙? 姣忓抚鐜板彇 speaking.value, 鎵€浠ユ敞鍐屼竴娆″氨澶? 涓嶇敤绠?model 閲嶆寕銆?*/
+/* 口型：默认关闭。开启后只以播放器状态作为活动闸门；真实振幅可用时按 RMS 开口，振幅缺失或超时则安全收口。
+   惰性读取: 每帧现取 speaking.value, 所以注册一次就够, 不用管 model 重挂。 */
 installLipSync(() =>
 	cfg.lipSyncEnabled
 	&& (speaking.value || (window as unknown as {__noriLipForce?: boolean}).__noriLipForce === true),
 )
-/** 妯″瀷瀹炰綋鍛戒腑娴嬭瘯 (琛ヤ竵閽╁瓙 __noriHitTest): hit=钀藉湪妯″瀷瀹炰綋涓? err=閽╁瓙鍐呴儴寮傚父 (璋冭瘯閫忎紶), null=閽╁瓙鏈氨缁?*/
+/** 模型实体命中测试 (补丁钩子 __noriHitTest): hit=落在模型实体上, err=钩子内部异常 (调试透传), null=钩子未就绪 */
 const noriHitTest = (x: number, y: number): {hit: boolean; err?: string} | null => {
 	try {
 		const fn = (window as unknown as {__noriHitTest?: (x: number, y: number) => {hit: boolean; err?: string} | null}).__noriHitTest
 		if (typeof fn !== "function") return null
-		// 鍚?noriModelPoint: 搴撶殑鍛戒腑鍒ゅ畾涓嶇煡閬?canvas 鐨?CSS 鍙樻崲, 蹇呴』鍏堥€嗗彉鎹㈠洖鏈彉鎹㈢敾甯冨潗鏍囩郴銆?		// 鍚﹀垯鍙屾寚缂╂斁/骞崇Щ妯″瀷鍚? 鍒ゅ畾浼氫笌娓叉煋鏁翠綋閿欎綅(鍦ㄦā鍨嬫梺杈圭殑绌虹櫧澶勪篃绠?鍛戒腑瀹炰綋")銆?		const p = canvasPointFromClient(x, y, canvasView())
+		// 同 noriModelPoint: 库的命中判定不知道 canvas 的 CSS 变换, 必须先逆变换回未变换画布坐标系。
+		// 否则双指缩放/平移模型后, 判定会与渲染整体错位(在模型旁边的空白处也算"命中实体")。
+		const p = canvasPointFromClient(x, y, canvasView())
 		return fn(p.x, p.y)
 	} catch {
 		return null
 	}
 }
 const zoneText = (hit: {hit: boolean; err?: string} | null): string =>
-	!hit ? "鏈煡" : hit.err ? "寮傚父:" + hit.err : hit.hit ? "瀹炰綋" : "鐣欑櫧"
-/** 鐢ㄦ埛鐐逛簡"鍋滄鐢熸垚": onError 閲屾嵁姝ゅ尯鍒?鐢ㄦ埛鍋滄"涓?鐪熷け璐? (涓嶅啀鍙潬鏂囨鍖归厤) */
+	!hit ? "未知" : hit.err ? "异常:" + hit.err : hit.hit ? "实体" : "留白"
+/** 用户点了"停止生成": onError 里据此区分"用户停止"与"真失败" (不再只靠文案匹配) */
 let stopRequested = false
 
-/** 鍋滄鐢熸垚 (鏈湴鍙栨秷 + 鍘熺敓妗?chatStop): 鍚屾椂鍋滆亰澶╂祦涓庤Е鎽歌Е鍙戞祦, 骞跺仠鏈楄 */
+/** 停止生成 (本地取消 + 原生桥 chatStop): 同时停聊天流与触摸触发流, 并停朗读 */
 const stopGenerate = () => {
 	stopRequested = true
 	if (activeChatAbort) {
@@ -3534,12 +3688,13 @@ const cfg = reactive({
 	apiKey: "",
 	baseUrl: "https://api.openai.com/v1",
 	model: "",
-	/** 涓婃閫夌殑 Live2D 妯″瀷 id (绌?= 娌￠€夎繃 鈬?鍚姩鐢ㄥ凡瑁呭垪琛ㄧ涓€涓?銆?	 *  2026-09-30 淇細浠ュ墠娌″瓨杩欎釜锛屾崲妯″瀷鍚庨噸鍚細鍥炲埌鍒楄〃绗竴涓€?*/
+	/** 上次选的 Live2D 模型 id (空 = 没选过 ⇒ 启动用已装列表第一个)。
+	 *  2026-09-30 修：以前没存这个，换模型后重启会回到列表第一个。 */
 	live2dModel: "",
 	bubbleScale: 1,
 	bubbleWidth: 82,
 	renderScale: 1,
-	/** Live2D 娓叉煋甯х巼妗ｄ綅 (0 = 涓嶉檺鍒?銆傛。浣嶅畾涔夎 services/live2d/frameCap.ts */
+	/** Live2D 渲染帧率档位 (0 = 不限制)。档位定义见 services/live2d/frameCap.ts */
 	l2dFps: 60,
 	ttsEnabled: false,
 	lipSyncEnabled: false,
@@ -3566,9 +3721,9 @@ const cfg = reactive({
 	bgmVolume: 0.35,
 	sfxVolume: 0.5,
 	dataseaBg: true,
-	/** 鐣岄潰瀛椾綋锛?026-10-15锛夛細system 绯荤粺榛樿 / wenkai 闇為箿鏂囨シ / kuaile 绔欓叿蹇箰浣擄紙鍚庝袱鑰呴殢鍖?OFL 瀛愰泦锛?*/
+	/** 界面字体（2026-10-15）：system 系统默认 / wenkai 霞鹜文楷 / kuaile 站酷快乐体（后两者随包 OFL 子集） */
 	uiFont: "system" as UiFontChoice,
-	/** 璁?Nori 鐭ラ亾褰撳墠鏃堕棿锛?026-10-01锛夛細姣忔瀵硅瘽鍦ㄤ汉鏍间箣鍚庤拷鍔犱竴涓椂闂村潡锛涘叧鎺夊嵆鍥炲埌浠ュ墠 */
+	/** 让 Nori 知道当前时间（2026-10-01）：每次对话在人格之后追加一个时间块；关掉即回到以前 */
 	timeAware: true,
 	ambientEnabled: true,
 	quietMode: "off",
@@ -3576,16 +3731,16 @@ const cfg = reactive({
 	cosyCloneVoices: [] as CosyCloneVoice[],
 	trimHistory: true,
 	memoryLlmExtract: true,
-	/** 瀹炴椂(閫愬彞)璁板繂鎻愬彇: 閲嶆瀯 P3 璧烽粯璁ゅ叧, 璁板繂鐢卞巻鍙叉€荤粨涓€娆′骇鍑?(瑙?services/memory) */
+	/** 实时(逐句)记忆提取: 重构 P3 起默认关, 记忆由历史总结一次产出 (见 services/memory) */
 	memoryRealtimeExtract: false,
-	/** 鑷姩浼樺寲璁板繂绀轰緥 (榛樿鍏? 瑙佽缃噷銆岃蹇嗕紭鍖栥€嶅皬鑺? */
+	/** 自动优化记忆示例 (默认关; 见设置里「记忆优化」小节) */
 	memoryAutoTuneExamples: false,
-	/** 璁板繂璇婃柇鏃ュ織 (榛樿鍏? 鍙暀鍐呭瓨, 瀵煎嚭鎵嶈惤鐩?鈥斺€?瑙?P1銆岃娴嬮棴鐜€? */
+	/** 记忆诊断日志 (默认关; 只留内存, 导出才落盘 —— 见 P1「观测闭环」) */
 	memoryDiagnostics: false,
 	smartRecall: true,
 	emotionLlm: true,
-	/** DeepSeek 鎬濊€冩ā寮? **榛樿寮€**锛?026-10-02 鐢ㄦ埛绾犳锛夈€傛湇鍔＄榛樿涔熸槸寮€鐨?
-	 *  浣嗗彧鏈夋妸寮€鍏?*鏄惧紡**浼犲嚭鍘? 杩欎釜鍕鹃€夋鎵嶇湡鐨勮兘鍏虫帀瀹?鈥斺€?瑙?services/chat 鐨?resolveThinking */
+	/** DeepSeek 思考模式: **默认开**（2026-10-02 用户纠正）。服务端默认也是开的,
+	 *  但只有把开关**显式**传出去, 这个勾选框才真的能关掉它 —— 见 services/chat 的 resolveThinking */
 	deepseekThinking: true,
 	lookFlipX: false,
 	lookFlipY: false,
@@ -3593,12 +3748,13 @@ const cfg = reactive({
 	floatEnabled: false,
 	floatBubbleW: 82,
 	floatRenderScale: 2,
-	/** 鍦ㄧ嚎浜烘暟锛?026-10-21锛? 鍖垮悕蹇冭烦寮€鍏筹紝榛樿寮€锛涘叧鎺夊悗涓嶅彂浠讳綍璇锋眰 */
+	/** 在线人数（2026-10-21）: 匿名心跳开关，默认开；关掉后不发任何请求 */
 	presenceEnabled: true,
 })
 
-/* ---------------- 鍦ㄧ嚎浜烘暟锛?026-10-21锛屽尶鍚嶅績璺筹級 ----------------
- * 閫昏緫鍏ㄥ湪 services/presence.ts锛堝彲鍗曟祴锛夛紱杩欓噷鍙仛鏁版嵁缁戝畾銆佽缃紑鍏冲拰鐢熷懡鍛ㄦ湡鎺ョ嚎銆? * 鏈儴缃茶鏁版湇鍔★紙PRESENCE_URL 涓虹┖锛夋椂鏁村潡 UI 涓嶅嚭鐜帮紝涔熶笉鍙戣姹傘€?*/
+/* ---------------- 在线人数（2026-10-21，匿名心跳） ----------------
+ * 逻辑全在 services/presence.ts（可单测）；这里只做数据绑定、设置开关和生命周期接线。
+ * 未部署计数服务（PRESENCE_URL 为空）时整块 UI 不出现，也不发请求。 */
 const presenceState = ref<PresenceState | null>(null)
 const presenceReady = ref(false)
 const presenceNow = ref(Date.now())
@@ -3606,7 +3762,7 @@ let presenceUnsub: (() => void) | null = null
 let presenceTickTimer = 0
 
 const presenceCount = computed(() =>
-	cfg.presenceEnabled ? presenceCountText(presenceState.value, presenceNow.value) : "宸插叧闂?,
+	cfg.presenceEnabled ? presenceCountText(presenceState.value, presenceNow.value) : "已关闭",
 )
 const presenceToday = computed(() =>
 	cfg.presenceEnabled ? presenceTodayText(presenceState.value, presenceNow.value) : "",
@@ -3614,11 +3770,11 @@ const presenceToday = computed(() =>
 const presenceStatus = computed(() =>
 	cfg.presenceEnabled
 		? presenceStatusText(presenceState.value, presenceNow.value, presenceReady.value)
-		: "宸插湪璁剧疆閲屽叧闂紝涓嶅彂閫佷换浣曞績璺?,
+		: "已在设置里关闭，不发送任何心跳",
 )
 const presenceToneClass = computed(() => presenceTone(presenceState.value, presenceNow.value))
 
-/** 棣栨鎺ョ嚎 / 杩愯鏃跺湴鍧€琚敞鍏ュ悗琛ユ帴绾匡紙鎺㈤拡浼氱敤 window.__noriPresenceUrl 瑕嗙洊鍦板潃锛夈€?*/
+/** 首次接线 / 运行时地址被注入后补接线（探针会用 window.__noriPresenceUrl 覆盖地址）。 */
 const ensurePresenceWiring = (): void => {
 	presenceReady.value = presenceConfigured()
 	if (!presenceReady.value) return
@@ -3628,7 +3784,7 @@ const ensurePresenceWiring = (): void => {
 	}
 }
 
-/** 璁剧疆閲岀殑寮€鍏筹細绔嬪埢鐢熸晥 + 钀界洏銆?*/
+/** 设置里的开关：立刻生效 + 落盘。 */
 const onPresenceToggle = (): void => {
 	ensurePresenceWiring()
 	if (cfg.presenceEnabled) {
@@ -3640,14 +3796,15 @@ const onPresenceToggle = (): void => {
 	persistSettings()
 }
 
-/** 鎵嬪姩閲嶈瘯锛堣繛涓嶄笂鏃剁偣涓€涓嬶紝涓嶇敤绛?15s/60s 閫€閬匡級銆?*/
+/** 手动重试（连不上时点一下，不用等 15s/60s 退避）。 */
 const onPresenceRetry = (): void => {
 	ensurePresenceWiring()
 	if (presenceReady.value) refreshPresence(APP_VERSION)
 }
 
-/* 鎺㈤拡/璋冭瘯閽╁瓙锛堟湰浠撳簱鏃㈡湁 __nori* 绾﹀畾锛?
- * 鍏堣 window.__noriPresenceUrl锛屽啀璋?window.__noriPresenceRefresh() 绔嬪嵆琛ヤ竴娆″績璺炽€? * 鐢熶骇鐜娌℃湁鍓綔鐢紙鍙槸澶氭寕涓€涓嚱鏁帮級銆?*/
+/* 探针/调试钩子（本仓库既有 __nori* 约定）:
+ * 先设 window.__noriPresenceUrl，再调 window.__noriPresenceRefresh() 立即补一次心跳。
+ * 生产环境没有副作用（只是多挂一个函数）。 */
 ;(window as unknown as {__noriPresenceRefresh?: () => void}).__noriPresenceRefresh = () => {
 	ensurePresenceWiring()
 	if (presenceReady.value) refreshPresence(APP_VERSION)
@@ -3668,36 +3825,39 @@ const nativeDpr = computed(() => Math.max(1.5, Math.min(window.devicePixelRatio 
 
 const applyRenderScale = () => {
 	cfg.renderScale = normalizeRenderScale(cfg.renderScale, 1)
-	l2d.setRenderScale(renderScaleNum.value)   // 鍏堝啓 __noriRenderScale (搴撲笌鍛戒腑閽╁瓙閮借瀹?
-	resizeDataseaBg()                          // 鑳屾櫙鍚冨悓涓€涓棆閽? 涓婇檺 2, 鍙檷涓嶅崌 (瑙?datasea-bg.resize)
+	l2d.setRenderScale(renderScaleNum.value)   // 先写 __noriRenderScale (库与命中钩子都读它)
+	resizeDataseaBg()                          // 背景吃同一个旋钮: 上限 2, 只降不升 (见 datasea-bg.resize)
 }
 
-/* ---- 娓叉煋甯х巼妗ｄ綅锛圠ive2D 褰㈣薄 + 鏁版嵁娴疯儗鏅紝鍚屼竴涓棆閽級 ---- */
-/** 褰撳墠妗ｄ綅 (闈炴硶鍊煎洖钀介粯璁ゆ。)銆? 鏄剧ず涓?涓嶉檺" */
+/* ---- 渲染帧率档位（Live2D 形象 + 数据海背景，同一个旋钮） ---- */
+/** 当前档位 (非法值回落默认档)。0 显示为"不限" */
 const l2dFpsNum = computed(() => normalizeFps(cfg.l2dFps))
-/** 涓€澶勭敓鏁? 褰㈣薄涓庤儗鏅?*鍏辩敤**鍚屼竴涓棬闄愶紙閮界敤 frameCap.frameThreshold 绠楋級 */
+/** 一处生效: 形象与背景**共用**同一个门限（都用 frameCap.frameThreshold 算） */
 const applyL2dFps = () => {
 	l2d.applyFrameCap(l2dFpsNum.value)
 	setDataseaFps(l2dFpsNum.value)
 }
-/** 妗ｄ綅鎸夐挳鏂囨 */
-const l2dFpsLabel = (v: number): string => (v === 0 ? "涓嶉檺" : `${v}`)
-/** 鍒囨崲妗ｄ綅: 绔嬪嵆鐢熸晥 + 钀界洏 */
+/** 档位按钮文案 */
+const l2dFpsLabel = (v: number): string => (v === 0 ? "不限" : `${v}`)
+/** 切换档位: 立即生效 + 落盘 */
 const setL2dFps = (v: number): void => {
 	cfg.l2dFps = normalizeFps(v)
 	applyL2dFps()
 	persistSettings()
 }
 
-const curModelName = computed(() => cfg.model || "鏈厤缃ā鍨?)
+const curModelName = computed(() => cfg.model || "未配置模型")
 
 const storageReady = ref(false)
 const storagePath = ref("Download/NoriDroid")
 /**
- * 澶栬椋庢牸: "soft" = 鍙繚鐣?*鑹叉澘**鐨勬煍鍜岄锛?*2026-10-01 璧烽粯璁?* 鈥斺€?鐢ㄦ埛瀹氱銆岄粯璁?UI 鏀规垚鏌斿拰銆嶏級;
- *            "pixel" = 缃戦〉鐗堝儚绱犻锛堢‖杈?鐩磋/鏂滅汗锛夛紝涓嶅啀浣滀负榛樿锛屼絾淇濈暀涓哄彲鍒囨崲椤瑰仛 A/B銆? *
- * 涓轰粈涔堣繕鐣欑潃寮€鍏? 涓ょ椋庢牸鐨勫彇鑸嶈鍦?*鐪熸満涓婄湅**锛屼竴涓寘閲屽甫涓ゅ鏍峰紡锛岀敤 `?ui=soft` / `?ui=pixel`
- * 鎴栬缃〉鎸夐挳鍗冲彲鍒囨崲锛屼笉蹇呮潵鍥炲埛涓ゆ鍥轰欢銆傜敤鎴锋墜鍔ㄥ垏杩囩殑璁板湪 localStorage锛坄ui_style`锛夐噷锛? * 鎵€浠?鏀归粯璁ゅ€?鍙奖鍝嶆病閫夎繃鐨勪汉銆傚彧褰卞搷 class锛屼笉鍙備笌浠讳綍涓氬姟閫昏緫銆? */
+ * 外观风格: "soft" = 只保留**色板**的柔和风（**2026-10-01 起默认** —— 用户定稿「默认 UI 改成柔和」）;
+ *            "pixel" = 网页版像素风（硬边/直角/斜纹），不再作为默认，但保留为可切换项做 A/B。
+ *
+ * 为什么还留着开关: 两种风格的取舍要在**真机上看**，一个包里带两套样式，用 `?ui=soft` / `?ui=pixel`
+ * 或设置页按钮即可切换，不必来回刷两次固件。用户手动切过的记在 localStorage（`ui_style`）里，
+ * 所以"改默认值"只影响没选过的人。只影响 class，不参与任何业务逻辑。
+ */
 const uiSoft = ref(true)
 try {
 	const q = new URLSearchParams(location.search).get("ui")
@@ -3705,16 +3865,17 @@ try {
 	if (q === "soft" || q === "tide" || q === "pixel") uiSoft.value = q === "soft"
 	else if (saved === "soft") uiSoft.value = true
 	else if (saved === "tide" || saved === "pixel") uiSoft.value = false
-} catch { /* 蹇界暐 */ }
+} catch { /* 忽略 */ }
 const toggleUiStyle = (): void => {
 	uiSoft.value = !uiSoft.value
-	try { localStorage.setItem("ui_style", uiSoft.value ? "soft" : "tide") } catch { /* 蹇界暐 */ }
+	try { localStorage.setItem("ui_style", uiSoft.value ? "soft" : "tide") } catch { /* 忽略 */ }
 	playSfx()
-	triggerBubble(uiSoft.value ? "澶栬锛氭煍鍜岄浘闈? : "澶栬锛氭疆姹愮幓鐠?, 2200)
+	triggerBubble(uiSoft.value ? "外观：柔和雾面" : "外观：潮汐玻璃", 2200)
 }
 
-/* ---------------- 鐣岄潰瀛椾綋锛?026-10-15 鐢ㄦ埛瑕佹眰锛?----------------
- * 涓変釜閫夐」锛氱郴缁熼粯璁?/ 闇為箿鏂囨シ / 绔欓叿蹇箰浣撱€傚悗涓や釜鏄殢鍖呯殑 OFL 瀛愰泦锛堣 ui-fonts.less锛夈€? * 杩欓噷鍙"褰撳墠閫夊摢涓?+ 鍐欒繘璁剧疆"锛涜惤 DOM 涓庡瓧浣撴爤鐢?services/ui-font.ts + ui-fonts.less 璐熻矗銆?*/
+/* ---------------- 界面字体（2026-10-15 用户要求） ----------------
+ * 三个选项：系统默认 / 霞鹜文楷 / 站酷快乐体。后两个是随包的 OFL 子集（见 ui-fonts.less）。
+ * 这里只管"当前选哪个 + 写进设置"；落 DOM 与字体栈由 services/ui-font.ts + ui-fonts.less 负责。 */
 const uiFontNow = computed<UiFontChoice>(() => normalizeUiFont(cfg.uiFont))
 const uiFontHint = computed<string>(() => UI_FONT_OPTIONS.find(o => o.value === uiFontNow.value)?.hint ?? "")
 const setUiFont = (v: UiFontChoice): void => {
@@ -3723,22 +3884,24 @@ const setUiFont = (v: UiFontChoice): void => {
 	persistSettings()
 	playSfx()
 	const label = UI_FONT_OPTIONS.find(o => o.value === v)?.label ?? v
-	triggerBubble(`鐣岄潰瀛椾綋锛?{label}`, 2200)
+	triggerBubble(`界面字体：${label}`, 2200)
 }
-/** 瀛樺偍鑷缁撴灉 (鍘熷 JSON, 渚夸簬鐩存帴鎴浘/澶嶅埗缁欏紑鍙戣€? */
+/** 存储自检结果 (原始 JSON, 便于直接截图/复制给开发者) */
 const storageProbeMsg = ref("")
-/** 鏄惁宸茶幏寰椼€屾墍鏈夋枃浠惰闂潈闄愩€?Android 11+; 璇诲啓鍏叡鐩綍瑕侀潬瀹? */
+/** 是否已获得「所有文件访问权限」(Android 11+; 读写公共目录要靠它) */
 const allFilesAccess = ref(false)
 
-/** 璺冲埌绯荤粺璁剧疆鎺堜簣銆屾墍鏈夋枃浠惰闂潈闄愩€? 鍥炴潵鏃?onVisibility 浼氶噸鏂板埛鏂扮姸鎬?*/
+/** 跳到系统设置授予「所有文件访问权限」; 回来时 onVisibility 会重新刷新状态 */
 const doRequestAllFiles = () => {
 	requestAllFilesAccess()
-	triggerBubble("璇峰湪绯荤粺璁剧疆閲屾墦寮€銆屽厑璁哥鐞嗘墍鏈夋枃浠躲€嶏紝鐒跺悗杩斿洖杩欓噷鐐广€岃嚜妫€銆?, 4200)
+	triggerBubble("请在系统设置里打开「允许管理所有文件」，然后返回这里点「自检」", 4200)
 }
 
 /**
- * 瀛樺偍鑷: 閫愪釜闂師鐢?鍏叡鐩綍閲岃繖涓枃浠跺埌搴曚粈涔堟儏鍐?銆? * 鎺掓煡"鍗歌浇閲嶈鍚庡師鏈夊唴瀹硅涓嶅埌"鈥斺€旇鍖哄垎涓夌鎯呭喌: 鈶犵鐩樹笂鏍规湰娌℃枃浠?绯荤粺鍒犱簡)
- * 鈶℃枃浠跺湪, 浣?MediaStore 琛屼笉灞炰簬鏈簲鐢?鏈夈€屾墍鏈夋枃浠惰闂潈闄愩€嶆椂鑳界洿璇诲洖鏉? 鈶㈢洿璇昏绯荤粺鎸′綇銆? */
+ * 存储自检: 逐个问原生"公共目录里这个文件到底什么情况"。
+ * 排查"卸载重装后原有内容读不到"——要区分三种情况: ①磁盘上根本没文件(系统删了)
+ * ②文件在, 但 MediaStore 行不属于本应用(有「所有文件访问权限」时能直读回来) ③直读被系统挡住。
+ */
 const doStorageProbe = () => {
 	const names = ["chat.json", "memory.json", "settings.json", "nori-diary.json", "nori-diary.json.bak", "nori-diary-src.json"]
 	const lines: string[] = []
@@ -3750,11 +3913,11 @@ const doStorageProbe = () => {
 			access = !!o.allFilesAccess
 			lines.push(
 				`${n}\n` +
-				`  纾佺洏涓婂瓨鍦? ${o.onDisk ? `鏄?${o.fileBytes} 瀛楄妭)` : "鍚?}  鍙洿璇? ${o.fileReadable ? "鏄? : "鍚?}\n` +
-				`  MediaStore 鍙: ${o.inMediaStore ? `鏄?${o.mediaStoreBytes} 瀛楄妭)` : "鍚?}\n` +
-				`  鎵€鏈夋枃浠惰闂潈闄? ${o.allFilesAccess ? "鏄? : "鍚?}\n` +
-				`  鐩綍: ${o.dir}  瀛樺湪=${o.dirExists} 鍙=${o.dirReadable}\n` +
-				`  鐩綍鍐呭: ${JSON.stringify(o.listed)}`
+				`  磁盘上存在: ${o.onDisk ? `是(${o.fileBytes} 字节)` : "否"}  可直读: ${o.fileReadable ? "是" : "否"}\n` +
+				`  MediaStore 可见: ${o.inMediaStore ? `是(${o.mediaStoreBytes} 字节)` : "否"}\n` +
+				`  所有文件访问权限: ${o.allFilesAccess ? "是" : "否"}\n` +
+				`  目录: ${o.dir}  存在=${o.dirExists} 可读=${o.dirReadable}\n` +
+				`  目录内容: ${JSON.stringify(o.listed)}`
 			)
 		} catch {
 			lines.push(`${n}\n  ${raw}`)
@@ -3765,28 +3928,32 @@ const doStorageProbe = () => {
 	storagePath.value = getStorageDir()
 }
 
-/* ---------------- 鑷畾涔変汉璁撅紙2026-10-01 鐢ㄦ埛瑕佹眰锛?---------------
- * 鐢ㄦ埛瀵煎叆鑷繁鐨勬彁绀鸿瘝鏇夸唬鍐呯疆 `nori-prompt.md`; 鍐呭瀛樺湪鏈満 `persona.md`锛堣 services/chat锛夈€? * 杩欓噷鍙**璁剧疆闈㈡澘椤堕儴閭ｈ鐨勬樉绀轰笌涓や釜鎸夐挳**; 鐪熸鍙栫敤鍝唤浜鸿鏄?chat 閲岀殑 personaPrompt()銆? * 鈿?`personaName` 鍙湪鍐呭瓨閲岋紙鏂囦欢鍚嶄笉钀界洏锛夆€斺€?閲嶅紑 App 鍚庡彧鐭ラ亾銆屾湁鑷畾涔夈€? 涓嶇煡閬撳師鏉ュ彨浠€涔堛€?*/
+/* ---------------- 自定义人设（2026-10-01 用户要求）----------------
+ * 用户导入自己的提示词替代内置 `nori-prompt.md`; 内容存在本机 `persona.md`（见 services/chat）。
+ * 这里只管**设置面板顶部那行的显示与两个按钮**; 真正取用哪份人设是 chat 里的 personaPrompt()。
+ * ⚠ `personaName` 只在内存里（文件名不落盘）—— 重开 App 后只知道「有自定义」, 不知道原来叫什么。 */
 const personaName = ref("")
 const personaCustom = ref(false)
 const personaChars = ref(0)
 const personaMsg = ref("")
 const personaMsgOk = ref(false)
-/* 瀹樻柟浜鸿涓嬭浇锛?026-10-14 鐢ㄦ埛瑕佹眰锛? 涓庛€屼笅杞芥ā鍨嬨€嶅悓涓€閬撶瓟棰橀棬锛岀瓟瀵规墠鐪熺殑鍘讳笅鎷?.md銆? *  `personaOfficial` 鍙敤鏉ユ妸鐘舵€佽鍐欐垚銆屽綋鍓嶏細瀹樻柟浜鸿銆嶁€斺€?涓庢枃浠跺悕涓€鏍峰彧鍦ㄥ唴瀛橀噷锛? *  閲嶅惎鍚庡洖钀芥樉绀烘垚銆岃嚜瀹氫箟 路 N 瀛椼€嶏紙鍐呭鏈韩鏄惤鐩樼殑锛屼笉褰卞搷鍔熻兘锛夈€?*/
+/* 官方人设下载（2026-10-14 用户要求）: 与「下载模型」同一道答题门，答对才真的去下拉 .md。
+ *  `personaOfficial` 只用来把状态行写成「当前：官方人设」—— 与文件名一样只在内存里，
+ *  重启后回落显示成「自定义 · N 字」（内容本身是落盘的，不影响功能）。 */
 const personaOfficial = ref(false)
 const personaDlMsg = ref("")
 const personaDlOk = ref(false)
 const personaDlBusy = ref(false)
 
-/** 鐘舵€佽鏂囨锛?026-10-01 璧?*娌℃湁鍐呯疆浜鸿**锛? 銆屾湭璁剧疆浜鸿鈥︺€?銆屽綋鍓嶏細鑷畾涔夛紙鏂囦欢鍚嶏級路 N 瀛椼€?
- *  銆屽綋鍓嶏細瀹樻柟浜鸿 路 N 瀛椼€嶏紙鏈€鍚庝竴鏉℃槸 2026-10-14 鍔犵殑涓嬭浇鍏ュ彛甯︽潵鐨勶級 */
+/** 状态行文案（2026-10-01 起**没有内置人设**）: 「未设置人设…」/「当前：自定义（文件名）· N 字」/
+ *  「当前：官方人设 · N 字」（最后一条是 2026-10-14 加的下载入口带来的） */
 const personaStateText = computed(() =>
 	personaCustom.value
-		? `褰撳墠锛?{personaOfficial.value ? "瀹樻柟浜鸿" : "鑷畾涔?}${personaName.value ? `锛?{personaName.value}锛塦 : ""} 路 ${personaChars.value} 瀛梎
-		: `鏈缃汉璁?鈥斺€?鐐广€屽鍏ユ枃浠躲€嶉€変竴浠戒汉璁炬枃妗堬紝鎴栫偣銆屼笅杞藉畼鏂逛汉璁俱€嶏紙涓嶅鍏ョ殑璇?Nori 娌℃湁浜烘牸璁惧畾锛塦
+		? `当前：${personaOfficial.value ? "官方人设" : "自定义"}${personaName.value ? `（${personaName.value}）` : ""} · ${personaChars.value} 字`
+		: `未设置人设 —— 点「导入文件」选一份人设文案，或点「下载官方人设」（不导入的话 Nori 没有人格设定）`
 )
 
-/** 閲嶈鑷畾涔変汉璁? 鍒锋柊閭ｈ鐘舵€?(鍚姩鏃朵笌瀵煎叆/涓嬭浇/鎭㈠鍚庡悇璋冧竴娆? */
+/** 重读自定义人设, 刷新那行状态 (启动时与导入/下载/恢复后各调一次) */
 const refreshPersonaState = () => {
 	const t = loadCustomPersona()
 	personaCustom.value = !!t
@@ -3797,19 +3964,20 @@ const refreshPersonaState = () => {
 	}
 }
 
-/** 瀵煎叆鏂囨浜鸿: 绯荤粺鏂囦欢閫夋嫨鍣?鈫?瀛?`persona.md` 鈫?涔嬪悗姣忚疆瀵硅瘽閮界敤瀹?*/
+/** 导入文案人设: 系统文件选择器 → 存 `persona.md` → 之后每轮对话都用它 */
 const doImportPersona = async () => {
 	personaMsg.value = ""
 	const r = await pickPersonaFile()
 	if (!r.ok) {
 		personaMsgOk.value = false
-		// 鐢ㄦ埛鍦ㄧ郴缁熼€夋嫨鍣ㄩ噷鐐逛簡杩斿洖 鈥斺€?杩欎笉绠楅敊璇? 涓嶅脊姘旀场, 鍙涓€鍙?		personaMsg.value = r.message ?? "鏈€夋嫨鏂囦欢"
+		// 用户在系统选择器里点了返回 —— 这不算错误, 不弹气泡, 只说一句
+		personaMsg.value = r.message ?? "未选择文件"
 		return
 	}
 	const text = (r.text ?? "").trim()
 	if (!text) {
 		personaMsgOk.value = false
-		personaMsg.value = "杩欎釜鏂囦欢鏄┖鐨? 娌℃湁鍙綋浜鸿鐨勫唴瀹?
+		personaMsg.value = "这个文件是空的, 没有可当人设的内容"
 		return
 	}
 	saveCustomPersona(text)
@@ -3817,11 +3985,11 @@ const doImportPersona = async () => {
 	personaOfficial.value = false
 	refreshPersonaState()
 	personaMsgOk.value = true
-	personaMsg.value = `宸插鍏?${r.name ?? "浜鸿鏂囦欢"}锛?{personaChars.value} 瀛楋級`
-	triggerBubble("浜鸿宸叉洿鏂帮紝涓嬫璇磋瘽灏辩収杩欎釜鏉?)
+	personaMsg.value = `已导入 ${r.name ?? "人设文件"}（${personaChars.value} 字）`
+	triggerBubble("人设已更新，下次说话就照这个来")
 }
 
-/** 娓呴櫎鑷畾涔変汉璁? 鎶?`persona.md` 鍐呭娓呯┖锛堟枃浠剁暀鐫€, 涓嶅垹锛涙病鏈夊唴缃汉璁惧彲鍥炶惤锛?*/
+/** 清除自定义人设: 把 `persona.md` 内容清空（文件留着, 不删；没有内置人设可回落） */
 const doResetPersona = () => {
 	saveCustomPersona("")
 	personaOfficial.value = false
@@ -3829,27 +3997,30 @@ const doResetPersona = () => {
 	refreshPersonaState()
 	personaMsgOk.value = true
 	personaMsg.value = ""
-	triggerBubble("宸叉竻闄よ嚜瀹氫箟浜鸿")
+	triggerBubble("已清除自定义人设")
 }
 
-/* ---------------- 瀹樻柟浜鸿涓嬭浇锛?026-10-14 鐢ㄦ埛瑕佹眰锛?---------------
- * 鍏ュ彛鍦ㄨ缃?鈫?杩炴帴涓庝汉璁?鈫掋€屽畼鏂逛汉璁俱€嶈锛堝氨鎺掑湪銆屼汉璁炬枃妗堬紙鎻愮ず璇嶏級銆嶆涓嬫柟锛夈€? * 鍜屻€屼笅杞芥ā鍨嬨€嶅畬鍏ㄥ悓涓€濂楋細鐐规寜閽?鈫?寮€銆屼汉璁炬巿鏉冮獙璇併€嶉偅閬撻 鈫?**绛斿鎵?*鍘讳笅杞斤紙绛旈敊/鍙栨秷閮戒笉涓嬶級銆? * 涓嬭浇婧愬湪 services/chat锛圥ERSONA_DOWNLOAD_URL, PinMe/IPFS 闈欐€佹墭绠★紝涓庢ā鍨?闊虫晥鍚屼竴濂楋級銆? * 涓嬪畬鐩存帴 saveCustomPersona锛? `persona.md`锛夆啋 涓嬩竴杞璇濆氨鎸夎繖浠戒汉璁捐蛋銆?*/
+/* ---------------- 官方人设下载（2026-10-14 用户要求）----------------
+ * 入口在设置 → 连接与人设 →「官方人设」行（就排在「人设文案（提示词）」正下方）。
+ * 和「下载模型」完全同一套：点按钮 → 开「人设授权验证」那道题 → **答对才**去下载（答错/取消都不下）。
+ * 下载源在 services/chat（PERSONA_DOWNLOAD_URL, PinMe/IPFS 静态托管，与模型/音效同一套）。
+ * 下完直接 saveCustomPersona（= `persona.md`）→ 下一轮对话就按这份人设走。 */
 const openPersonaGate = (): void => {
 	if (personaDlBusy.value) return
 	personaDlMsg.value = ""
 	openGate("persona", () => { void doDownloadOfficialPersona() })
 }
 
-/** 绛旈闂ㄦ斁琛屼箣鍚庣湡姝ｅ幓涓嬭浇锛涙枃鏈牎楠屽湪 services/chat 閲屽仛锛堢┖/瓒呭ぇ/HTML/涓嶆槸 Nori 鐨勯兘涓嶅啓鐩橈級 */
+/** 答题门放行之后真正去下载；文本校验在 services/chat 里做（空/超大/HTML/不是 Nori 的都不写盘） */
 const doDownloadOfficialPersona = async (): Promise<void> => {
 	personaDlBusy.value = true
 	personaDlOk.value = false
-	personaDlMsg.value = "涓嬭浇涓€?
+	personaDlMsg.value = "下载中…"
 	try {
 		const r = await downloadOfficialPersona()
 		if (!r.ok || !r.text) {
 			personaDlOk.value = false
-			personaDlMsg.value = r.message ?? "涓嬭浇澶辫触"
+			personaDlMsg.value = r.message ?? "下载失败"
 			return
 		}
 		saveCustomPersona(r.text)
@@ -3857,11 +4028,11 @@ const doDownloadOfficialPersona = async (): Promise<void> => {
 		personaName.value = ""
 		refreshPersonaState()
 		personaDlOk.value = true
-		personaDlMsg.value = `宸蹭笅杞藉苟鍚敤瀹樻柟浜鸿锛?{Math.round((r.bytes ?? 0) / 1024)}KB 路 ${personaChars.value} 瀛楋級`
-		triggerBubble("浜鸿瑁呭ソ鍟︼紝浠庣幇鍦ㄥ紑濮嬪氨鏄疦ori浜?)
+		personaDlMsg.value = `已下载并启用官方人设（${Math.round((r.bytes ?? 0) / 1024)}KB · ${personaChars.value} 字）`
+		triggerBubble("人设装好啦，从现在开始就是Nori了")
 	} catch (e) {
 		personaDlOk.value = false
-		personaDlMsg.value = `涓嬭浇澶辫触: ${(e as Error)?.message ?? String(e)}`
+		personaDlMsg.value = `下载失败: ${(e as Error)?.message ?? String(e)}`
 	} finally {
 		personaDlBusy.value = false
 	}
@@ -3889,12 +4060,12 @@ const scrollChatBottom = () => {
 }
 
 const refreshModels = async () => {
-	modelLoadMsg.value = "鍔犺浇涓€?
+	modelLoadMsg.value = "加载中…"
 	const r = await fetchModels(cfg.baseUrl, cfg.apiKey)
-	if (!r.ok) { modelLoadMsg.value = r.message ?? "鍔犺浇澶辫触"; return }
+	if (!r.ok) { modelLoadMsg.value = r.message ?? "加载失败"; return }
 	modelOptions.value = r.models ?? []
 	if (modelOptions.value.length && !modelOptions.value.includes(cfg.model)) cfg.model = modelOptions.value[0]
-	modelLoadMsg.value = `鎵惧埌 ${modelOptions.value.length} 涓ā鍨媊
+	modelLoadMsg.value = `找到 ${modelOptions.value.length} 个模型`
 }
 
 type PendingImage = Pick<ImagePickedResult, "dataUrl" | "mime" | "width" | "height" | "size">
@@ -3902,18 +4073,20 @@ type PendingChat = {text: string; image?: PendingImage}
 const imageMenu = ref(false)
 const imagePicking = ref(false)
 const pendingImage = ref<PendingImage | null>(null)
-// 鍥剧墖涓嶈繘鍏ュ巻鍙?璁板繂锛涙湰娆￠〉闈㈠彧淇濈暀鏈€杩?6 寮犵缉鐣ラ瑙堬紝閬垮厤闀胯亰绱Н base64銆?const imagePreviews = reactive(new Map<number, string>())
+// 图片不进入历史/记忆；本次页面只保留最近 6 张缩略预览，避免长聊累积 base64。
+const imagePreviews = reactive(new Map<number, string>())
 watch(chatOpen, (open) => { if (!open) imageMenu.value = false })
 watch(panel, () => { sideRailOpen.value = false; imageMenu.value = false })
 
-/** 杈撳叆娉曢€氬父鍙缉鐭珮搴︼紱瀹藉害鍙樺寲鎵嶈涓烘棆杞紝閬垮厤閿洏鎶婄珫灞忓垏鎴愭í灞忋€?*/
+/** 输入法通常只缩短高度；宽度变化才视为旋转，避免键盘把竖屏切成横屏。 */
 const syncChatLayout = (): void => {
 	const width = window.innerWidth
 	const viewport = window.visualViewport
 	const height = viewport?.height ?? window.innerHeight
 	const widthChanged = Math.abs(width - layoutWidth) > 2
 	const physicalViewport = physicalViewportAvailable()
-	// 璁剧疆椤典篃鑳藉敜璧烽敭鐩橈紱鍥炲埌鑱婂ぉ鏃朵笉鑳芥妸宸茬缉鐭殑楂樺害褰撲綔瀹屾暣瑙嗗彛銆?	const fullHeight = physicalViewport ? window.screen.height : (widthChanged ? window.innerHeight : layoutFullHeight)
+	// 设置页也能唤起键盘；回到聊天时不能把已缩短的高度当作完整视口。
+	const fullHeight = physicalViewport ? window.screen.height : (widthChanged ? window.innerHeight : layoutFullHeight)
 	const inputFocused = !!document.activeElement?.matches(".chat-input input")
 	const keyboard = height < fullHeight * 0.78 && (inputFocused || keyboardOpen.value) && (!widthChanged || physicalViewport)
 	keyboardOpen.value = keyboard
@@ -3921,7 +4094,8 @@ const syncChatLayout = (): void => {
 	if (!keyboard || widthChanged) {
 		portraitLayout.value = readPortraitLayout()
 		layoutWidth = width
-		// 閿洏鍔ㄧ敾閫愬抚缂╃煭楂樺害鏃朵篃淇濈暀瀹屾暣楂樺害锛屼笉鑳介€愬抚鎶婂垽鏂熀绾跨缉灏忋€?		layoutFullHeight = keyboard ? fullHeight : (inputFocused && !widthChanged ? Math.max(layoutFullHeight, window.innerHeight) : window.innerHeight)
+		// 键盘动画逐帧缩短高度时也保留完整高度，不能逐帧把判断基线缩小。
+		layoutFullHeight = keyboard ? fullHeight : (inputFocused && !widthChanged ? Math.max(layoutFullHeight, window.innerHeight) : window.innerHeight)
 	}
 }
 const onComposerFocus = (): void => {
@@ -3939,8 +4113,9 @@ const messageImageUrl = (message: ChatMsg): string | null => imagePreviews.get(m
 
 const messageSegments = (message: ChatMsg): string[] => {
 	if (message.role === "assistant") return bubbleSegments(message.content)
-	// 鏈夐瑙堟椂涓嶅啀鏄剧ず鍘嗗彶鍗犱綅绗︼紱绾浘鐗囨病鏈夋枃瀛楁皵娉°€?	const text = messageImageUrl(message) && message.content.startsWith("[鍥剧墖]")
-		? message.content.slice("[鍥剧墖]".length).trimStart()
+	// 有预览时不再显示历史占位符；纯图片没有文字气泡。
+	const text = messageImageUrl(message) && message.content.startsWith("[图片]")
+		? message.content.slice("[图片]".length).trimStart()
 		: message.content
 	return text ? [text] : []
 }
@@ -3952,7 +4127,7 @@ const chooseImage = async (source: "album" | "camera"): Promise<void> => {
 	try {
 		const result = source === "camera" ? await captureImage() : await pickImageFile()
 		if (!result.ok || !result.dataUrl) {
-			if (result.message && result.message !== "鏈€夋嫨鍥剧墖") triggerBubble(result.message, 2200)
+			if (result.message && result.message !== "未选择图片") triggerBubble(result.message, 2200)
 			return
 		}
 		pendingImage.value = {
@@ -3972,7 +4147,7 @@ const onInputEnter = (event: KeyboardEvent): void => {
 	void send()
 }
 
-/** 杈撳叆鎺掗槦: 涓婁竴鏉¤繕鍦ㄧ敓鎴?(鍚Е鎽歌Е鍙戠殑瀵硅瘽) 鏃? 鏂版秷鎭厛杩涢槦鍒? 绌洪棽鍚庝緷娆″彂鍑?*/
+/** 输入排队: 上一条还在生成 (含触摸触发的对话) 时, 新消息先进队列, 空闲后依次发出 */
 const pendingQueue = ref<PendingChat[]>([])
 let draining = false
 const drainQueue = async (): Promise<void> => {
@@ -4001,20 +4176,21 @@ const send = async (): Promise<void> => {
 	}
 	draft.value = ""
 	pendingImage.value = null
-	// 姝ｅ繖鏃跺叆闃?(watch 浼氬湪绌洪棽鏃惰Е鍙?drain), 绌洪棽鏃剁珛鍗冲彂閫?	pendingQueue.value.push({text, image: image ?? undefined})
+	// 正忙时入队 (watch 会在空闲时触发 drain), 空闲时立即发送
+	pendingQueue.value.push({text, image: image ?? undefined})
 	await drainQueue()
 }
 
 const runSend = async (text: string, image?: PendingImage): Promise<void> => {
-	const userText = text || (image ? "璇风湅鐪嬭繖寮犲浘鐗? : "")
-	// 鏈楄鎵撴柇 (barge-in): 娑堟伅鐪熸鍙戝嚭鏃舵墠鍋滄湕璇?(鎵撳瓧涓嶆墦鏂?;
-	// stop() 浼氬叧闂湕璇讳細璇濆苟缃?aborted, 涔嬪墠鍥炲閲屾帓闃熸湭璇荤殑鍙ュ瓙鍏ㄩ儴涓㈠純, 涓嶄細"澶嶆椿".
-	// 鎺掗槦鍦烘櫙: 姣忔潯娑堟伅鍦ㄥ疄闄呭彂鍑洪偅涓€鍒绘墠鎵撴柇, 鐢熸垚涓殑鍥炲浼氬厛璇诲畬
+	const userText = text || (image ? "请看看这张图片" : "")
+	// 朗读打断 (barge-in): 消息真正发出时才停朗读 (打字不打断);
+	// stop() 会关闭朗读会话并置 aborted, 之前回复里排队未读的句子全部丢弃, 不会"复活".
+	// 排队场景: 每条消息在实际发出那一刻才打断, 生成中的回复会先读完
 	ambientTouch()
 	habitRecord("msg")
 	stopTTS()
 	const imagePart: ChatMsg["parts"] = image?.dataUrl ? [{type: "text", text: userText}, {type: "image_url", image_url: {url: image.dataUrl}}] : undefined
-	const userMessage: ChatMsg = {role: "user", content: imagePart ? (text ? `[鍥剧墖] ${text}` : "[鍥剧墖]") : userText, ts: Date.now()}
+	const userMessage: ChatMsg = {role: "user", content: imagePart ? (text ? `[图片] ${text}` : "[图片]") : userText, ts: Date.now()}
 	messages.value.push(userMessage)
 	if (image?.dataUrl) {
 		imagePreviews.set(userMessage.ts, image.dataUrl)
@@ -4024,25 +4200,28 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 	scrollChatBottom()
 
 	typing.value = true
-	showPortraitReply("鈥?)
+	showPortraitReply("…")
 	stopRequested = false
 	const chatAbort = new AbortController()
 	activeChatAbort = chatAbort
 	try {
-		// 璁板繂绯荤粺: 鎸夊綋鍓嶆秷鎭彫鍥為暱鏈熻蹇?+ 璇诲彇鍘嗗彶鎬荤粨, 娉ㄥ叆涓婁笅鏂?		// smartRecall 寮€ 鈫?LLM 璇箟鍙洖 (鏇村噯); 鍏?鈫?鍏抽敭璇嶅彫鍥?(鍏嶈垂蹇?
+		// 记忆系统: 按当前消息召回长期记忆 + 读取历史总结, 注入上下文
+		// smartRecall 开 → LLM 语义召回 (更准); 关 → 关键词召回 (免费快)
 		const smartEnabled = cfg.smartRecall && cfg.apiKey.trim() && cfg.model.trim() && !shouldSkipLlmExtract(userText)
 		const selection = await selectRecallWithinBudget(userText, smartEnabled ? async (prompt, signal) => {
 			const r = await sendChat(cfg.baseUrl, cfg.apiKey, cfg.model, [{role: "system", content: prompt} as ChatMsg], false, {signal})
-			if (!r.ok) throw new Error(r.message ?? "鍙洖澶辫触")
+			if (!r.ok) throw new Error(r.message ?? "召回失败")
 			return r.content ?? ""
 		} : null, RECALL_BUDGET_MS, chatAbort.signal)
 		if (chatAbort.signal.aborted) return
 		const context: ChatMsg[] = []
 		const personaText = personaPrompt()
 		if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
-		// 涓撴敞鏁版嵁: 涓変釜闂搁棬閮借繃鎵嶆敞鍏?(璇濋鐩稿叧 + 鏈夊€煎緱璇寸殑 + 浠婂ぉ杩樻病鎻愯繃)銆?		// 鍒绘剰鍋氭垚"鍥炲鍐呮彁涓€鍙?鑰屼笉鏄?Ambient 涓诲姩鎼瘽 鈥斺€?鍚庤€呮瘡娆′細璇濆彧鏈?3 鏉￠绠?
-		// 鐢ㄥ幓鎶ユ暟瀛楀氨鎶婇櫔浼村彉鎴愭墦鍗℃彁閱掍簡銆傛敞鍏ユ枃鏈嚜甯?鏈€澶氭彁杩欎竴浠朵簨"鐨勫厠鍒剁害鏉?
-		// 鍥犱负 persona 宸插弽澶嶅己璋?2~3 鍙ヤ笂闄?(涓嶅幓鏀惧閭ｆ潯瑙勫垯)銆?		if (focusHintFresh()) {
+		// 专注数据: 三个闸门都过才注入 (话题相关 + 有值得说的 + 今天还没提过)。
+		// 刻意做成"回复内提一句"而不是 Ambient 主动搭话 —— 后者每次会话只有 3 条预算,
+		// 用去报数字就把陪伴变成打卡提醒了。注入文本自带"最多提这一件事"的克制约束,
+		// 因为 persona 已反复强调 2~3 句上限 (不去放宽那条规则)。
+		if (focusHintFresh()) {
 			const fh = buildFocusHint(pomoSummary.value, userText, pomoStats.celebrated ?? {})
 			if (fh.hint) {
 				context.push({role: "system", content: fh.hint} as ChatMsg)
@@ -4051,24 +4230,28 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 			}
 		}
 		const hist: ChatMsg[] = contextHistory(messages.value).map(({role, content, ts}) => ({role, content, ts}))
-		// 鍙粰鏈鐢ㄦ埛娑堟伅闄勫浘锛涘悗缁璇濈户缁娇鐢ㄧ函鏂囧瓧鍘嗗彶銆?		if (imagePart) hist[hist.length - 1] = {...userMessage, parts: imagePart}
-		// 褰撳墠鏃堕棿鐢卞彂閫佸眰鍦ㄥ疄闄呭彂鍑鸿姹傛椂杩藉姞銆?		const payload = [...context, ...hist]
+		// 只给本次用户消息附图；后续对话继续使用纯文字历史。
+		if (imagePart) hist[hist.length - 1] = {...userMessage, parts: imagePart}
+		// 当前时间由发送层在实际发出请求时追加。
+		const payload = [...context, ...hist]
 
-		// 娴佸紡 TTS: 鍚敤鏃跺紑"閫愬彞鏈楄浼氳瘽", 杈圭敓鎴愯竟鍑洪煶
+		// 流式 TTS: 启用时开"逐句朗读会话", 边生成边出音
 		const ttsOn = isTtsReady(cfg)
 		if (ttsOn) beginSpeakSession(cfg)
 
-		chatMarkerBuf.value = "" // 鏂颁細璇濋噸缃亰澶╂爣璁拌法鍧楃紦鍐?		let reply = ""
+		chatMarkerBuf.value = "" // 新会话重置聊天标记跨块缓冲
+		let reply = ""
 		let pendingSpeech = ""
-		// 鏈浼氳瘽鏄惁鏀跺埌杩囨爣璁?(鏈夋爣璁?鈫?鏀跺熬涓嶅啀鐢ㄦ鏂囧叧閿瘝瑕嗙洊; 鏃犳爣璁?鈫?鍏抽敭璇嶅厹搴?
+		// 本次会话是否收到过标记 (有标记 → 收尾不再用正文关键词覆盖; 无标记 → 关键词兜底)
 		let markerDriven = false
-		// 瀛樺偍/鍘嗗彶鍚堝苟: 涓€娆″洖澶嶅彧瀛樹竴鏉℃秷鎭? 鏄剧ず鏃剁敱 bubbleSegments 鎷嗘垚澶氭皵娉?		let liveBubble: ChatMsg | null = null
+		// 存储/历史合并: 一次回复只存一条消息, 显示时由 bubbleSegments 拆成多气泡
+		let liveBubble: ChatMsg | null = null
 		let streamOk = false
 		chatStreaming.value = true
 
-		// 鍋滄鐢熸垚: 鏈湴 AbortController (鍗充娇鍘熺敓妗ヤ涪寮冨洖鍖呬篃鑳芥甯哥粨鏉? + 鍘熺敓妗?chatStop
+		// 停止生成: 本地 AbortController (即使原生桥丢弃回包也能正常结束) + 原生桥 chatStop
 
-		// 婊氬姩鑺傛祦: 闀垮洖澶嶆椂閬垮厤姣忓閲忛兘婊氬姩 (浠呰繎搴曢儴鎵嶆粴, 150ms 闄愰)
+		// 滚动节流: 长回复时避免每增量都滚动 (仅近底部才滚, 150ms 限频)
 		let lastScrollAt = 0
 		let scrollTimer: ReturnType<typeof setTimeout> | null = null
 		const throttledScroll = () => {
@@ -4087,7 +4270,7 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 			}
 		}
 
-		// 鎶婄疮绉殑鏂囨湰鎸夊彞瀛愯竟鐣屽垏鍑烘潵, 閫愬彞杩藉姞鏈楄 (鍙湪瀹夊叏杈圭晫鍒? 涓嶅垏璇?
+		// 把累积的文本按句子边界切出来, 逐句追加朗读 (只在安全边界切, 不切词)
 		const flushSpeech = () => {
 			if (!ttsOn || !pendingSpeech) return
 			pendingSpeech = stripInternalPromptMetadata(pendingSpeech)
@@ -4102,9 +4285,9 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 		await new Promise<void>((resolve) => {
 			sendChatStream(cfg.baseUrl, cfg.apiKey, cfg.model, payload, {
 				onDelta: (delta) => {
-					// 闃插尽: 涓埆浠ｇ悊浼氭妸 null 褰撳瓧绗︿覆涓嬪彂, 鐩存帴璺宠繃
+					// 防御: 个别代理会把 null 当字符串下发, 直接跳过
 					if (delta === "null") return
-					// 鍓ョ闅愯棌鐨勩€愯〃鎯?xxx銆戙€愬姩浣?xxx銆戞爣璁?(鏍囪涓嶆樉绀恒€佷笉鏈楄)
+					// 剥离隐藏的【表情:xxx】【动作:xxx】标记 (标记不显示、不朗读)
 					const {clean, emotion, motion} = parseMarkerDelta(delta, chatMarkerBuf)
 					const safeClean = stripInternalPromptMetadata(clean)
 					reply = stripInternalPromptMetadata(reply + safeClean)
@@ -4113,7 +4296,8 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 					if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
 					if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
 					if (cfg.emotionLlm && motion) playMarkerMotion(motion)
-					// 瀛樺偍鍚堝苟: 鍙洿鏂颁竴鏉?liveBubble, 鏄剧ず灞傝嚜鍔ㄦ媶澶氭皵娉?					if (!liveBubble && reply.trim()) {
+					// 存储合并: 只更新一条 liveBubble, 显示层自动拆多气泡
+					if (!liveBubble && reply.trim()) {
 						liveBubble = {role: "assistant", content: reply, ts: Date.now()}
 						messages.value.push(liveBubble)
 					} else if (liveBubble) {
@@ -4133,8 +4317,8 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 					streamOk = true
 					chatStreaming.value = false
 					reply = stripInternalPromptMetadata(reply)
-					// content 鏄惈鏍囪鐨勫叏鏂? 浼樺厛鐢ㄦ祦寮忕疮绉殑宸插墺绂?reply;
-					// 鑻?reply 涓虹┖ (濡傞潪娴佸紡鍥為€€), 鍒欏 content 鏁翠綋鍓ョ涓€娆?(鐢ㄧ┖缂撳啿, 閬垮厤娈嬬暀鎷兼帴)
+					// content 是含标记的全文: 优先用流式累积的已剥离 reply;
+					// 若 reply 为空 (如非流式回退), 则对 content 整体剥离一次 (用空缓冲, 避免残留拼接)
 					if (content && !reply.trim()) {
 						const fresh = {value: ""}
 						const {clean, emotion, motion} = parseMarkerDelta(content, fresh)
@@ -4142,7 +4326,7 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 						if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
 						if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
 						if (cfg.emotionLlm && motion) playMarkerMotion(motion)
-						// 闈炴祦寮忓洖閫€: 鏁翠綋鍐呭浣滀负涓€鏉℃秷鎭?(鏄剧ず灞傝嚜鍔ㄦ媶澶氭皵娉?
+						// 非流式回退: 整体内容作为一条消息 (显示层自动拆多气泡)
 						if (!liveBubble && reply.trim()) {
 							liveBubble = {role: "assistant", content: reply, ts: Date.now()}
 							messages.value.push(liveBubble)
@@ -4150,7 +4334,8 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 							liveBubble.content = reply
 						}
 					}
-					// 鍏滃簳: 娴佸紡璺緞鑻ヤ粛鏈夋畫鐣欐湭闂悎鐨勩€?缂撳啿閲?, 璇存槑鏍囪涓嶅畬鏁? 涓㈠純涓嶆樉绀?					chatMarkerBuf.value = ""
+					// 兜底: 流式路径若仍有残留未闭合的【(缓冲里), 说明标记不完整, 丢弃不显示
+					chatMarkerBuf.value = ""
 					if (liveBubble) {
 						if (reply.trim()) liveBubble.content = reply
 						else {
@@ -4166,7 +4351,8 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 				},
 				onError: (msg) => {
 					chatStreaming.value = false
-					// 鐢ㄦ埛涓诲姩鍋滄: 涓嶆樉绀洪敊璇皵娉? 鍏朵粬澶辫触涓旀棤鍐呭鏃舵樉绀?					const cancelled = stopRequested || msg === "宸插仠姝?
+					// 用户主动停止: 不显示错误气泡; 其他失败且无内容时显示
+					const cancelled = stopRequested || msg === "已停止"
 					if (cancelled) showPortraitReply(reply)
 					if (!cancelled && !reply.trim()) {
 						if (liveBubble) {
@@ -4174,10 +4360,11 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 							if (idx >= 0) messages.value.splice(idx, 1)
 							liveBubble = null
 						}
-						messages.value.push({role: "assistant", content: `鈿?${msg}`, ts: Date.now(), error: true})
-						showPortraitReply(`鈿?${msg}`)
+						messages.value.push({role: "assistant", content: `⚠ ${msg}`, ts: Date.now(), error: true})
+						showPortraitReply(`⚠ ${msg}`)
 					} else if (liveBubble) {
-						// 宸叉敹鍒伴儴鍒嗗唴瀹? 淇濈暀涓轰竴鏉℃秷鎭?						liveBubble.content = reply
+						// 已收到部分内容: 保留为一条消息
+						liveBubble.content = reply
 					}
 					persistChat(messages.value)
 					resolve()
@@ -4187,7 +4374,7 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 		if (activeChatAbort === chatAbort) activeChatAbort = null
 		if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = null }
 
-		// 鏀跺熬: 鍓╀綑鏈垚鍙ョ殑鏂囨湰 + 缁撴潫鏈楄浼氳瘽
+		// 收尾: 剩余未成句的文本 + 结束朗读会话
 		if (ttsOn) {
 			const safePendingSpeech = stripInternalPromptMetadata(pendingSpeech)
 			if (safePendingSpeech.trim()) speakAppend(cfg, safePendingSpeech)
@@ -4199,13 +4386,14 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 		scrollChatBottom()
 
 		if (streamOk && reply) {
-			// 琛ㄦ儏/鍔ㄤ綔: 娴佸紡鏍囪宸插嵆鏃堕┍鍔? 鍙湁鏈浼氳瘽瀹屽叏娌℃敹鍒版爣璁版椂鎵嶇敤姝ｆ枃鍏抽敭璇嶅厹搴?			if (!markerDriven) {
+			// 表情/动作: 流式标记已即时驱动; 只有本次会话完全没收到标记时才用正文关键词兜底
+			if (!markerDriven) {
 				triggerEmotion(reply)
 				pickMotionByKeyword(reply)
 			}
-			// 璁板繂鎻愬彇: 瑙勫垯娉曞厤璐?+ LLM 鍙€夊寮?(琛ㄦ儏鍒嗘瀽宸插苟鍏ヤ富鍥炲鏍囪, 涓嶅啀鍗曠嫭璋冪敤)
+			// 记忆提取: 规则法免费 + LLM 可选增强 (表情分析已并入主回复标记, 不再单独调用)
 			void analyzeAfterReply(userText, reply)
-			// 璁板繂绯荤粺: 鍘嗗彶杩囬暱鏃剁敓鎴愭憳瑕?(鐢ㄥ甫鏍囩偣鐨勫師鏂囧帇缂? 璐ㄩ噺鏇村ソ)
+			// 记忆系统: 历史过长时生成摘要 (用带标点的原文压缩, 质量更好)
 			void (async () => {
 				const summarized = await summarizeIfNeeded(messages.value, async (prompt) => {
 					const r = await sendChat(cfg.baseUrl, cfg.apiKey, cfg.model, [
@@ -4213,24 +4401,28 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 					])
 					return r.ok ? (r.content ?? "") : ""
 				}, !!cfg.memoryLlmExtract)
-				maybeAutoTuneExamples()   // 鑷姩浼樺寲 (寮€鍏虫墦寮€鏃?: 鏂板澶?20 鏉″氨椤烘墜鍒锋柊绀轰緥
-				// 寮€鍚€岃嚜鍔ㄨ鍓€嶆椂: 鍙**宸茬粡杩涜繃鎽樿鐨勯偅娈靛墠缂€** (P5: safeTrimDrop 淇濊瘉
-				// 涓嶄細鎶婅繕娌℃€荤粨鐨勬秷鎭垹鎺?鈥斺€?鍒犳帀灏辨案杩滆繘涓嶄簡璁板繂浜?, 杩戠绐楀彛鐓ф棫淇濈暀銆?				const dropN = summarized && cfg.trimHistory ? safeTrimDrop(messages.value.length) : 0
+				maybeAutoTuneExamples()   // 自动优化 (开关打开时): 新增够 20 条就顺手刷新示例
+				// 开启「自动裁剪」时: 只裁**已经进过摘要的那段前缀** (P5: safeTrimDrop 保证
+				// 不会把还没总结的消息删掉 —— 删掉就永远进不了记忆了), 近端窗口照旧保留。
+				const dropN = summarized && cfg.trimHistory ? safeTrimDrop(messages.value.length) : 0
 				if (dropN > 0 && bufferDiarySource(messages.value.slice(0, dropN))) {
-					// 鏃ヨ绱犳潗淇濆瓨鎴愬姛鍚庢墠鑳借鍓紱澶辫触鏃朵繚鐣欏師瀵硅瘽銆?					// 鍗犱綅绗︿粛姣忔閮芥柊寤? 浣嗚亰澶╁瓨鍌ㄤ晶浼氬幓閲?(filterChatMsgs 鍙暀绗竴鏉?/
-					// mergeChatLists 瀵瑰崰浣嶇鏌ラ噸) 鈥斺€?鎵€浠ュ畠涓嶄細鍦ㄧ鐩樹笂瓒婄Н瓒婂銆?					// 涓嶈鍦ㄨ繖閲?澶嶇敤鏃у崰浣嶇": 瀹冪殑 ts 浣庝簬宸茶鐨?cutoff, 閲嶈浇鏃剁収鏍蜂細琚涪鎺夈€?					const kept = messages.value.slice(dropN)
-					kept.unshift({role: "system", content: "锛堟洿鏃╃殑瀵硅瘽宸插帇缂╀负鍘嗗彶鎬荤粨锛屽彲鍦ㄨ缃啋璁板繂绯荤粺鏌ョ湅锛?, ts: Date.now(), placeholder: true})
-					// 閫氱煡鑱婂ぉ瀛樺偍瑁佸壀杈圭晫: 钀界洏褰掑苟鏃朵笉鍐嶆妸琚鎺夌殑鏃ф秷鎭苟鍥炴潵
+					// 日记素材保存成功后才能裁剪；失败时保留原对话。
+					// 占位符仍每次都新建, 但聊天存储侧会去重 (filterChatMsgs 只留第一条 /
+					// mergeChatLists 对占位符查重) —— 所以它不会在磁盘上越积越多。
+					// 不要在这里"复用旧占位符": 它的 ts 低于已设的 cutoff, 重载时照样会被丢掉。
+					const kept = messages.value.slice(dropN)
+					kept.unshift({role: "system", content: "（更早的对话已压缩为历史总结，可在设置→记忆系统查看）", ts: Date.now(), placeholder: true})
+					// 通知聊天存储裁剪边界: 落盘归并时不再把被裁掉的旧消息并回来
 					const firstReal = kept.find(m => m.role !== "system")
 					if (firstReal) setChatTrimCutoff(firstReal.ts)
 					messages.value = kept
 					persistChat(messages.value)
-					// 鐧昏琚鎺夌殑鏉℃暟 (P5): 娓告爣闈?绱宸叉憳瑕?- 绱宸茶鍓?鎹㈢畻鎴愭暟缁勪笅鏍?
-					// 涓嶅啀鍍忔棫瀹炵幇閭ｆ牱璋庣О"淇濈暀鐨勯兘宸叉憳瑕? (閭ｄ細璁╄繎绔?20 鏉℃案杩滀笉琚€荤粨)
+					// 登记被裁掉的条数 (P5): 游标靠"累计已摘要 - 累计已裁剪"换算成数组下标,
+					// 不再像旧实现那样谎称"保留的都已摘要" (那会让近端 20 条永远不被总结)
 					notifyHistoryTrimmed(dropN)
 					scrollChatBottom()
 				}
-			})().catch(e => { console.error("[mem] 鍚庡彴鏁寸悊澶辫触", e); refreshMemView() })
+			})().catch(e => { console.error("[mem] 后台整理失败", e); refreshMemView() })
 		}
 	} finally {
 		if (activeChatAbort === chatAbort) activeChatAbort = null
@@ -4244,27 +4436,29 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const splitReplies = (reply: string): string[] => {
 	const lines = reply.split(/\n+/).map((s) => s.trim()).filter((s) => s)
-	if (lines.length >= 2) return lines.map((s) => s.replace(/[銆傦紒锛??^~锛?]+$/g, ""))
+	if (lines.length >= 2) return lines.map((s) => s.replace(/[。！？!?^~，,]+$/g, ""))
 	return [reply.trim()]
 }
 
 /**
- * 姘旀场鏄剧ず鏂囨湰: 缁熶竴鐪佺暐鍙锋樉绀? 闃叉琚?CSS 鏂鎷嗗紑.
- * - 杩炵画鑻辨枃鐐?(AI 鍙兘杈撳嚭 "......") 鈫?鍗曚釜涓枃鐪佺暐鍙?"鈥?
- * - 涓枃鐪佺暐鍙?(鈥︹€?鎴?路路路路路路) 鈫?鍚堝苟涓哄崟涓?"鈥?
- * 鍗曚釜瀛楃姘歌繙涓嶄細琚柇琛屾媶寮€.
+ * 气泡显示文本: 统一省略号显示, 防止被 CSS 断行拆开.
+ * - 连续英文点 (AI 可能输出 "......") → 单个中文省略号 "…"
+ * - 中文省略号 (…… 或 ······) → 合并为单个 "…"
+ * 单个字符永远不会被断行拆开.
  */
 
 const bubbleText = (content: string): string =>
 	stripInternalPromptMetadata(content)
-		.replace(/\.{2,20}/g, "鈥?)
-		.replace(/鈥2,}/g, "鈥?)
-		.replace(/路{2,}/g, "鈥?)
+		.replace(/\.{2,20}/g, "…")
+		.replace(/…{2,}/g, "…")
+		.replace(/·{2,}/g, "…")
 
 /**
- * 鎸夊彞鎷嗘皵娉?(浠呮樉绀虹敤): 瀛樺偍閲屼竴鏉℃秷鎭? 鏄剧ず鏃舵寜鍙ユ湯鏍囩偣鍒囨垚澶氫釜鐙珛姘旀场.
- * 澶嶇敤 splitSpeechText 鐨勫垏鍒嗚鍒?(銆傦紒锛??\n鈥?, 瓒呴暱鏃犳爣鐐规鐢?MAX_BUBBLE_LEN 鍏滃簳.
- * 缁撴灉鎸夊唴瀹圭紦瀛?(鎬ц兘): 娴佸紡鏃舵瘡涓閲忛兘瑙﹀彂閲嶆覆鏌? 妯℃澘閲岀洿鎺ヨ皟鐢ㄤ細璁? * 鍏ㄩ儴鍘嗗彶娑堟伅姣忓抚閲嶅垏涓€閬?鈥斺€?闀垮璇濇墦瀛?娴佸紡杈撳嚭鍗￠】鐨勬牴婧? 鍐呭瀛楃涓? * 涓嶅彲鍙?鈫?缂撳瓨鎸夊唴瀹瑰仛閿? 鍙湁姝ｅ湪鐢熼暱鐨勯偅鏉′細閲嶇畻.
+ * 按句拆气泡 (仅显示用): 存储里一条消息, 显示时按句末标点切成多个独立气泡.
+ * 复用 splitSpeechText 的切分规则 (。！？!?\n…), 超长无标点段用 MAX_BUBBLE_LEN 兜底.
+ * 结果按内容缓存 (性能): 流式时每个增量都触发重渲染, 模板里直接调用会让
+ * 全部历史消息每帧重切一遍 —— 长对话打字/流式输出卡顿的根源. 内容字符串
+ * 不可变 → 缓存按内容做键, 只有正在生长的那条会重算.
  */
 const segCache = new Map<string, string[]>()
 const bubbleSegments = (content: string): string[] => {
@@ -4272,7 +4466,7 @@ const bubbleSegments = (content: string): string[] => {
 	const hit = segCache.get(cleaned)
 	if (hit) return hit
 	const segs = computeBubbleSegments(cleaned)
-	if (segCache.size > 150) segCache.clear() // 闃叉鏋侀暱瀵硅瘽涓嬬紦瀛樿啫鑳€ (鍐呭閿笉鍙灇涓惧鐢?
+	if (segCache.size > 150) segCache.clear() // 防止极长对话下缓存膨胀 (内容键不可枚举复用)
 	segCache.set(cleaned, segs)
 	return segs
 }
@@ -4291,26 +4485,27 @@ const computeBubbleSegments = (content: string): string[] => {
 			segs.push(t)
 		}
 	}
-	// 闃叉寰幆: 杩唬涓婇檺 (姝ｅ父鍥炲鏈€澶氬嚑鍗佸彞)
+	// 防死循环: 迭代上限 (正常回复最多几十句)
 	for (let guard = 0; guard < 200; guard++) {
-		// 姘旀场鏄剧ず: 鐪佺暐鍙蜂笉褰撳彞瀛愯竟鐣?(鍚﹀垯 "鈥︹€? 浼氳鍗曠嫭鍒囧嚭/鎸ゅ埌涓嬩竴琛?
+		// 气泡显示: 省略号不当句子边界 (否则 "……" 会被单独切出/挤到下一行)
 		const {sentences, rest: r} = splitSpeechText(rest, 40, false)
 		for (const s of sentences) pushSeg(s.trim())
 		if (!r.trim()) break
 		rest = r
-		// splitSpeechText 瀵?<40 瀛楃殑鏃犳爣鐐?rest 涓嶄骇鐢?sentences, 鐩存帴浣滀负鏈€鍚庝竴娈?		if (rest.length < 40) {
+		// splitSpeechText 对 <40 字的无标点 rest 不产生 sentences, 直接作为最后一段
+		if (rest.length < 40) {
 			pushSeg(rest.trim())
 			break
 		}
-		// rest >= 40 瀛楁棤鏍囩偣: 涓嬩竴杞?splitSpeechText 浼氭寜寮卞垎闅旀垨鏁存鍒囧嚭 sentences
+		// rest >= 40 字无标点: 下一轮 splitSpeechText 会按弱分隔或整段切出 sentences
 	}
 	return segs.filter(Boolean)
 }
 
 /**
- * v-for 绋冲畾 key: 鎸夋秷鎭璞¤韩浠藉垎閰嶈嚜澧?id (WeakMap, 涓嶅奖鍝嶆寔涔呭寲/鍝嶅簲寮?.
- * 鏃у疄鐜扮敤鏁扮粍涓嬫爣浣?key 鈥斺€?鍒犻櫎閿欒姘旀场/瑁佸壀绉讳綅鍚庢暣娈典笅鏍囧墠绉? Vue 閿欒
- * 澶嶇敤 DOM 鑺傜偣; 鍐呭绫?key 鍙堜細闅忔祦寮忓閲忓彉鍖栧鑷磋妭鐐归噸寤?
+ * v-for 稳定 key: 按消息对象身份分配自增 id (WeakMap, 不影响持久化/响应式).
+ * 旧实现用数组下标作 key —— 删除错误气泡/裁剪移位后整段下标前移, Vue 错误
+ * 复用 DOM 节点; 内容类 key 又会随流式增量变化导致节点重建.
  */
 const msgIdMap = new WeakMap<ChatMsg, number>()
 let msgIdSeq = 0
@@ -4323,38 +4518,41 @@ const msgKey = (m: ChatMsg): number => {
 	return id
 }
 
-/* ---------------- 璁板繂绯荤粺 UI 鐘舵€?---------------- */
-/* P5 璧?杩戠淇濈暀澶氬皯鏉?杩欐鑳借澶氬皯鏉?鐢辫蹇嗘湇鍔″喅瀹?(RAW_WINDOW 涓?safeTrimDrop),
-   鐣岄潰涓嶅啀鑷繁鍐欐 20 鈥斺€?涔嬪墠鐣岄潰涓庤蹇嗗眰鍚勫瓨涓€浠界獥鍙ｅぇ灏? 鏄?瑁佸壀鎶婃病鎬荤粨鐨勬秷鎭垹鎺?
-   杩欑被 bug 鐨勬俯搴娿€?*/
-/** 璇箟鍙洖棰勭畻 (ms): 瓒呮椂鍏堢敤鍏抽敭璇嶅厹搴曞彂閫? 璇箟缁撴灉鍚庡彴鑷鏀跺熬 */
+/* ---------------- 记忆系统 UI 状态 ---------------- */
+/* P5 起"近端保留多少条/这次能裁多少条"由记忆服务决定 (RAW_WINDOW 与 safeTrimDrop),
+   界面不再自己写死 20 —— 之前界面与记忆层各存一份窗口大小, 是"裁剪把没总结的消息删掉"
+   这类 bug 的温床。 */
+/** 语义召回预算 (ms): 超时先用关键词兜底发送, 语义结果后台自行收尾 */
 const RECALL_BUDGET_MS = 1200
-/** 鏃犳崲琛屾椂鍗曟潯姘旀场鐨勬渶澶у瓧绗︽暟 (瓒呰繃鍒欏厹搴曞垏鏂版皵娉? 30 鈫?60: 鍑忓皯鏃犳爣鐐归暱鍙? *  琚‖鍒囨垚澶氫釜姘旀场鐨勬儏鍐? CSS 宸叉敮鎸佹皵娉″唴鑷劧鎹㈣) */
+/** 无换行时单条气泡的最大字符数 (超过则兜底切新气泡; 30 → 60: 减少无标点长句
+ *  被硬切成多个气泡的情况, CSS 已支持气泡内自然换行) */
 const MAX_BUBBLE_LEN = 60
 
 const memView = reactive<{memories: MemoryItem[]; summaries: MemorySummary[]}>(listAll())
 
 /**
- * 璁板繂鍧楄鍥炬暟鎹?(P4): 鍧?+ 瑙ｆ瀽鍑虹殑鏉＄洰銆?*娴忚鎬?*鎸夊潡鎺掓椂闂寸嚎, 鍧楀唴鍐嶆寜绫诲瀷鍒嗗皬鑺傘€? * 鍒锋柊涓?memView 鍚屾 (瑙?refreshMemView)銆? */
+ * 记忆块视图数据 (P4): 块 + 解析出的条目。**浏览态**按块排时间线, 块内再按类型分小节。
+ * 刷新与 memView 同步 (见 refreshMemView)。
+ */
 const memBlocks = ref<MemoryBlockView[]>([])
-/** 娌℃寕杩涗换浣曞潡鐨勬潯鐩?(瀹炴椂閫氶亾鍐欑殑 / 瀛橀噺鍘婚噸鍚庤鍚堝苟鎺夌殑 / 鏃╂湡鏁版嵁) */
+/** 没挂进任何块的条目 (实时通道写的 / 存量去重后被合并掉的 / 早期数据) */
 const memUnblocked = ref<MemoryItem[]>([])
-/** 銆屽緟鏁寸悊 N 鏉°€? {pending, threshold}; pending 鏀掑埌 threshold 浼氳嚜鍔ㄦ暣鐞?*/
+/** 「待整理 N 条」: {pending, threshold}; pending 攒到 threshold 会自动整理 */
 const memPending = ref(organizeProgress([]))
 
 const TYPE_LABELS: Record<string, string> = {
-	fact: "浜嬪疄",
-	preference: "鍋忓ソ",
-	project: "椤圭洰",
-	event: "浜嬩欢",
-	relationship: "鍏崇郴",
-	core: "鏍稿績",
+	fact: "事实",
+	preference: "偏好",
+	project: "项目",
+	event: "事件",
+	relationship: "关系",
+	core: "核心",
 }
 
 const typeLabel = (t: string): string => TYPE_LABELS[t] ?? t
 
 const summaryLabel = (s: MemorySummary): string =>
-	`${new Date(s.createdAt).toLocaleString()} 路 瑕嗙洊 ${s.msgCount} 鏉℃秷鎭痐
+	`${new Date(s.createdAt).toLocaleString()} · 覆盖 ${s.msgCount} 条消息`
 
 const refreshMemView = () => {
 	const data = listAll()
@@ -4370,94 +4568,95 @@ const refreshMemView = () => {
 	memUnblocked.value = listUnblockedMemories()
 	memPending.value = organizeProgress(messages.value)
 	diagN.value = diagCount()
-	// A3: 娉ㄥ叆璁板綍鏉℃暟 + 璁板繂鍋ュ悍蹇収 (鍋ュ悍璁℃暟涓嶄緷璧栬瘖鏂紑鍏? 鎵€浠ヤ竴鐩撮兘鍒锋柊)
+	// A3: 注入记录条数 + 记忆健康快照 (健康计数不依赖诊断开关, 所以一直都刷新)
 	injectN.value = injectCount()
 	health.value = memoryHealth()
 }
 
-/* ---------------- 璁板繂绠＄悊 (鍥哄畾/鍒犻櫎) + 鎾ら攢娓呯悊 + 鐩爣闄即 + 瀵煎嚭 (A2/A3/C3/C4) ---------------- */
+/* ---------------- 记忆管理 (固定/删除) + 撤销清理 + 目标陪伴 + 导出 (A2/A3/C3/C4) ---------------- */
 const goals = ref<MemoryItem[]>(listGoals())
 const goalDraft = ref("")
 const hasBackup = ref(hasMemoryBackup())
 
 /**
- * 宸蹭綔搴熺殑璁板繂 (琚敼鍙?绾犳鍙栦唬鐨勯偅浜? B1): 榛樿鎶樺彔鍦ㄣ€屽凡浣滃簾銆嶉噷 鈥斺€?涓嶆敞鍏ャ€佷笉鍙備笌鍙洖,
- * 浣嗙暀鍦ㄥ簱閲? 鐢ㄦ埛鐐广€岃繕鍘熴€嶅氨鑳芥晳鍥炴潵 (璇垽鐨勪唬浠蜂粠"姘镐箙涓?闄嶅埌"鐐逛竴涓?)銆? */
+ * 已作废的记忆 (被改口/纠正取代的那些, B1): 默认折叠在「已作废」里 —— 不注入、不参与召回,
+ * 但留在库里, 用户点「还原」就能救回来 (误判的代价从"永久丢"降到"点一下")。
+ */
 const invalidMems = ref<MemoryItem[]>(listInvalidMemories())
 
-/** 宸叉敹璧?(2026-09-28): 鍒版湡/澶箙娌℃彁琚嚜鍔ㄦ敹璧风殑鏉＄洰; 涓庛€屼綔搴熴€嶇殑鍖哄埆鏄?*娌℃湁琚帹缈?* */
+/** 已收起 (2026-09-28): 到期/太久没提被自动收起的条目; 与「作废」的区别是**没有被推翻** */
 const fadedMems = ref<MemoryItem[]>(listFadedMemories())
-/** 宸插垹闄?(2026-09-28, 鍥炴敹绔?: 鎵嬪垹鐨勬潯鐩?甯﹀唴瀹?, 鍙繕鍘? 鏈€澶氱暀 20 鏉?*/
+/** 已删除 (2026-09-28, 回收站): 手删的条目(带内容), 可还原; 最多留 20 条 */
 const deletedMems = ref<MemoryItem[]>(listDeletedMemories())
 
-/** 璁板繂璇婃柇鏃ュ織 (P1): 鍐呭瓨閲屽凡缁忔敀浜嗗灏戞鏁寸悊鐨勮瘉鎹?(寮€鍏冲叧鐫€鏃舵亽涓?0) */
+/** 记忆诊断日志 (P1): 内存里已经攒了多少次整理的证据 (开关关着时恒为 0) */
 const diagN = ref<number>(diagCount())
 
-/* ---------------- A3 (2026-10-08): 娉ㄥ叆鍙鎬?+ 璁板繂鍋ュ悍 ---------------- */
+/* ---------------- A3 (2026-10-08): 注入可见性 + 记忆健康 ---------------- */
 
-/** 宸茶褰曞灏戞**娉ㄥ叆**锛堜笌鏁寸悊璁板綍鍒嗗紑璁帮紱寮€鍏冲叧鐫€鏃舵亽涓?0锛?*/
+/** 已记录多少次**注入**（与整理记录分开记；开关关着时恒为 0） */
 const injectN = ref<number>(injectCount())
-/** 璁板繂鍋ュ悍蹇収锛氱敓鏁?宸叉敹璧?宸蹭綔搴熴€佷笂娆℃垚鍔熸暣鐞嗐€佹湰娆¤繍琛屾渶鍚庝竴娆℃暣鐞嗙殑缁撴灉銆佷笂杞敞鍏ユ槑缁?*/
+/** 记忆健康快照：生效/已收起/已作废、上次成功整理、本次运行最后一次整理的结果、上轮注入明细 */
 const health = ref<MemoryHealth>(memoryHealth())
 const onMemoryPersist = (): void => { health.value = memoryHealth() }
 onMounted(() => window.addEventListener("nori-memory-persist", onMemoryPersist))
 onBeforeUnmount(() => window.removeEventListener("nori-memory-persist", onMemoryPersist))
 
-/** 鏃跺埢鈫掍汉璇?(璇婃柇鍖哄叡鐢? 娌℃湁璁板綍鏃剁粰涓€涓槑纭殑鍗犱綅鑰屼笉鏄┖鐧? */
+/** 时刻→人话 (诊断区共用; 没有记录时给一个明确的占位而不是空白) */
 const fmtWhen = (t: number | null | undefined): string =>
-	t ? new Date(t).toLocaleString() : "鈥?
+	t ? new Date(t).toLocaleString() : "—"
 
-/** 銆屼笂涓€杞敞鍏ャ€嶇殑涓€琛屾憳瑕侊細鏉ユ簮 + 鏉℃暟 + 鏃堕棿 */
+/** 「上一轮注入」的一行摘要：来源 + 条数 + 时间 */
 const injectSummary = computed(() => {
 	const r = health.value.lastInject
-	if (!r) return injectN.value ? "锛堝凡璁板綍锛屼絾鏈€杩戜竴娆″凡婊氬嚭鐜舰缂撳啿锛? : "杩樻病鏈夋敞鍏ヨ褰?
+	if (!r) return injectN.value ? "（已记录，但最近一次已滚出环形缓冲）" : "还没有注入记录"
 	const src: Record<string, string> = {
-		"keyword": "鍏抽敭璇?,
-		"keyword-kw": "鍏抽敭璇嵚峰埆鍚嶅厹搴?,
-		"smart-llm": "AI 璇箟鍙洖",
-		"smart-fallback": "AI 澶辫触 鈫?鍏抽敭璇嶉檷绾?,
-		"opening": "寮€鍦烘敞鍏?,
+		"keyword": "关键词",
+		"keyword-kw": "关键词·别名兜底",
+		"smart-llm": "AI 语义召回",
+		"smart-fallback": "AI 失败 → 关键词降级",
+		"opening": "开场注入",
 	}
-	return `${src[r.source] ?? r.source} 路 娉ㄥ叆 ${r.hits.length}/${r.limit} 鏉?路 搴撻噷鐢熸晥 ${r.considered} 鏉?路 杩囬棬妲?${r.matched} 鏉?路 ${new Date(r.ts).toLocaleTimeString()}`
+	return `${src[r.source] ?? r.source} · 注入 ${r.hits.length}/${r.limit} 条 · 库里生效 ${r.considered} 条 · 过门槛 ${r.matched} 条 · ${new Date(r.ts).toLocaleTimeString()}`
 })
 
-/** 瀵煎嚭娉ㄥ叆璁板綍 (涓庢暣鐞嗚瘖鏂垎寮€涓€涓枃浠? mem-inject-*.jsonl) */
+/** 导出注入记录 (与整理诊断分开一个文件: mem-inject-*.jsonl) */
 const doExportInject = () => {
-	if (!injectN.value) { triggerBubble("杩樻病鏈夋敞鍏ヨ褰?鈥斺€?鍏堟墦寮€涓婇潰鐨勫紑鍏筹紝鍐嶈亰涓€鍙?); return }
+	if (!injectN.value) { triggerBubble("还没有注入记录 —— 先打开上面的开关，再聊一句"); return }
 	const text = buildInjectJsonl({model: cfg.model, app: "NoriDroid"})
 	const d = new Date()
 	const p2 = (n: number) => String(n).padStart(2, "0")
 	const name = `mem-inject-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}.jsonl`
 	try {
 		const ok = writeFile(name, text)
-		triggerBubble(ok ? `宸插鍑?${name}锛?{injectN.value} 鏉★級` : "瀵煎嚭澶辫触")
+		triggerBubble(ok ? `已导出 ${name}（${injectN.value} 条）` : "导出失败")
 	} catch {
-		triggerBubble("瀵煎嚭澶辫触")
+		triggerBubble("导出失败")
 	}
 }
 
-/** 鏀惰捣鍘熷洜鐨勪汉璇?(鍙湪杩欎竴澶勬嫾, 鍏嶅緱鏁ｈ惤) */
+/** 收起原因的人话 (只在这一处拼, 免得散落) */
 const fadeReasonLabel = (m: MemoryItem): string => {
-	if (m.fadedReason === "lowvalue") return "澶箙娌℃彁銆佷笉澶噸瑕?
-	if (m.fadedReason === "manual") return "浣犳墜鍔ㄦ敹璧风殑"
-	return "鍒版湡浜嗭紙寰堜箙娌℃彁锛?
+	if (m.fadedReason === "lowvalue") return "太久没提、不太重要"
+	if (m.fadedReason === "manual") return "你手动收起的"
+	return "到期了（很久没提）"
 }
 
-/** 鎶婁竴鏉¤鏀惰捣鐨勮蹇嗘斁鍥炵敓鏁?*/
+/** 把一条被收起的记忆放回生效 */
 const doRestoreFaded = (m: MemoryItem) => {
-	if (!restoreFadedMemory(m.id)) { triggerBubble("杩欐潯宸茬粡鏀惧洖鍘讳簡"); return }
+	if (!restoreFadedMemory(m.id)) { triggerBubble("这条已经放回去了"); return }
 	refreshMemView()
-	triggerBubble("宸茬粡鏀惧洖鐢熸晥鍟?)
+	triggerBubble("已经放回生效啦")
 }
 
-/** 浠庡洖鏀剁珯杩樺師涓€鏉¤鍒犵殑璁板繂 */
+/** 从回收站还原一条被删的记忆 */
 const doRestoreDeleted = (m: MemoryItem) => {
-	if (!restoreDeletedMemory(m.id)) { triggerBubble("杩欐潯宸茬粡涓嶅湪鍥炴敹绔欓噷浜?); return }
+	if (!restoreDeletedMemory(m.id)) { triggerBubble("这条已经不在回收站里了"); return }
 	refreshMemView()
-	triggerBubble(m.invalidAt ? "宸茶繕鍘熷埌宸蹭綔搴燂紝闇€鍙﹁杩樺師鎵嶄細鐢熸晥" : m.fadedAt ? "宸茶繕鍘熷埌宸叉敹璧凤紝鐐圭暀涓嬫墠浼氱敓鏁? : "宸茶繕鍘熷埌鐢熸晥鍒楄〃")
+	triggerBubble(m.invalidAt ? "已还原到已作废，需另行还原才会生效" : m.fadedAt ? "已还原到已收起，点留下才会生效" : "已还原到生效列表")
 }
 
-/** 璁板繂浼樺寲 (鏁寸悊浼樺寲) 鐨勭晫闈㈢姸鎬? 褰撳墠绀轰緥闆?+ 鏄惁灞曞紑鏌ョ湅 */
+/** 记忆优化 (整理优化) 的界面状态: 当前示例集 + 是否展开查看 */
 const tuneShow = ref(false)
 const tuneSet = ref<{builtAt: number; basedOn: number; pos: string[]; neg: string[]} | null>(null)
 const tuneHas = computed(() => !!tuneSet.value && (tuneSet.value.pos.length > 0 || tuneSet.value.neg.length > 0))
@@ -4465,100 +4664,102 @@ const tunePos = computed(() => tuneSet.value?.pos ?? [])
 const tuneNeg = computed(() => tuneSet.value?.neg ?? [])
 const tuneInfo = computed(() => {
 	const e = tuneSet.value
-	if (!e || (!e.pos.length && !e.neg.length)) return "杩樻病鏈夌ず渚嬨€備緥瀛愭潵鑷敓鏁堜腑鐨勮蹇嗭紱鍒犻櫎鍜屾敹璧蜂笉浼氳嚜鍔ㄥ綋鍙嶄緥銆傜偣銆岀珛鍗充紭鍖栥€嶇敓鎴?
-	return `涓婃浼樺寲锛?{fmtTs(e.builtAt)} 路 姝ｄ緥 ${e.pos.length} 鏉?/ 鍙嶄緥 ${e.neg.length} 鏉★紙鍩轰簬褰撴椂 ${e.basedOn} 鏉¤蹇嗭級`
+	if (!e || (!e.pos.length && !e.neg.length)) return "还没有示例。例子来自生效中的记忆；删除和收起不会自动当反例。点「立即优化」生成"
+	return `上次优化：${fmtTs(e.builtAt)} · 正例 ${e.pos.length} 条 / 反例 ${e.neg.length} 条（基于当时 ${e.basedOn} 条记忆）`
 })
 
-/** 銆岀珛鍗充紭鍖栥€? 棣栨缁欎竴娆℃彁閱?鈥斺€?渚嬪瓙鏄粠"浣犵暀涓嬬殑璁板繂"閲屽鐨? 娌＄敤鐨勫厛鍒犳帀 */
+/** 「立即优化」: 首次给一次提醒 —— 例子是从"你留下的记忆"里学的, 没用的先删掉 */
 const doRebuildExamples = () => {
 	if (!tuneHas.value) {
 		const ok = window.confirm(
-			"渚嬪瓙鏄粠浣?*鐣欎笅鐨?*璁板繂閲屽鐨勶紝娌＄敤鐨勫厛鍒犳帀鏇村ソ 鈥斺€擻n" +
-			"鍒犻櫎鍙兘鏄噸澶嶃€佽繃鏃舵垨闅愮鍘熷洜锛屼笉浼氳嚜鍔ㄥ綋鍙嶄緥锛涘厛妫€鏌ョ敓鏁堣蹇嗘槸鍚﹀噯纭€俓n\n" +
-			"纭畾鐜板湪灏辩敓鎴愮ず渚嬪悧锛燂紙鍏堝彇娑堬紝鍘绘妸娌＄敤鐨勮蹇嗗垹鎺変篃琛岋級",
+			"例子是从你**留下的**记忆里学的，没用的先删掉更好 ——\n" +
+			"删除可能是重复、过时或隐私原因，不会自动当反例；先检查生效记忆是否准确。\n\n" +
+			"确定现在就生成示例吗？（先取消，去把没用的记忆删掉也行）",
 		)
-		if (!ok) { triggerBubble("閭ｆ垜绛変綘鏁寸悊濂藉暒"); return }
+		if (!ok) { triggerBubble("那我等你整理好啦"); return }
 	}
 	const built = rebuildMemoryExamples()
 	refreshMemView()
-	triggerBubble(built ? "绀轰緥宸叉洿鏂帮紝鎴戠収浣犵殑鍙ｅ懗鏉ヨ" : "璁板繂杩樺お灏戯紝鍏堜笉鐢熸垚绀轰緥")
+	triggerBubble(built ? "示例已更新，我照你的口味来记" : "记忆还太少，先不生成示例")
 }
 
 const doClearExamples = () => {
 	clearMemoryExamples()
 	refreshMemView()
-	triggerBubble("绀轰緥宸叉竻闄わ紝鍥炲埌榛樿瑙勫垯")
+	triggerBubble("示例已清除，回到默认规则")
 }
 
-/** 鑷姩浼樺寲: 姣忔鏁寸悊鎴愬姛鍚庢鏌ヤ竴娆?(鏂板 鈮?0 鏉℃墠閲嶅缓, 闆堕澶栬皟鐢? */
+/** 自动优化: 每次整理成功后检查一次 (新增 ≥20 条才重建, 零额外调用) */
 const maybeAutoTuneExamples = () => {
 	if (!cfg.memoryAutoTuneExamples) return
 	if (!shouldRebuildMemoryExamples()) return
 	if (rebuildMemoryExamples()) refreshMemView()
 }
 
-/* ---------------- 璁板繂璇婃柇鏃ュ織 (P1, 2026-09-30) ---------------- */
+/* ---------------- 记忆诊断日志 (P1, 2026-09-30) ---------------- */
 
-/** 寮€鍏? 绔嬪埢鍚屾缁欒蹇嗘ā鍧?(鍏虫帀鍚庝笉鍐嶈褰? 宸茶褰曠殑涓嶆竻 鈥斺€?鐢ㄦ埛鍙兘姝ｈ瀵煎嚭) */
+/** 开关: 立刻同步给记忆模块 (关掉后不再记录, 已记录的不清 —— 用户可能正要导出) */
 const onDiagToggle = () => {
 	setDiagEnabled(!!cfg.memoryDiagnostics)
-	persistSettings()   // 绔嬪埢钀界洏: 鍚﹀垯閲嶅惎 App 浼氬洖鍒板叧闂? 鎮诞绐椾篃璇讳笉鍒拌繖涓紑鍏?	diagN.value = diagCount()
+	persistSettings()   // 立刻落盘: 否则重启 App 会回到关闭, 悬浮窗也读不到这个开关
+	diagN.value = diagCount()
 	injectN.value = injectCount()
 	health.value = memoryHealth()
-	triggerBubble(cfg.memoryDiagnostics ? "寮€濮嬭褰曟暣鐞嗕笌娉ㄥ叆杩囩▼锛屽鍑哄湪鍚屼竴娆￠噷鍋氬摝" : "宸插仠姝㈣褰曪紙宸叉湁鐨勮褰曡繕鍦紝鍙互瀵煎嚭锛?)
+	triggerBubble(cfg.memoryDiagnostics ? "开始记录整理与注入过程，导出在同一次里做哦" : "已停止记录（已有的记录还在，可以导出）")
 }
 
-/** 瀵煎嚭: 璧颁笌銆屽鍑恒€嶅悓涓€鏉?writeFile 閫氶亾 (钀藉埌 Download/NoriDroid/) */
+/** 导出: 走与「导出」同一条 writeFile 通道 (落到 Download/NoriDroid/) */
 const doExportDiag = () => {
-	if (!diagN.value) { triggerBubble("杩樻病鏈夎褰?鈥斺€?鍏堟墦寮€涓婇潰鐨勫紑鍏?); return }
+	if (!diagN.value) { triggerBubble("还没有记录 —— 先打开上面的开关"); return }
 	const text = buildDiagJsonl({model: cfg.model, app: "NoriDroid"})
 	const d = new Date()
 	const name = `mem-diag-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}.jsonl`
 	try {
 		const ok = writeFile(name, text)
-		triggerBubble(ok ? `宸插鍑?${name}锛?{diagN.value} 鏉¤褰曪級` : "瀵煎嚭澶辫触")
+		triggerBubble(ok ? `已导出 ${name}（${diagN.value} 条记录）` : "导出失败")
 	} catch {
-		triggerBubble("瀵煎嚭澶辫触")
+		triggerBubble("导出失败")
 	}
 }
 
 const doClearDiag = () => {
 	clearDiag()
-	// A3: 娉ㄥ叆璁板綍涔熷湪鍚屼竴涓紑鍏充笅鏀掔潃, 涓€骞舵竻鎺?(鍚﹀垯"娓呯┖璁板綍"鐪嬭捣鏉ユ病鐢熸晥)
+	// A3: 注入记录也在同一个开关下攒着, 一并清掉 (否则"清空记录"看起来没生效)
 	clearInjects()
 	diagN.value = diagCount()
 	injectN.value = injectCount()
 	health.value = memoryHealth()
-	triggerBubble("鏁寸悊涓庢敞鍏ヨ褰曢兘宸叉竻绌?)
+	triggerBubble("整理与注入记录都已清空")
 }
 
-/** 姘镐箙鍒犻櫎 (浠庡洖鏀剁珯鎶规帀): 杩欐槸**鍞竴涓嶅彲閫?*鐨勬搷浣? 鎵€浠ヨ浜屾纭 */const doDeleteForever = (m: MemoryItem) => {
-	if (!window.confirm(`姘镐箙鍒犻櫎杩欐潯璁板繂锛熷垹浜嗗氨鎵句笉鍥炴潵浜嗐€俓n銆?{m.content}銆峘)) return
+/** 永久删除 (从回收站抹掉): 这是**唯一不可逆**的操作, 所以要二次确认 */const doDeleteForever = (m: MemoryItem) => {
+	if (!window.confirm(`永久删除这条记忆？删了就找不回来了。\n「${m.content}」`)) return
 	deleteMemoryForever(m.id)
 	refreshMemView()
-	triggerBubble("宸叉案涔呭垹闄?)
+	triggerBubble("已永久删除")
 }
 
-/** 杩樺師涓€鏉¤浣滃簾鐨勮蹇?(B1) */
+/** 还原一条被作废的记忆 (B1) */
 const doRestoreInvalid = (m: MemoryItem) => {
-	if (!restoreMemory(m.id)) { triggerBubble("杩欐潯宸茬粡杩樺師杩囦簡"); return }
+	if (!restoreMemory(m.id)) { triggerBubble("这条已经还原过了"); return }
 	refreshMemView()
-	triggerBubble("宸茶繕鍘燂紝鎴戝張璁拌捣鏉ュ暒")
+	triggerBubble("已还原，我又记起来啦")
 }
 
-/** 闀挎湡璁板繂灞曠ず鍒楄〃: 鎺掗櫎鐩爣鏉＄洰 (鐩爣鏈変笓闂ㄧ殑"闄潃浣犵殑浜?灏忚妭, 閬垮厤涓ゅ閲嶅) */
+/** 长期记忆展示列表: 排除目标条目 (目标有专门的"陪着你的事"小节, 避免两处重复) */
 const nonGoalMemories = computed(() =>
 	memView.memories.filter(m => !(m.tags ?? []).includes("goal"))
 )
 
-/** 璁板繂搴撻〉 (鐙珛椤?: 鎼滅储 + 绫诲瀷绛涢€?*/
+/** 记忆库页 (独立页): 搜索 + 类型筛选 */
 const memSearch = ref("")
-const memFilter = ref("") // "" | 绫诲瀷 | goal | pinned
+const memFilter = ref("") // "" | 类型 | goal | pinned
 const openMemoriesPage = () => openPanel("memories")
 const filteredMems = computed(() => {
-	// 鐩爣鏉￠粯璁?*涓嶅湪闀挎湡璁板繂閲岄噸澶嶅嚭鐜?* 鈥斺€?瀹冧滑涓婇潰宸叉湁銆岄櫔鐫€浣犵殑浜嬨€嶅皬鑺?
-	// 涓ゅ閮藉垪涓€閬嶆鏄敤鎴疯鐨?娣峰湪涓€璧?銆備絾鏄惧紡绛涢€夈€岀洰鏍囥€嶆垨鍦ㄦ悳绱㈡椂鐓у父鍙備笌,
-	// 鍚﹀垯鎼滀笉鍒扮洰鏍囧唴瀹?(鎼?闆呮€?蹇呴』鑳芥壘鍒般€岃€冮泤鎬?7 鍒嗐€?銆?	const q0 = memSearch.value.trim().toLowerCase()
+	// 目标条默认**不在长期记忆里重复出现** —— 它们上面已有「陪着你的事」小节,
+	// 两处都列一遍正是用户说的"混在一起"。但显式筛选「目标」或在搜索时照常参与,
+	// 否则搜不到目标内容 (搜"雅思"必须能找到「考雅思 7 分」)。
+	const q0 = memSearch.value.trim().toLowerCase()
 	let list = (memFilter.value === "goal" || q0) ? memView.memories : nonGoalMemories.value
 	if (memFilter.value === "goal") list = list.filter(m => (m.tags ?? []).includes("goal"))
 	else if (memFilter.value === "pinned") list = list.filter(m => (m.tags ?? []).includes("pinned"))
@@ -4567,16 +4768,19 @@ const filteredMems = computed(() => {
 	return list
 })
 
-/** 鏉ユ簮鏍囨敞璇存槑澶勭悊鏂瑰紡锛涙棫璁板綍鏉ユ簮涓嶅畬鏁达紝涓嶈兘鐩存帴绉颁负鐢ㄦ埛澹版槑銆?*/
+/** 来源标注说明处理方式；旧记录来源不完整，不能直接称为用户声明。 */
 const isInferred = (m: MemoryItem): boolean => m.sourceKind === "llm" || (m.tags ?? []).includes("llm")
-const memProvenance = (m: MemoryItem): string => (isInferred(m) ? "AI 鏁寸悊" : m.sourceKind === "rule" ? "鍘熻瘽鎻愬彇" : "鏃ц褰?鎵嬪姩")
-const PROV_TIP = "鍘熻瘽鎻愬彇 = 瑙勫垯鍛戒腑锛汚I 鏁寸悊 = 妯″瀷浠庡璇濈瓫鍑猴紝闇€瑕佹牳瀵癸紱鏃ц褰曠殑鏉ユ簮鍙兘涓嶅畬鏁?
+const memProvenance = (m: MemoryItem): string => (isInferred(m) ? "AI 整理" : m.sourceKind === "rule" ? "原话提取" : "旧记录/手动")
+const PROV_TIP = "原话提取 = 规则命中；AI 整理 = 模型从对话筛出，需要核对；旧记录的来源可能不完整"
 
-/** 绫诲瀷鍦ㄨ蹇嗗簱閲岀殑灞曠ず椤哄簭 (鍒嗙粍灏忚妭鐨勫厛鍚? 鐩爣鍗曠嫭涓€鑺? 涓嶅湪姝ゅ垪) */
+/** 类型在记忆库里的展示顺序 (分组小节的先后; 目标单独一节, 不在此列) */
 const TYPE_ORDER: MemoryType[] = ["core", "fact", "preference", "project", "event", "relationship"]
 
 /**
- * 鎸夌被鍨嬪垎缁勭殑闀挎湡璁板繂 (鐢ㄦ埛 2026-09-27 瑕佹眰: "鍚岀被鍨嬫爣绛惧垎绫诲埌涓€鍧? 鐜板湪閮芥贩鍦ㄤ竴璧?)銆? * 缁勫唴淇濇寔浼犲叆椤哄簭 (閲嶈搴︿紭鍏?鈫?鏂版棫), 缁勯棿鎸?TYPE_ORDER, 绌虹粍涓嶆樉绀恒€? * P4 璧锋娊鎴愬嚱鏁? 鍧楄鍥剧殑姣忎竴鍧楀唴閮ㄤ篃鐢ㄥ畠 (鍧楀唴鎸夌被鍨嬪垎灏忚妭)銆? */
+ * 按类型分组的长期记忆 (用户 2026-09-27 要求: "同类型标签分类到一块, 现在都混在一起")。
+ * 组内保持传入顺序 (重要度优先 → 新旧), 组间按 TYPE_ORDER, 空组不显示。
+ * P4 起抽成函数: 块视图的每一块内部也用它 (块内按类型分小节)。
+ */
 const groupByType = (items: MemoryItem[]): {type: string; label: string; items: MemoryItem[]}[] => {
 	const buckets = new Map<string, MemoryItem[]>()
 	for (const m of items) {
@@ -4592,26 +4796,29 @@ const groupByType = (items: MemoryItem[]): {type: string; label: string; items: 
 	return out
 }
 
-/** 鎼滅储/绛涢€夋€佺殑骞抽摵鍒嗙粍 (鎵句笢瑗跨殑鍦烘櫙: 涓嶆寜鏃堕棿绾? 鐩存帴鎸夌被鍨嬪垪鍑烘潵) */
+/** 搜索/筛选态的平铺分组 (找东西的场景: 不按时间线, 直接按类型列出来) */
 const groupedMems = computed(() => groupByType(filteredMems.value))
 
-/** 鍧楄鍥惧彲灞曠ず鐨勬潯鐩? 鐢熸晥涓?涓?涓嶆槸鐩爣 (鐩爣鏈夎嚜宸遍偅涓€鑺? */
+/** 块视图可展示的条目: 生效中 且 不是目标 (目标有自己那一节) */
 const blockVisible = (m: MemoryItem): boolean =>
 	!m.invalidAt && !m.fadedAt && !(m.tags ?? []).includes("goal")
 
-/** 鍧楁爣棰? 銆屼富棰?路 鏃堕棿娈?路 N 鏉°€? 杩佺Щ鍧?(鏃╂湡璁板繂) 娌℃湁涓婚涓庡尯闂存椂鍙樉绀轰富棰?*/
+/** 块标题: 「主题 · 时间段 · N 条」; 迁移块 (早期记忆) 没有主题与区间时只显示主题 */
 const blockTitle = (b: MemoryBlock): string => {
-	const topic = b.topic || "鏈懡鍚?
-	if (!b.msgCount) return topic   // 杩佺Щ鍧? 娌℃湁"瑕嗙洊浜嗗灏戞潯娑堟伅"杩欏洖浜?	const from = fmtTs(b.fromTs)
+	const topic = b.topic || "未命名"
+	if (!b.msgCount) return topic   // 迁移块: 没有"覆盖了多少条消息"这回事
+	const from = fmtTs(b.fromTs)
 	const to = fmtTs(b.toTs)
-	// 鍚屼竴鍒嗛挓鍐呭彧鍐欎竴涓椂闂? 25 鏉℃秷鎭彲鑳藉彧璺ㄥ嚑鍗佺, 鍚﹀垯浼氭樉绀烘垚銆?2:25 ~ 22:25銆?瀹炴祴鎴浘閲屽氨鏄繖鏍?
+	// 同一分钟内只写一个时间: 25 条消息可能只跨几十秒, 否则会显示成「22:25 ~ 22:25」(实测截图里就是这样)
 	const range = from === to ? from : `${from} ~ ${to}`
-	return `${topic} 路 ${range} 路 ${b.msgCount} 鏉″璇漙
+	return `${topic} · ${range} · ${b.msgCount} 条对话`
 }
 
 /**
- * 璁板繂搴撶殑**娓叉煋璁″垝** (P4): 涓€澶勭畻瀹? 妯℃澘鍙仛涓ゅ眰寰幆, 涓嶅繀涓哄潡/骞抽摵/鏈綊绫诲悇鍐欎竴閬嶈鏍囪銆? * - 娴忚鎬? 姣忎釜璁板繂鍧椾竴鑺?(鍧楀唴鎸夌被鍨嬪垎灏忚妭) + 銆屾湭褰掔被銆嶄竴鑺?
- * - 鎼滅储/绛涢€夋€? 閫€鍥?鎸夌被鍨嬪钩閾? (鎵句笢瑗挎椂鏃堕棿绾垮弽鑰屾槸骞叉壈)銆? */
+ * 记忆库的**渲染计划** (P4): 一处算完, 模板只做两层循环, 不必为块/平铺/未归类各写一遍行标记。
+ * - 浏览态: 每个记忆块一节 (块内按类型分小节) + 「未归类」一节;
+ * - 搜索/筛选态: 退回"按类型平铺" (找东西时时间线反而是干扰)。
+ */
 const memSections = computed<{key: string; title: string; subs: {key: string; label: string; items: MemoryItem[]}[]}[]>(() => {
 	const toSubs = (items: MemoryItem[]) =>
 		groupByType(items).map(g => ({key: g.type, label: g.label, items: g.items}))
@@ -4625,19 +4832,21 @@ const memSections = computed<{key: string; title: string; subs: {key: string; la
 		if (subs.length) out.push({key: v.block.id, title: blockTitle(v.block), subs})
 	}
 	const unblocked = toSubs(memUnblocked.value.filter(blockVisible))
-	if (unblocked.length) out.push({key: "unblocked", title: "鏈綊绫?, subs: unblocked})
+	if (unblocked.length) out.push({key: "unblocked", title: "未归类", subs: unblocked})
 	return out
 })
 
-/** 銆岀珛鍗虫暣鐞嗐€? 涓嶇瓑鏀掑闃堝€? 鐜板湪灏辨妸寰呮暣鐞嗙殑娑堟伅鎬荤粨鎴愭憳瑕?+ 璁板繂鍧?(鍚屼竴鏉￠摼璺? */
+/** 「立即整理」: 不等攒够阈值, 现在就把待整理的消息总结成摘要 + 记忆块 (同一条链路) */
 const memOrganizing = ref(false)
 /**
- * 銆岀珛鍗虫暣鐞嗐€嶇殑鍙嶉 (A: 灏卞湴鍙嶉)銆? * 涓轰粈涔堜笉澶嶇敤涓嬮潰閭ｄ釜 `memPruneMsg`: 閭ｄ釜鎻愮ず娓叉煋鍦ㄩ潰鏉?*鏈€搴曢儴**(涓庢竻鐞?鎾ら攢鎸夐挳鍚屼竴琛?,
- * 鑰?绔嬪嵆鏁寸悊"鎸夐挳鍦ㄩ潰鏉夸笂閮?鈥斺€?鐢ㄦ埛鐐瑰畬瑙嗙嚎涓嶅線涓嬭蛋, 瀹炴祴浣撴劅灏辨槸"鐐逛簡娌″弽搴?
- * (鎺㈤拡 probe-organize-button.mjs 閲忓埌鍙嶉鍦?776/808 鈮?96% 澶?銆傛墍浠ヨ繖閲屽崟鐙竴浠界姸鎬? 灏卞湴鏄剧ず銆? */
+ * 「立即整理」的反馈 (A: 就地反馈)。
+ * 为什么不复用下面那个 `memPruneMsg`: 那个提示渲染在面板**最底部**(与清理/撤销按钮同一行),
+ * 而"立即整理"按钮在面板上部 —— 用户点完视线不往下走, 实测体感就是"点了没反应"
+ * (探针 probe-organize-button.mjs 量到反馈在 776/808 ≈ 96% 处)。所以这里单独一份状态, 就地显示。
+ */
 const memOrgMsg = ref("")
 const memOrgMsgOk = ref(false)
-/** 鏈夋病鏈変笢瑗垮彲鏁寸悊 (B: 娌℃湁灏辨妸鎸夐挳缃伆, 鍒瀹?鍙偣浣嗘棤浜嬪彂鐢?) */
+/** 有没有东西可整理 (B: 没有就把按钮置灰, 别让它"可点但无事发生") */
 const canOrganize = computed(() => memPending.value.pending > 0)
 const doOrganizeNow = async () => {
 	if (memOrganizing.value || !canOrganize.value) return
@@ -4650,24 +4859,24 @@ const doOrganizeNow = async () => {
 			])
 			return r.ok ? (r.content ?? "") : ""
 		}, !!cfg.memoryLlmExtract, true)
-		maybeAutoTuneExamples()   // 鑷姩浼樺寲 (寮€鍏虫墦寮€鏃?: 鏂板澶?20 鏉″氨椤烘墜鍒锋柊绀轰緥
+		maybeAutoTuneExamples()   // 自动优化 (开关打开时): 新增够 20 条就顺手刷新示例
 		refreshMemView()
 		const left = memPending.value.pending
 		if (summarized) {
 			memOrgMsg.value = left > 0
-				? `宸叉暣鐞嗕竴鎵癸紝杩樺墿 ${left} 鏉″緟鏁寸悊锛堝啀鐐逛竴娆″彲缁х画锛塦
-				: "宸茬粡鏁寸悊瀹屽暒锛屽垰鎵嶈亰鐨勬垜閮借浣忎簡"
+				? `已整理一批，还剩 ${left} 条待整理（再点一次可继续）`
+				: "已经整理完啦，刚才聊的我都记住了"
 			memOrgMsgOk.value = true
 		} else {
-			// 璧板埌杩欓噷鏈変袱绉? 妯″瀷娌″洖鍐呭 (鏈夊彲鏁寸悊鐨勪笢瑗夸絾澶辫触浜? / 鏁寸悊鏈熼棿寰呮暣鐞嗚娓呯┖
+			// 走到这里有两种: 模型没回内容 (有可整理的东西但失败了) / 整理期间待整理被清空
 			memOrgMsg.value = left > 0
-				? "杩欐娌¤兘鏁寸悊鍑烘潵锛堟ā鍨嬫病鍥炲唴瀹癸級锛岀◢鍚庡啀璇?
-				: "娌℃湁寰呮暣鐞嗙殑鍐呭 鈥斺€?鏈€杩戠殑璇濋兘杩樺湪鎴戠溂鍓嶏紝涓嶇敤鏁寸悊"
+				? "这次没能整理出来（模型没回内容），稍后再试"
+				: "没有待整理的内容 —— 最近的话都还在我眼前，不用整理"
 			memOrgMsgOk.value = false
 		}
 	} catch (e) {
-		console.error("[mem] 绔嬪嵆鏁寸悊澶辫触:", e)
-		memOrgMsg.value = "鏁寸悊澶辫触锛岀◢鍚庡啀璇?
+		console.error("[mem] 立即整理失败:", e)
+		memOrgMsg.value = "整理失败，稍后再试"
 		memOrgMsgOk.value = false
 	} finally {
 		memOrganizing.value = false
@@ -4682,31 +4891,33 @@ const isPinnedId = (id: string): boolean => {
 const doTogglePin = (m: MemoryItem) => {
 	pinMemory(m.id, !isPinnedId(m.id))
 	refreshMemView()
-	triggerBubble(isPinnedId(m.id) ? "宸插浐瀹氾紝杩欐潯涓嶄細娣″繕" : "宸插彇娑堝浐瀹?)
+	triggerBubble(isPinnedId(m.id) ? "已固定，这条不会淡忘" : "已取消固定")
 }
 
 /**
- * 銆屾敹璧枫€嶄竴鏉¤蹇?(2026-09-29 鐢ㄦ埛瑕佹眰: 鏉＄洰琛屽師鏉ュ彧鏈夊垹闄?銆? * 鎰忓浘 = "杩欐潯鐜板湪涓嶉噸瑕侊紝浣嗗埆鍒? 鈬?杩涖€屽凡鏀惰捣銆嶏紝鐐广€岀暀涓嬨€嶆斁鍥炪€? */
+ * 「收起」一条记忆 (2026-09-29 用户要求: 条目行原来只有删除)。
+ * 意图 = "这条现在不重要，但别删" ⇒ 进「已收起」，点「留下」放回。
+ */
 const doFadeMemory = (m: MemoryItem) => {
-	if (!fadeMemoryManually(m.id)) { triggerBubble("杩欐潯宸茬粡鏀惰捣鏉ヤ簡"); return }
+	if (!fadeMemoryManually(m.id)) { triggerBubble("这条已经收起来了"); return }
 	refreshMemView()
-	triggerBubble("宸叉敹璧凤紝闅忔椂鑳藉湪銆屽凡鏀惰捣銆嶉噷鐐广€岀暀涓嬨€嶆斁鍥炴潵")
+	triggerBubble("已收起，随时能在「已收起」里点「留下」放回来")
 }
 
 const doDeleteMemory = (m: MemoryItem) => {
-	if (!window.confirm(`鍒犻櫎杩欐潯璁板繂锛焅n銆?{m.content}銆峔n锛堜細鍏堣繘銆屽凡鍒犻櫎銆嶏紝鑳借繕鍘燂紱鎯充笉鍒犲彧鏄殏鏃朵笉閲嶈锛屽彲浠ョ敤銆屾敹璧枫€嶏級`)) return
+	if (!window.confirm(`删除这条记忆？\n「${m.content}」\n（会先进「已删除」，能还原；想不删只是暂时不重要，可以用「收起」）`)) return
 	deleteMemory(m.id)
 	refreshMemView()
-	triggerBubble("宸插垹闄わ紝鍙湪銆屽凡鍒犻櫎銆嶉噷杩樺師")
+	triggerBubble("已删除，可在「已删除」里还原")
 }
 
-/** 鎾ら攢涓婃娓呯┖/娓呯悊 (鐢?before-clear 蹇収鏁翠綋杩樺師) */
+/** 撤销上次清空/清理 (用 before-clear 快照整体还原) */
 const doRestoreMemory = () => {
-	if (!hasMemoryBackup()) { triggerBubble("娌℃湁鍙仮澶嶇殑澶囦唤"); return }
-	if (!window.confirm("鐢ㄦ渶杩戜竴娆℃竻鐞嗗墠鐨勮蹇嗚鐩栧綋鍓嶅唴瀹癸紵")) return
+	if (!hasMemoryBackup()) { triggerBubble("没有可恢复的备份"); return }
+	if (!window.confirm("用最近一次清理前的记忆覆盖当前内容？")) return
 	restoreMemoryBackup()
 	refreshMemView()
-	triggerBubble("宸叉仮澶嶆竻鐞嗗墠鐨勮蹇?)
+	triggerBubble("已恢复清理前的记忆")
 }
 
 const doAddGoal = () => {
@@ -4715,7 +4926,7 @@ const doAddGoal = () => {
 	addGoal(t)
 	goalDraft.value = ""
 	refreshMemView()
-	triggerBubble("濂斤紝鎴戜細闄綘鐩潃杩欎欢浜嬬殑")
+	triggerBubble("好，我会陪你盯着这件事的")
 }
 
 const doRemoveGoal = (id: string) => {
@@ -4723,7 +4934,7 @@ const doRemoveGoal = (id: string) => {
 	refreshMemView()
 }
 
-/* ---------------- 瀵煎嚭 (C4): 璁板繂+鎬荤粨+鏃ヨ 鈫?Markdown 鏂囦欢 ---------------- */
+/* ---------------- 导出 (C4): 记忆+总结+日记 → Markdown 文件 ---------------- */
 const pad2 = (n: number): string => `${n}`.padStart(2, "0")
 const localDay = (d: Date): string => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 const fmtTs = (ts: number): string => {
@@ -4733,76 +4944,77 @@ const fmtTs = (ts: number): string => {
 
 const buildExportMd = (withDiary: boolean): string => {
 	const lines: string[] = []
-	lines.push("# DeepEr 鏁版嵁瀵煎嚭", `瀵煎嚭鏃堕棿锛?{new Date().toLocaleString()}`, "")
+	lines.push("# DeepEr 数据导出", `导出时间：${new Date().toLocaleString()}`, "")
 	const data = listAll()
-	// 鐩爣鍗曠嫭涓€娈?(瀹冧滑涓嶅湪"闀挎湡璁板繂"閲岄噸澶嶅嚭鐜? 瑙佽蹇嗗簱鐨勫垎鑺傞€昏緫)
+	// 目标单独一段 (它们不在"长期记忆"里重复出现, 见记忆库的分节逻辑)
 	const goalList = listGoals()
 	if (goalList.length) {
-		lines.push(`## 闄潃浣犵殑浜嬶紙鐩爣锛?{goalList.length} 鏉★級`)
-		for (const g of goalList) lines.push(`- ${g.content} 路 ${fmtTs(g.createdAt)}`)
+		lines.push(`## 陪着你的事（目标，${goalList.length} 条）`)
+		for (const g of goalList) lines.push(`- ${g.content} · ${fmtTs(g.createdAt)}`)
 		lines.push("")
 	}
-	lines.push(`## 闀挎湡璁板繂锛?{data.memories.length} 鏉★級`)
+	lines.push(`## 长期记忆（${data.memories.length} 条）`)
 	for (const m of data.memories) {
-		const pin = (m.tags ?? []).includes("pinned") ? "锛堝凡鍥哄畾锛? : ""
-		lines.push(`- [${typeLabel(m.type)}路${memProvenance(m)}] ${m.content}${pin} 路 ${fmtTs(m.createdAt)} 路 閲嶈鎬?${m.importance}`)
+		const pin = (m.tags ?? []).includes("pinned") ? "（已固定）" : ""
+		lines.push(`- [${typeLabel(m.type)}·${memProvenance(m)}] ${m.content}${pin} · ${fmtTs(m.createdAt)} · 重要性 ${m.importance}`)
 	}
-	// 璁板繂鍧楁椂闂寸嚎 (2026-09-29 琛?: 璁╀汉鑳界湅鍑?鍝鏃堕棿鑱婁簡浠€涔?, 涔熸槸鍧楃殑鎴愬憳鍏崇郴鍑瘉
+	// 记忆块时间线 (2026-09-29 补): 让人能看出"哪段时间聊了什么", 也是块的成员关系凭证
 	const blocks = listBlocks()
 	if (blocks.length) {
-		lines.push("", `## 璁板繂鍧楁椂闂寸嚎锛?{blocks.length} 娈碉級`)
+		lines.push("", `## 记忆块时间线（${blocks.length} 段）`)
 		for (const b of blocks) {
 			const range = b.block.msgCount
-				? `${fmtTs(b.block.fromTs)} ~ ${fmtTs(b.block.toTs)} 路 ${b.block.msgCount} 鏉″璇漙
-				: "鏃╂湡璁板繂锛堣縼绉诲墠鐨勫瓨閲忥級"
-			lines.push(`- ${b.block.topic || "鏈懡鍚?} 路 ${range} 路 ${b.items.filter(i => !i.invalidAt && !i.fadedAt).length} 鏉＄敓鏁坄)
+				? `${fmtTs(b.block.fromTs)} ~ ${fmtTs(b.block.toTs)} · ${b.block.msgCount} 条对话`
+				: "早期记忆（迁移前的存量）"
+			lines.push(`- ${b.block.topic || "未命名"} · ${range} · ${b.items.filter(i => !i.invalidAt && !i.fadedAt).length} 条生效`)
 		}
 	}
-	// 鏈綊绫?(娌℃寕杩涗换浣曞潡鐨勬潯鐩?
+	// 未归类 (没挂进任何块的条目)
 	const unblocked = listUnblockedMemories()
 	if (unblocked.length) {
-		lines.push("", `## 鏈綊绫伙紙${unblocked.length} 鏉?路 娌℃寕杩涗换浣曡蹇嗗潡锛塦)
-		for (const m of unblocked) lines.push(`- [${typeLabel(m.type)}] ${m.content} 路 ${fmtTs(m.createdAt)}`)
+		lines.push("", `## 未归类（${unblocked.length} 条 · 没挂进任何记忆块）`)
+		for (const m of unblocked) lines.push(`- [${typeLabel(m.type)}] ${m.content} · ${fmtTs(m.createdAt)}`)
 	}
-	// 宸蹭綔搴熺殑璁板繂 (B1): 瀵煎嚭瑕佸甫涓?鍘嗗彶" 鈥斺€?鐢ㄦ埛鍙兘闈犲畠澶嶇洏 she 鏄粈涔堟椂鍊欐敼鍙ｇ殑
+	// 已作废的记忆 (B1): 导出要带上"历史" —— 用户可能靠它复盘 she 是什么时候改口的
 	const invalid = listInvalidMemories()
 	if (invalid.length) {
-		lines.push("", `## 宸蹭綔搴熺殑璁板繂锛?{invalid.length} 鏉?路 宸茶鍚庢潵璇寸殑璇濆彇浠ｏ紝Nori 涓嶅啀浣跨敤锛塦)
+		lines.push("", `## 已作废的记忆（${invalid.length} 条 · 已被后来说的话取代，Nori 不再使用）`)
 		for (const m of invalid) {
-			lines.push(`- [${typeLabel(m.type)}路${memProvenance(m)}] ${m.content} 路 璁颁簬 ${fmtTs(m.createdAt)} 路 浣滃簾浜?${fmtTs(m.invalidAt ?? 0)}`)
+			lines.push(`- [${typeLabel(m.type)}·${memProvenance(m)}] ${m.content} · 记于 ${fmtTs(m.createdAt)} · 作废于 ${fmtTs(m.invalidAt ?? 0)}`)
 		}
 	}
-	// 宸叉敹璧?/ 鍥炴敹绔?(2026-09-29 琛?: 瀵煎嚭瑕佽兘褰?鍏ㄩ噺澶囦唤"鐢?鈥斺€?浠庢柊鍖呴€€鍥炴棫鍖呭墠,
-	// 杩欎袱鍧楀湪鏃у寘閲屾槸鐪嬩笉瑙佺殑 (鏃т唬鐮佷笉璁?fadedAt/deletedBin), 瀵煎嚭鏄敮涓€鐨勫彇鍥炴笭閬?	const faded = listFadedMemories()
+	// 已收起 / 回收站 (2026-09-29 补): 导出要能当"全量备份"用 —— 从新包退回旧包前,
+	// 这两块在旧包里是看不见的 (旧代码不认 fadedAt/deletedBin), 导出是唯一的取回渠道
+	const faded = listFadedMemories()
 	if (faded.length) {
-		lines.push("", `## 宸叉敹璧风殑璁板繂锛?{faded.length} 鏉?路 澶箙娌℃彁鎴栧埌鏈熻嚜鍔ㄦ敹璧凤紝鍙湪璁板繂搴撶偣銆岀暀涓嬨€嶆斁鍥烇級`)
+		lines.push("", `## 已收起的记忆（${faded.length} 条 · 太久没提或到期自动收起，可在记忆库点「留下」放回）`)
 		for (const m of faded) {
-			lines.push(`- [${typeLabel(m.type)}] ${m.content} 路 ${fadeReasonLabel(m)} 路 鏀惰捣浜?${fmtTs(m.fadedAt ?? 0)}`)
+			lines.push(`- [${typeLabel(m.type)}] ${m.content} · ${fadeReasonLabel(m)} · 收起于 ${fmtTs(m.fadedAt ?? 0)}`)
 		}
 	}
 	const deleted = listDeletedMemories()
 	if (deleted.length) {
-		lines.push("", `## 宸插垹闄わ紙鍥炴敹绔欙紝${deleted.length} 鏉?路 鍙湪璁板繂搴撶偣銆岃繕鍘熴€嶅彇鍥烇紱銆屾案涔呭垹闄ゃ€嶅悗涓嶅啀鍑虹幇锛塦)
+		lines.push("", `## 已删除（回收站，${deleted.length} 条 · 可在记忆库点「还原」取回；「永久删除」后不再出现）`)
 		for (const m of deleted) {
-			lines.push(`- [${typeLabel(m.type)}] ${m.content} 路 鍒犻櫎浜?${fmtTs(m.deletedAt ?? 0)}`)
+			lines.push(`- [${typeLabel(m.type)}] ${m.content} · 删除于 ${fmtTs(m.deletedAt ?? 0)}`)
 		}
 	}
-	// 璁板繂浼樺寲绀轰緥闆?(鏁寸悊浼樺寲): 瀵煎嚭甯︿笂, 鎹㈡満/鎺掓煡鏃惰兘鐪嬪嚭"濂圭幇鍦ㄧ収浠€涔堝彛鍛宠"
+	// 记忆优化示例集 (整理优化): 导出带上, 换机/排查时能看出"她现在照什么口味记"
 	const ex = getMemoryExamples()
 	if (ex && (ex.pos.length || ex.neg.length)) {
-		lines.push("", `## 璁板繂浼樺寲绀轰緥锛堢敓鎴愪簬 ${fmtTs(ex.builtAt)} 路 鍩轰簬褰撴椂 ${ex.basedOn} 鏉¤蹇嗭級`)
-		if (ex.pos.length) lines.push(`- 璇ヨ锛?{ex.pos.join(" / ")}`)
-		if (ex.neg.length) lines.push(`- 涓嶈璁帮細${ex.neg.join(" / ")}`)
+		lines.push("", `## 记忆优化示例（生成于 ${fmtTs(ex.builtAt)} · 基于当时 ${ex.basedOn} 条记忆）`)
+		if (ex.pos.length) lines.push(`- 该记：${ex.pos.join(" / ")}`)
+		if (ex.neg.length) lines.push(`- 不该记：${ex.neg.join(" / ")}`)
 	}
-	lines.push("", `## 鍘嗗彶鎬荤粨锛?{data.summaries.length} 鏉★級`)
+	lines.push("", `## 历史总结（${data.summaries.length} 条）`)
 	for (const s of data.summaries) {
-		lines.push(`- ${fmtTs(s.createdAt)}锛?{s.content}`)
+		lines.push(`- ${fmtTs(s.createdAt)}：${s.content}`)
 	}
 	if (withDiary) {
 		const diary = listDiary()
-		lines.push("", `## Nori 鐨勬棩璁帮紙${diary.length} 绡囷級`)
+		lines.push("", `## Nori 的日记（${diary.length} 篇）`)
 		for (const e of diary) {
-			lines.push(`### ${e.date} 路 ${e.mood}`, e.content, "")
+			lines.push(`### ${e.date} · ${e.mood}`, e.content, "")
 		}
 	}
 	return lines.join("\n")
@@ -4815,13 +5027,13 @@ const doExportAll = () => {
 	try {
 		const name = exportFileName()
 		const ok = writeFile(name, buildExportMd(true))
-		triggerBubble(ok ? `宸插鍑?${name}` : "瀵煎嚭澶辫触")
+		triggerBubble(ok ? `已导出 ${name}` : "导出失败")
 	} catch {
-		triggerBubble("瀵煎嚭澶辫触")
+		triggerBubble("导出失败")
 	}
 }
 
-/* ---------------- 鏃ヨ锛氱┖闂叉椂鏈€澶氳ˉ涓€绡囷紝鑱婂ぉ寮€濮嬪嵆鍋滄 ---------------- */
+/* ---------------- 日记：空闲时最多补一篇，聊天开始即停止 ---------------- */
 const openDiary = () => openPanel("diary")
 let diaryIdleTimer: ReturnType<typeof setTimeout> | null = null
 let diaryAutoAbort: AbortController | null = null
@@ -4843,7 +5055,7 @@ const scheduleDiary = () => {
 					{role: "system", content: system, ts: Date.now()},
 					{role: "user", content: material ?? "", ts: Date.now()},
 				], false, {signal: ac.signal})
-				if (!r.ok) throw new Error(r.message || "鏃ヨ鐢熸垚澶辫触锛岃绋嶅悗閲嶈瘯")
+				if (!r.ok) throw new Error(r.message || "日记生成失败，请稍后重试")
 				return r.content ?? ""
 			}, ac.signal)
 			window.dispatchEvent(new Event("nori-diary-updated"))
@@ -4855,42 +5067,43 @@ onMounted(scheduleDiary)
 onBeforeUnmount(stopAutoDiary)
 
 const doClearMemory = () => {
-	if (!window.confirm("纭畾娓呯┖鍏ㄩ儴闀挎湡璁板繂鍜屽巻鍙叉憳瑕佸悧锛?)) return
-	// 娓呯┖鍓嶈嚜鍔ㄥ浠?鈫?鍙?鎾ら攢涓婃娓呯悊"涓€閿繕鍘?	backupMemoryNow()
+	if (!window.confirm("确定清空全部长期记忆和历史摘要吗？")) return
+	// 清空前自动备份 → 可"撤销上次清理"一键还原
+	backupMemoryNow()
 	clearMemory()
 	refreshMemView()
-	triggerBubble("宸叉竻绌鸿蹇?)
+	triggerBubble("已清空记忆")
 }
 
 const memPruneMsg = ref("")
 const memPruneMsgOk = ref(false)
 
 const doPruneMemories = () => {
-	// 鍙湪璇ユ娓呯悊鐪熶細鍒犱笢瑗挎椂鎵嶅浠?鈥斺€?鏃犳晥娓呯悊鑻ヨ鐩栧浠?
-	// 浼氭妸"娓呯┖鍓?鐨勬挙閿€鐐瑰紕涓?(涓婃娓呯┖鐨勫浠借绌烘搷浣滈《鎺?
+	// 只在该次清理真会删东西时才备份 —— 无效清理若覆盖备份,
+	// 会把"清空前"的撤销点弄丢 (上次清空的备份被空操作顶掉)
 	if (pruneStalePreview() > 0) backupMemoryNow()
 	const removed = pruneStaleMemories()
 	if (removed > 0) {
 		refreshMemView()
-		memPruneMsg.value = `宸叉敹璧?${removed} 鏉′綆棰戣蹇嗭紝鍙湪銆屽凡鏀惰捣銆嶉噷鐐广€岀暀涓嬨€嶆斁鍥瀈
+		memPruneMsg.value = `已收起 ${removed} 条低频记忆，可在「已收起」里点「留下」放回`
 		memPruneMsgOk.value = true
 	} else {
-		memPruneMsg.value = "娌℃湁闇€瑕佹竻鐞嗙殑浣庨璁板繂锛堥兘寰堟柊椴滄垨鏈変环鍊硷級"
+		memPruneMsg.value = "没有需要清理的低频记忆（都很新鲜或有价值）"
 		memPruneMsgOk.value = false
 	}
 }
 
-/* ---------------- Fish Audio 娴佸紡 TTS UI 鐘舵€?---------------- */
+/* ---------------- Fish Audio 流式 TTS UI 状态 ---------------- */
 const speaking = ref(false)
 watch([typing, chatStreaming, touchStreaming, speaking], () => schedulePortraitReplyClear())
 const ttsTesting = ref(false)
 const ttsMsg = ref("")
 const ttsMsgOk = ref(false)
 
-/** 婊戝潡瀹炴椂璋冩暣"搴旂敤鍐呮湕璇婚煶閲? (鍙奖鍝嶆湰 App 鎾斁, 涓嶅姩绯荤粺闊抽噺; 鏉炬墜鏃?change 浜嬩欢钀界洏) */
+/** 滑块实时调整"应用内朗读音量" (只影响本 App 播放, 不动系统音量; 松手时 change 事件落盘) */
 const applyTtsVolume = () => setTtsVolume(Number(cfg.ttsVolume))
 
-/* ---------------- 鑳屾櫙闊充箰 ---------------- */
+/* ---------------- 背景音乐 ---------------- */
 const bgmNowName = ref("")
 const bgmState = ref<BgmState>("missing")
 const bgmPct = ref(0)
@@ -4922,60 +5135,62 @@ const onBgmNext = (): void => {
 	bgmNowName.value = bgmNameOf(nextBgmTrack())
 }
 /**
- * 銆屼笅杞借儗鏅煶涔愯祫婧愩€?銆岄噸鏂颁笅杞姐€嶄袱涓寜閽殑鍏ュ彛銆? * 鈿?涓嶈鍐欐垚 `@click="downloadBgm"` 鈥斺€?Vue 浼氭妸 MouseEvent 褰撶涓€涓疄鍙備紶杩?`force`,
- * 浜嬩欢瀵硅薄鎭掍负鐪熷€?鈬?鏅€氫笅杞戒篃浼氳褰撴垚"寮哄埗閲嶄笅"锛堢綉缁滅櫧璺戜竴瓒燂級銆? */
+ * 「下载背景音乐资源」/「重新下载」两个按钮的入口。
+ * ⚠ 不要写成 `@click="downloadBgm"` —— Vue 会把 MouseEvent 当第一个实参传进 `force`,
+ * 事件对象恒为真值 ⇒ 普通下载也会被当成"强制重下"（网络白跑一趟）。
+ */
 const onBgmDownload = (): void => downloadBgm()
 const onBgmRedownload = (): void => downloadBgm(true)
 const onSfxVolume = (): void => setSfxVolume(Number(cfg.sfxVolume))
 
-/* ---------------- 闊虫晥鏂囦欢 (鑱旂綉涓嬭浇, 2026-10-02) ----------------
- * 5 涓師鐗?m4a 涓嶅啀杩涘寘: 鐐广€屼笅杞介煶鏁堛€嶁啋 鍘熺敓妗ヤ笅鍒板簲鐢ㄧ鏈夌洰褰?鈫?鐢?/sfx-local/ 鎾斁
- * (缁嗚妭瑙?services/sfx.ts)銆傝繖閲屽彧绠¤缃潰鏉块偅涓€琛岀殑鐘舵€佹枃妗堛€?*/
-const sfxMsg = ref("鏈笅杞斤紙鐐瑰彸杈规寜閽級")
+/* ---------------- 音效文件 (联网下载, 2026-10-02) ----------------
+ * 5 个原版 m4a 不再进包: 点「下载音效」→ 原生桥下到应用私有目录 → 用 /sfx-local/ 播放
+ * (细节见 services/sfx.ts)。这里只管设置面板那一行的状态文案。 */
+const sfxMsg = ref("未下载（点右边按钮）")
 const sfxMsgOk = ref(false)
 const sfxMsgBad = ref(false)
 const sfxBusy = ref(false)
 const sfxTotal = ref(5)
-/** 璇曡繃涓€娆?鎴栬€呭惎鍔ㄦ椂灏卞凡缁忛綈浜? 鈬?鎸夐挳鏄剧ず銆岄噸鏂颁笅杞姐€? 浠庢病涓嬭繃鎵嶆槸銆屼笅杞介煶鏁堛€?*/
+/** 试过一次(或者启动时就已经齐了) ⇒ 按钮显示「重新下载」; 从没下过才是「下载音效」 */
 const sfxTried = ref(false)
 const sfxBtnText = computed((): string => {
-	if (sfxBusy.value) return "涓嬭浇涓€?
-	return sfxTried.value ? "閲嶆柊涓嬭浇" : "涓嬭浇闊虫晥"
+	if (sfxBusy.value) return "下载中…"
+	return sfxTried.value ? "重新下载" : "下载音效"
 })
 
-/** 鍒锋柊鐘舵€佽 (鏈笅杞?/ 涓嬭浇涓?/ 宸蹭笅杞?N/N / 涓嬭浇澶辫触) 鈥斺€?鍥涙€侀兘鍦ㄨ繖涓€澶勬敹鍙?*/
+/** 刷新状态行 (未下载 / 下载中 / 已下载 N/N / 下载失败) —— 四态都在这一处收口 */
 const sfxShowStatus = (st: {ready: boolean; done: number; total: number}, failed: string[] = []): void => {
 	sfxTotal.value = st.total > 0 ? st.total : 5
 	if (sfxBusy.value) {
-		sfxMsg.value = "涓嬭浇涓€?
+		sfxMsg.value = "下载中…"
 		sfxMsgOk.value = false
 		sfxMsgBad.value = false
 		return
 	}
 	if (failed.length) {
 		sfxTried.value = true
-		// 鍏ㄩ兘娌′笅鏉?鈮?缃戠粶涓嶉€?(鍥藉唴鐩磋繛澶ф鐜囦笉琛?: 鎶婃簮绔欎竴璧峰啓鍑烘潵, 鏂逛究鎺掓煡;
-		// 涓埆澶辫触灏辨妸鏂囦欢鍚嶅垪鍑烘潵 (鍝釜鍧忎簡鍐嶇偣涓€涓嬪彧琛ュ畠)
+		// 全都没下来 ≈ 网络不通 (国内直连大概率不行): 把源站一起写出来, 方便排查;
+		// 个别失败就把文件名列出来 (哪个坏了再点一下只补它)
 		sfxMsg.value = failed.length >= sfxTotal.value
-			? `涓嬭浇澶辫触锛?{sfxTotal.value} 涓兘娌′笅鏉ワ級锛堝彲閲嶈瘯锛壜?涓嬭浇婧?${SFX_SOURCE}锛屽浗鍐呭彲鑳介渶瑕佷唬鐞?榄旀硶`
-			: `涓嬭浇澶辫触锛?{failed.join("銆?)}锛堝彲閲嶈瘯锛壜?鍥藉唴鍙兘闇€瑕佷唬鐞?榄旀硶`
+			? `下载失败（${sfxTotal.value} 个都没下来）（可重试）· 下载源 ${SFX_SOURCE}，国内可能需要代理/魔法`
+			: `下载失败：${failed.join("、")}（可重试）· 国内可能需要代理/魔法`
 		sfxMsgOk.value = false
 		sfxMsgBad.value = true
 		return
 	}
 	if (st.ready) {
 		sfxTried.value = true
-		sfxMsg.value = `宸蹭笅杞?${sfxTotal.value}/${sfxTotal.value}`
+		sfxMsg.value = `已下载 ${sfxTotal.value}/${sfxTotal.value}`
 		sfxMsgOk.value = true
 		sfxMsgBad.value = false
 		return
 	}
-	sfxMsg.value = "鏈笅杞斤紙鐐瑰彸杈规寜閽級"
+	sfxMsg.value = "未下载（点右边按钮）"
 	sfxMsgOk.value = false
 	sfxMsgBad.value = false
 }
 
-/** 璇讳竴娆″師鐢熺姸鎬?(鍚姩鏃惰涓€娆? 涔嬪悗姣忔鎾斁鍓嶇敱 services/sfx.ts 鐜伴棶) */
+/** 读一次原生状态 (启动时读一次; 之后每次播放前由 services/sfx.ts 现问) */
 const sfxRefresh = (): void => {
 	const st = readSfxStatus()
 	sfxShowStatus(st)
@@ -4985,20 +5200,21 @@ const doDownloadSfx = (): void => {
 	if (sfxBusy.value) return
 	sfxBusy.value = true
 	sfxShowStatus({ready: false, done: 0, total: sfxTotal.value})
-	// 涓嶅洜"宸蹭笅杞?灏辩煭璺? 鍘熺敓渚у宸插瓨鍦ㄤ笖澶у皬鍚堢悊鐨勬枃浠朵細璺宠繃, 閲嶅鐐规渶澶氭槸涓€娆℃湰鍦版牎楠?	const r = downloadSfx()
+	// 不因"已下载"就短路: 原生侧对已存在且大小合理的文件会跳过, 重复点最多是一次本地校验
+	const r = downloadSfx()
 	if (r === "ok") return
-	// 娌¤兘瑙﹀彂 (缃戦〉璋冭瘯娌℃湁妗?/ 涓婁竴娆¤繕鍦ㄤ笅): 鍒鎸夐挳姘歌繙鍗″湪"涓嬭浇涓€?
+	// 没能触发 (网页调试没有桥 / 上一次还在下): 别让按钮永远卡在"下载中…"
 	sfxBusy.value = false
 	sfxMsgOk.value = false
 	sfxMsgBad.value = true
 	sfxMsg.value = r === "err:nobridge"
-		? "瑁呭埌鎵嬫満涓婃墠鑳戒笅杞斤紙缃戦〉璋冭瘯娌℃湁鍘熺敓妗ワ級"
+		? "装到手机上才能下载（网页调试没有原生桥）"
 		: r === "err:busy"
-			? "涓婁竴娆′笅杞借繕鍦ㄨ繘琛岋紝绋嶇瓑涓€涓?
-			: `涓嬭浇瑙﹀彂澶辫触锛?{r}锛夛紙鍙噸璇曪級`
+			? "上一次下载还在进行，稍等一下"
+			: `下载触发失败（${r}）（可重试）`
 }
 
-/** 搴曢儴 dock 鎸夐敭闊?(鎸夊埌鎸夐挳涓婃墠鍝? 鐐圭┖鐧藉涓嶅搷); 瀹夐潤妯″紡涔熶繚鐣欐寜閿煶 */
+/** 底部 dock 按键音 (按到按钮上才响, 点空白处不响); 安静模式也保留按键音 */
 const onDockPress = (e: PointerEvent): void => {
 	if ((e.target as HTMLElement)?.closest?.(".fab, .side-action")) playSfx()
 }
@@ -5011,8 +5227,10 @@ const onAmbientToggle = (): void => {
 	persistSettings()
 }
 
-/* ---------------- 瀹夐潤妯″紡 ----------------
- * 涓夋€? 鍏抽棴 / 鑷姩(姣忔棩 23:00鈥撴鏃?8:00) / 鎵嬪姩銆? * 鐢熸晥鏃? Nori 涓嶄富鍔ㄦ惌璇濄€丅GM 鏆傚仠; TTS 鏈楄涓庢寜閿煶/闊虫晥涓€寰嬩繚鐣? * (浣犲彂娑堟伅濂圭収甯稿洖澶? 鎿嶄綔鍙嶉闊充笉闈欓煶)銆?*/
+/* ---------------- 安静模式 ----------------
+ * 三态: 关闭 / 自动(每日 23:00–次日 8:00) / 手动。
+ * 生效时: Nori 不主动搭话、BGM 暂停; TTS 朗读与按键音/音效一律保留
+ * (你发消息她照常回复; 操作反馈音不静音)。 */
 const quietActive = (): boolean => {
 	if (cfg.quietMode === "manual") return cfg.quietOn
 	if (cfg.quietMode === "auto") {
@@ -5024,20 +5242,20 @@ const quietActive = (): boolean => {
 const bgmQuietHold = ref(false)
 const bgmQuickTrack = computed(() => bgmNowName.value || bgmNameOf(cfg.bgmTrack))
 const bgmQuickActionLabel = computed(() => bgmState.value === "missing" && cfg.bgmEnabled
-	? "閲嶆柊涓嬭浇鑳屾櫙闊充箰"
-	: cfg.bgmEnabled ? "鏆傚仠鑳屾櫙闊充箰" : "鎾斁鑳屾櫙闊充箰")
+	? "重新下载背景音乐"
+	: cfg.bgmEnabled ? "暂停背景音乐" : "播放背景音乐")
 const bgmQuickStatus = computed(() => {
-	if (bgmState.value === "downloading") return `姝ｅ湪鍑嗗闊充箰 路 ${bgmPct.value}%`
-	if (bgmState.value === "missing") return cfg.bgmEnabled ? "闊充箰璧勬簮鏈氨缁?路 鐐规閲嶈瘯" : "鑳屾櫙闊充箰宸叉殏鍋?
-	if (cfg.bgmEnabled && bgmQuietHold.value) return "瀹夐潤妯″紡鏆傚仠涓?
-	return cfg.bgmEnabled ? "姝ｅ湪寰幆鎾斁" : "鑳屾櫙闊充箰宸叉殏鍋?
+	if (bgmState.value === "downloading") return `正在准备音乐 · ${bgmPct.value}%`
+	if (bgmState.value === "missing") return cfg.bgmEnabled ? "音乐资源未就绪 · 点此重试" : "背景音乐已暂停"
+	if (cfg.bgmEnabled && bgmQuietHold.value) return "安静模式暂停中"
+	return cfg.bgmEnabled ? "正在循环播放" : "背景音乐已暂停"
 })
 const bgmCanSkip = computed(() => cfg.bgmEnabled && bgmState.value === "ready" && !bgmQuietHold.value)
-/** ambient 鎬婚椄: 璁剧疆寮€鍏?脳 瀹夐潤妯″紡 脳 鐣寗閽熶笓娉?(鍞竴鍏ュ彛, 浠讳綍閲嶈瘎浼伴兘璧拌繖閲? */
+/** ambient 总闸: 设置开关 × 安静模式 × 番茄钟专注 (唯一入口, 任何重评估都走这里) */
 const ambientAllowed = (): boolean => cfg.ambientEnabled && !quietActive() && !pomoFocusMuteOn
-/** 鐣寗閽熶笓娉ㄦ湡闈欓煶鏄惁鐢熸晥 (澹版槑鍦ㄤ娇鐢ㄧ偣涔嬪墠: 渚?bgmHeld 涓?applyQuiet 鍒ゆ柇) */
+/** 番茄钟专注期静音是否生效 (声明在使用点之前: 供 bgmHeld 与 applyQuiet 判断) */
 let pomoFocusMuteOn = false
-/** 鐜板湪鏄惁搴斿綋"淇濇寔瀹夐潤"(涓嶄富鍔ㄦ惌璇?/ BGM 涓嶅嚭澹?: 瀹夐潤妯″紡 鎴?鐣寗閽熶笓娉ㄦ湡闈欓煶 */
+/** 现在是否应当"保持安静"(不主动搭话 / BGM 不出声): 安静模式 或 番茄钟专注期静音 */
 const bgmHeld = (): boolean => quietActive() || pomoFocusMuteOn
 let quietTimer = 0
 const applyQuiet = (): void => {
@@ -5058,9 +5276,10 @@ const onQuietToggle = (): void => {
 	persistSettings()
 }
 
-/* ---------------- 鐣寗閽?----------------
- * 璁℃椂鏈綋鍦ㄥ師鐢?PomodoroEngine (杩涚▼瀛樻椿鍗冲噯鐐硅Е鍙? 瀹屾垚鍙戠郴缁熼€氱煡);
- * 杩欓噷鏄仴鎺у櫒 + 鎮诞绐楄鍥?+ 鑱斿姩: 鎾姤(sfx/TTS)/姣忔棩缁熻(pomo.json)/鏀惧純闈欓煶鎯╃綒/ambient 鎶戝埗銆? * 鏃堕暱浠ュ師鐢熷崟璋冩椂閽熷揩鐓т负鍑嗭紱椤甸潰鍙睍绀猴紝鏃фˉ鍏煎 epoch 鏃堕棿鎴炽€?*/
+/* ---------------- 番茄钟 ----------------
+ * 计时本体在原生 PomodoroEngine (进程存活即准点触发, 完成发系统通知);
+ * 这里是遥控器 + 悬浮窗视图 + 联动: 播报(sfx/TTS)/每日统计(pomo.json)/放弃静音惩罚/ambient 抑制。
+ * 时长以原生单调时钟快照为准；页面只展示，旧桥兼容 epoch 时间戳。 */
 type PomoPhase = "idle" | "focus" | "break" | "countUp"
 interface PomoStateT {now?: number; days?: Record<string, number>; sessionId?: string; revision?: number; eventSeq?: number; goal?: string; rounds?: number; longEvery?: number; cycleEnabled?: boolean; isLongBreak?: boolean; rebootPending?: boolean; durationMs?: number; autoFocus?: boolean; phase: PomoPhase; paused: boolean; endAt: number; remainMs: number; focusMin: number; breakMin: number; autoBreak: boolean; startedAt: number; elapsedMs?: number; remainingMs?: number}
 interface PomoDay {focusMin: number; done: number; abort: number; countUpMin: number}
@@ -5118,12 +5337,14 @@ const POMO_PRESETS = [
 	{label: "90+20", focus: 90, break: 20},
 	{label: "15+3", focus: 15, break: 3},
 ]
-// 闊虫晥涓嶅啀鎵撹繘鍖?(2026-10-02): 鍏ㄩ儴璧版湰鍦扮洰褰?/sfx-local/ 渚涙祦 (璁剧疆閲屻€屼笅杞介煶鏁堛€嶄笅鍒版湰鏈?
+// 音效不再打进包 (2026-10-02): 全部走本地目录 /sfx-local/ 供流 (设置里「下载音效」下到本机)
 const POMO_SFX = {start: "/sfx-local/start.m4a", complete: "/sfx-local/complete.m4a", ret: "/sfx-local/return.m4a", abandon: "/sfx-local/abandon.m4a"}
-// PomoStatsFile 绫诲瀷: 澶氫簡鍙€夌殑 celebrated (閲岀▼纰? 涓?total/best (缁堣韩绱/鏈€浣宠褰?銆?// **蹇呴』鏄?reactive**: 妯℃澘鐩存帴璇?pomoStats.total / .best, 鑰?pomoDay/addToStore/migrateStats
-// 閮芥槸鍘熷湴鏀硅繖涓璞?鈥斺€?鐢ㄦ櫘閫?let 鏃舵敼鍔ㄤ笉瑙﹀彂閲嶆覆鏌?(缁熻椤电殑"绱"浼氫竴鐩存樉绀哄姞杞藉墠鐨?0)銆?const pomoStats = reactive<PomoStatsFile>({v: 1, days: {}})
+// PomoStatsFile 类型: 多了可选的 celebrated (里程碑) 与 total/best (终身累计/最佳记录)。
+// **必须是 reactive**: 模板直接读 pomoStats.total / .best, 而 pomoDay/addToStore/migrateStats
+// 都是原地改这个对象 —— 用普通 let 时改动不触发重渲染 (统计页的"累计"会一直显示加载前的 0)。
+const pomoStats = reactive<PomoStatsFile>({v: 1, days: {}})
 
-// 鏃ユ湡閿粺涓€鐢?services/pomo-stats 閲岀殑 dayKey (鍘熸澶勫彟鏈変竴浠藉悓瀹炵幇, 宸插垹, 閬垮厤涓ゅ婕傜Щ)
+// 日期键统一用 services/pomo-stats 里的 dayKey (原此处另有一份同实现, 已删, 避免两处漂移)
 const pomoDayKey = pomoStatDayKey
 const pomoDate = ref(new Date())
 const pomoDay = (): PomoDay => {
@@ -5132,15 +5353,15 @@ const pomoDay = (): PomoDay => {
 	return pomoStats.days[k]
 }
 const pomoApplyStats = (parsed: PomoStatsFile): void => {
-    if (!parsed || typeof parsed.days !== "object" || !parsed.days || Array.isArray(parsed.days)) throw new Error("涓撴敞璁板綍鏍煎紡寮傚父")
+    if (!parsed || typeof parsed.days !== "object" || !parsed.days || Array.isArray(parsed.days)) throw new Error("专注记录格式异常")
     Object.assign(pomoStats, {v: 2, days: {}, total: undefined, best: undefined, celebrated: {}, lastEventSeq: 0}, parsed)
     pomoStatsReady.value = true
 }
 const pomoAcceptDashboard = (raw: string): void => {
     const result = JSON.parse(raw)
-    if (result.ok === false) throw new Error(result.message || "璁板綍璇诲彇澶辫触")
-    if (!result.state || !result.stats) throw new Error("璁℃椂鐘舵€佽鍙栦笉瀹屾暣")
-    if (!["idle", "focus", "break", "countUp"].includes(result.state.phase)) throw new Error("璁℃椂鐘舵€佹牸寮忓紓甯?)
+    if (result.ok === false) throw new Error(result.message || "记录读取失败")
+    if (!result.state || !result.stats) throw new Error("计时状态读取不完整")
+    if (!["idle", "focus", "break", "countUp"].includes(result.state.phase)) throw new Error("计时状态格式异常")
     pomoApplyStats(result.stats)
     pomoStateSet(JSON.stringify(result.state))
     pomoSyncPending.value = result.syncStatus !== "ok"
@@ -5153,29 +5374,29 @@ const pomoStatsLoad = (): void => {
         const b = noriB()
         if (b?.pomoDashboard) { pomoAcceptDashboard(b.pomoDashboard()); return }
         const raw = b?.pomoStats ? b.pomoStats() : b?.readFile?.("pomo.json") || ""
-        if (!raw) { if (!b?.pomoStats) { pomoStatsReady.value = true; return }; throw new Error("鏆傛椂鏃犳硶璇诲彇璁板綍") }
+        if (!raw) { if (!b?.pomoStats) { pomoStatsReady.value = true; return }; throw new Error("暂时无法读取记录") }
         const parsed = JSON.parse(raw)
         if (parsed.ok === false) throw new Error(parsed.message)
         pomoApplyStats(parsed)
         if (!b?.pomoStats && migrateStats(pomoStats)) pomoStatsSave()
         pomoError.value = ""
-    } catch (e) { pomoError.value = `璁板綍鏆傛湭鏇存柊锛?{(e as Error).message}銆傚凡淇濈暀涓婃鏄剧ず銆俙 }
+    } catch (e) { pomoError.value = `记录暂未更新：${(e as Error).message}。已保留上次显示。` }
 }
 const pomoStatsSave = (): void => {
-    try { if (noriB()?.writeFile?.("pomo.json", JSON.stringify(pomoStats)) !== "ok") throw new Error("鏂囦欢涓嶅彲鍐?) }
-    catch (e) { pomoError.value = `璁板綍淇濆瓨澶辫触锛?{(e as Error).message}` }
+    try { if (noriB()?.writeFile?.("pomo.json", JSON.stringify(pomoStats)) !== "ok") throw new Error("文件不可写") }
+    catch (e) { pomoError.value = `记录保存失败：${(e as Error).message}` }
 }
 const pomoCfgLoad = (): void => {
     try {
         const file = readFileState("settings.json")
-        if (file.status === "error") { pomoSettingsReadable = false; throw new Error("璁剧疆鏆備笉鍙") }
+        if (file.status === "error") { pomoSettingsReadable = false; throw new Error("设置暂不可读") }
         const settings = file.status === "ok" ? JSON.parse(file.content) : {}
         const legacy = localStorage.getItem("pomo_cfg")
         Object.assign(pomoCfg, normalizePomo(settings.pomo || (legacy ? JSON.parse(legacy) : {})))
         pomoNeedsMigration = !settings.pomo
         pomoSettingsReadable = true
         pomoConfigError.value = ""
-    } catch { pomoConfigError.value = "璁剧疆鏆傛湭鎭㈠锛涜鍙栨仮澶嶅墠涓嶄細鑷姩瑕嗙洊鏃ц缃€?; pomoSettingsReadable = false }
+    } catch { pomoConfigError.value = "设置暂未恢复；读取恢复前不会自动覆盖旧设置。"; pomoSettingsReadable = false }
 }
 watch(pomoCfg, () => {
     if (!pomoSettingsReady || !pomoSettingsReadable) return
@@ -5183,7 +5404,7 @@ watch(pomoCfg, () => {
     pomoConfigTimer = window.setTimeout(() => {
         Object.assign(pomoCfg, normalizePomo(pomoCfg))
         const result = persistSettings()
-        pomoConfigError.value = result === "ok" ? "" : "涓撴敞璁剧疆鏈繚瀛橈紝璇锋鏌ュ瓨鍌ㄦ潈闄愬悗閲嶈瘯銆?
+        pomoConfigError.value = result === "ok" ? "" : "专注设置未保存，请检查存储权限后重试。"
         if (result === "ok") { pomoNeedsMigration = false; localStorage.removeItem("pomo_cfg") }
         pomoSyncFocus()
     }, 400)
@@ -5194,14 +5415,14 @@ let pomoSnapshotAt = performance.now()
 const pomoStateSet = (json: string): boolean => {
 	try {
 		const s = JSON.parse(json)
-		if (!s || !["idle", "focus", "break", "countUp"].includes(s.phase)) { pomoError.value = s?.message || "璁℃椂鐘舵€佽鍙栧け璐ワ紝璇烽噸璇?; return false }
+		if (!s || !["idle", "focus", "break", "countUp"].includes(s.phase)) { pomoError.value = s?.message || "计时状态读取失败，请重试"; return false }
 		const finiteMs = (v: unknown): number => Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0
 		pomo.value = {now: finiteMs(s.now) || Date.now(), days: s.days || {}, sessionId: s.sessionId, revision: finiteMs(s.revision), eventSeq: finiteMs(s.eventSeq), goal: String(s.goal || ""), rounds: finiteMs(s.rounds), longEvery: finiteMs(s.longEvery), cycleEnabled: !!s.cycleEnabled, isLongBreak: !!s.isLongBreak, rebootPending: !!s.rebootPending, durationMs: finiteMs(s.durationMs), autoFocus: !!s.autoFocus, phase: s.phase, paused: !!s.paused, endAt: finiteMs(s.endAt), remainMs: finiteMs(s.remainMs), focusMin: finiteMs(s.focusMin), breakMin: finiteMs(s.breakMin), autoBreak: !!s.autoBreak, startedAt: finiteMs(s.startedAt),
 			...(s.elapsedMs !== undefined ? {elapsedMs: finiteMs(s.elapsedMs), remainingMs: finiteMs(s.remainingMs)} : {})}
 		pomoSnapshotAt = performance.now()
         pomoDisplayAt.value = pomoSnapshotAt
         return true
-	} catch { pomoError.value = "璁℃椂鐘舵€佽鍙栧け璐ワ紝璇烽噸璇?; return false }
+	} catch { pomoError.value = "计时状态读取失败，请重试"; return false }
 }
 const pomoSyncFocus = (): void => {
     const active = pomo.value.phase !== "idle"
@@ -5214,7 +5435,7 @@ const pomoSyncFocus = (): void => {
     applyQuiet()
 }
 
-/** 鍘熺敓鎺ㄩ€佸叆鍙?(PomodoroEngine.evaluateJavascript) */
+/** 原生推送入口 (PomodoroEngine.evaluateJavascript) */
 ;(window as unknown as {__noriPomoEvent?: (json: string) => void}).__noriPomoEvent = (json: string) => {
 	try {
 		const e = JSON.parse(json)
@@ -5227,10 +5448,11 @@ const pomoSyncFocus = (): void => {
 		pomoSyncFocus()
 		pomoStatsLoad()
 		pomoUpdateDisplay()
-		// 宸茬粨鏉熷緢涔呯殑鍚庡彴浜嬩欢鍙ˉ璐︼紝閬垮厤閲嶆柊鎵撳紑鏃惰繛缁挱鎶ユ棫鎻愮ず銆?		if (e.reason && e.reason !== "complete" || e.endedAt && Date.now() - e.endedAt > 15000) return
-		pomoMessage.value = e.phase === "focus" ? `鏈 ${Math.round((e.elapsedMs || pomo.value.focusMin * 60000) / 60000)} 鍒嗛挓宸茶褰曪紝鍋氬緱寰堝ソ銆備粖澶╁凡绉疮 ${pomoSummary.value.todayMin} 鍒嗛挓銆俙 : "浼戞伅缁撴潫浜嗭紝鍑嗗濂藉啀缁х画銆?
+		// 已结束很久的后台事件只补账，避免重新打开时连续播报旧提示。
+		if (e.reason && e.reason !== "complete" || e.endedAt && Date.now() - e.endedAt > 15000) return
+		pomoMessage.value = e.phase === "focus" ? `本段 ${Math.round((e.elapsedMs || pomo.value.focusMin * 60000) / 60000)} 分钟已记录，做得很好。今天已积累 ${pomoSummary.value.todayMin} 分钟。` : "休息结束了，准备好再继续。"
 		if (e.phase === "focus") {
-			// 涓撴敞鍒扮偣鍚庤繘鍏ヤ紤鎭?鈥斺€?浠嶅湪涓€涓暘鑼勫懆鏈熷唴, 淇濇寔闈欓煶, 涓嶅湪杩欓噷杩樺師
+			// 专注到点后进入休息 —— 仍在一个番茄周期内, 保持静音, 不在这里还原
 			if (!b?.pomoStats) {
 				const day = pomoDay()
 				day.done++; day.focusMin += pomo.value.focusMin
@@ -5238,17 +5460,17 @@ const pomoSyncFocus = (): void => {
 				pomoStatsSave()
 			}
 			if (pomoCfg.feedback !== "silent") playSfxFile(POMO_SFX.complete)
-			if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, "涓撴敞瀹屾垚锛屽仛寰楀緢濂姐€備紤鎭竴涓嬪惂锛屾垜鐪嬬潃鏃堕棿銆?) } catch { /* 蹇界暐 */ } }
+			if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, "专注完成，做得很好。休息一下吧，我看着时间。") } catch { /* 忽略 */ } }
 		} else {
-			// 浼戞伅缁撴潫 = 涓€涓畬鏁寸暘鑼勮窇瀹?鈫?杩樺師杩涗笓娉ㄥ墠鐨勫畨闈欒缃?(BGM 鎭㈠)
+			// 休息结束 = 一个完整番茄跑完 → 还原进专注前的安静设置 (BGM 恢复)
 			if (pomoCfg.feedback !== "silent") playSfxFile(POMO_SFX.ret)
-			if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, "浼戞伅澶熶簡锛熷洖鏉ュ惂锛屾垜闄潃浣犮€?) } catch { /* 蹇界暐 */ } }
+			if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, "休息够了？回来吧，我陪着你。") } catch { /* 忽略 */ } }
 		}
-	} catch { /* 蹇界暐 */ }
+	} catch { /* 忽略 */ }
 }
 let pomoLastAnnounced = 0
 
-/* 鍙涓旇繍琛屾椂姣忕鎺ㄨ繘鏄剧ず锛屽師鐢熶粎浣庨鏍″噯鍙婃牳瀵瑰埌鐐圭姸鎬併€?*/
+/* 可见且运行时每秒推进显示，原生仅低频校准及核对到点状态。 */
 const pomoFmt = ref("00:00")
 const pomoPct = ref(0)
 const pomoFmtOf = (sec: number): string => {
@@ -5280,9 +5502,10 @@ let pomoTickTimer = 0
 let pomoDateTimer = 0
 const pomoRefresh = (stats = true): void => {
 	const previousPhase = pomo.value.phase
-	try { const b = noriB(); if (b?.pomoState) pomoStateSet(b.pomoState()) } catch { pomoError.value = "璁℃椂鐘舵€佹殏鏈洿鏂帮紝璇烽噸璇曘€? }
+	try { const b = noriB(); if (b?.pomoState) pomoStateSet(b.pomoState()) } catch { pomoError.value = "计时状态暂未更新，请重试。" }
 	pomoSyncFocus()
-	// 鍘熺敓瀹屾垚鍥炶皟鍗充娇鏈€佽揪锛岃疆璇㈠彂鐜伴樁娈靛彉鍖栨椂涔熺珛鍗冲悓姝ヨ处鏈€?	if (stats || previousPhase !== pomo.value.phase) pomoStatsLoad()
+	// 原生完成回调即使未送达，轮询发现阶段变化时也立即同步账本。
+	if (stats || previousPhase !== pomo.value.phase) pomoStatsLoad()
     pomoSyncFocus()
 	pomoUpdateDisplay()
 }
@@ -5307,7 +5530,7 @@ const pomoRefreshDate = (): void => {
 	pomoDateTimer = window.setTimeout(pomoRefreshDate, Math.max(1, midnight.getTime() - Date.now()))
 }
 
-/* ---------------- 鐣寗閽熼潤闊筹細鍛ㄦ湡/鏀惧純淇濇寔/鐢ㄦ埛鎺ョ ---------------- */
+/* ---------------- 番茄钟静音：周期/放弃保持/用户接管 ---------------- */
 const FOCUS_MUTE_KEY = "pomo_focus_mute_snapshot"
 type PomoQuiet = {v?: number; mode: string; on: boolean; stage: "cycle" | "sulk"; until: number; timer: number}
 let pomoSulk: PomoQuiet | null = null
@@ -5317,7 +5540,7 @@ const saveFocusMuteSnapshot = (): void => {
         const value = pomoQuietUser ? {stage: "user", v: 2} : pomoSulk
         if (value) localStorage.setItem(FOCUS_MUTE_KEY, JSON.stringify({...value, timer: 0}))
         else localStorage.removeItem(FOCUS_MUTE_KEY)
-    } catch { /* 闈炴潈濞佺殑鏄剧ず绛栫暐蹇収 */ }
+    } catch { /* 非权威的显示策略快照 */ }
 }
 const clearFocusMuteSnapshot = (): void => { try { localStorage.removeItem(FOCUS_MUTE_KEY) } catch { /* ignore */ } }
 const pomoFocusMuteStart = (): void => {
@@ -5332,7 +5555,8 @@ const pomoFocusMuteEnd = (): void => {
 }
 const pomoSulkRestore = (): void => {
     if (pomoSulk?.timer) clearTimeout(pomoSulk.timer)
-    // 鍙繕鍘熸棫鐗堟浘鎸佷箙鍖栨敼鍐欒繃鐨勫叏灞€璁剧疆锛涙柊鐗堟槸涓存椂瑕嗙洊绛栫暐銆?    if (pomoSulk && pomoSulk.v !== 2) { cfg.quietMode = pomoSulk.mode; cfg.quietOn = pomoSulk.on; persistSettings() }
+    // 只还原旧版曾持久化改写过的全局设置；新版是临时覆盖策略。
+    if (pomoSulk && pomoSulk.v !== 2) { cfg.quietMode = pomoSulk.mode; cfg.quietOn = pomoSulk.on; persistSettings() }
     pomoSulk = null; pomoFocusMuteOn = false; pomoQuietHeld.value = false
     clearFocusMuteSnapshot(); applyQuiet()
 }
@@ -5367,7 +5591,7 @@ const recoverFocusMuteIfNeeded = (): void => {
     pomoArmSulk(); pomoSyncFocus()
 }
 
-/* 鎿嶄綔 */
+/* 操作 */
 const pomoStartImpl = (f: number, b: number): void => {
 	const b2 = noriB()
 	if (!b2?.pomoStart) return
@@ -5380,7 +5604,7 @@ const pomoStartImpl = (f: number, b: number): void => {
 	pomoStatsLoad()
 	pomoUpdateDisplay()
 	if (pomoCfg.feedback !== "silent") playSfxFile(POMO_SFX.start)
-	if (pomoCfg.notify && pomoReminder.value?.permission === false) pomoMessage.value = "璁℃椂宸插紑濮嬶紱绯荤粺閫氱煡鏈紑鍚紝鍙湪寰幆涓庢彁閱掍腑寮€鍚€?
+	if (pomoCfg.notify && pomoReminder.value?.permission === false) pomoMessage.value = "计时已开始；系统通知未开启，可在循环与提醒中开启。"
 }
 const pomoCountUpImpl = (): void => {
 	const b = noriB()
@@ -5394,7 +5618,7 @@ const pomoCountUpImpl = (): void => {
 	pomoStatsLoad()
 	pomoUpdateDisplay()
 	if (pomoCfg.feedback !== "silent") playSfxFile(POMO_SFX.start)
-	if (pomoCfg.notify && pomoReminder.value?.permission === false) pomoMessage.value = "璁℃椂宸插紑濮嬶紱绯荤粺閫氱煡鏈紑鍚紝鍙湪寰幆涓庢彁閱掍腑寮€鍚€?
+	if (pomoCfg.notify && pomoReminder.value?.permission === false) pomoMessage.value = "计时已开始；系统通知未开启，可在循环与提醒中开启。"
 }
 const pomoPauseBtn = (): void => {
 	const b = noriB()
@@ -5411,8 +5635,8 @@ const pomoStopBtn = (): number | undefined => {
 	if (!b?.pomoStop) return
 	let r: PomoStateT & {endedPhase?: PomoPhase; elapsedMs?: number}
     const raw = b.pomoStopSession && pomo.value.sessionId ? b.pomoStopSession(pomo.value.sessionId) : b.pomoStop()
-    try { r = JSON.parse(raw) } catch { throw new Error("缁撴潫缁撴灉鏃犳硶璇诲彇锛岃鍒锋柊褰撳墠璁℃椂") }
-    if (!pomoStateSet(JSON.stringify(r))) { pomoRefresh(); throw new Error("缁撴潫鏈‘璁わ紝璇锋鏌ュ綋鍓嶈鏃剁姸鎬?) }
+    try { r = JSON.parse(raw) } catch { throw new Error("结束结果无法读取，请刷新当前计时") }
+    if (!pomoStateSet(JSON.stringify(r))) { pomoRefresh(); throw new Error("结束未确认，请检查当前计时状态") }
 	if (r.endedPhase === "focus") pomoSulkStart()
 	pomoSyncFocus()
 	pomoUpdateDisplay()
@@ -5426,7 +5650,7 @@ const pomoStopBtn = (): number | undefined => {
 			pomoStatsSave()
 		}
 		if (pomoCfg.feedback === "character") playSfxFile(POMO_SFX.abandon)
-		if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, pomoCfg.feedback === "character" ? "鈥︹€﹀ソ鍚с€? : "杩欐鏃堕棿宸茬粡璁颁笅浜嗭紝闇€瑕佹椂鍐嶇户缁€?) } catch { /* 蹇界暐 */ } }
+		if (pomoCfg.feedback !== "silent" && isTtsReady(cfg)) { try { void speakTTS(cfg, pomoCfg.feedback === "character" ? "……好吧。" : "这段时间已经记下了，需要时再继续。") } catch { /* 忽略 */ } }
 	} else if (r.endedPhase === "countUp") {
 		if (!b.pomoStats) {
 			const day = pomoDay()
@@ -5453,38 +5677,40 @@ const pomoOnNotifyChange = (): void => {
 	if (pomoCfg.notify) noriB()?.pomoRequestNotify?.()
 }
 
-/* 闈㈡澘鏂囨 */
+/* 面板文案 */
 const pomoPhaseText = computed((): string => {
-	if (pomo.value.phase === "focus") return pomo.value.paused ? "宸叉殏鍋?路 涓撴敞" : "涓撴敞涓?
-	if (pomo.value.phase === "break") return (pomo.value.paused ? "宸叉殏鍋?路 " : "") + (pomo.value.isLongBreak ? "闀夸紤鎭? : "浼戞伅涓?)
-	if (pomo.value.phase === "countUp") return pomo.value.paused ? "宸叉殏鍋?路 姝ｅ悜璁℃椂" : "姝ｅ悜璁℃椂"
-	return "鏈紑濮?
+	if (pomo.value.phase === "focus") return pomo.value.paused ? "已暂停 · 专注" : "专注中"
+	if (pomo.value.phase === "break") return (pomo.value.paused ? "已暂停 · " : "") + (pomo.value.isLongBreak ? "长休息" : "休息中")
+	if (pomo.value.phase === "countUp") return pomo.value.paused ? "已暂停 · 正向计时" : "正向计时"
+	return "未开始"
 })
 const pomoGoLabel = computed((): string => {
 	const p = pomo.value.phase
-	if (p === "countUp") return "淇濆瓨骞惰浆鍊掕鏃?
-	if (p === "focus") return "鏀惧純褰撳墠"
-	if (p === "break") return "缁撴潫浼戞伅"
-	return `寮€濮嬩笓娉?${pomoCfg.focusMin} 鍒嗛挓`
+	if (p === "countUp") return "保存并转倒计时"
+	if (p === "focus") return "放弃当前"
+	if (p === "break") return "结束休息"
+	return `开始专注 ${pomoCfg.focusMin} 分钟`
 })
 const pomoTodayText = computed((): string => {
 	const d = pomoStats.days[pomoDayKey(pomoDate.value)]
-	return `${Math.round(dayMinutes(d))} 鍒嗛挓 路 瀹屾垚 ${d?.done || 0} 路 涓柇 ${d?.abort || 0}`
+	return `${Math.round(dayMinutes(d))} 分钟 · 完成 ${d?.done || 0} · 中断 ${d?.abort || 0}`
 })
-// 娉? 鍘熷厛杩欓噷杩樻湁涓€涓浐瀹氱殑 7 澶?pomoBars, 宸茶 pomoRangeBars (7/30/365 鍙垏) 鍙栦唬骞跺垹闄?
-/* ---------------- 涓撴敞缁熻: 闈㈡澘灞曠ず + 缁?Nori 鐨勫厠鍒舵敞鍏?----------------
- * 灞曠ず(闈㈡澘)涓庢敞鍏?Nori 鍙拌瘝)鍒嗗伐涓嶅悓:
- *   - 闈㈡澘缁欏嚭鍏ㄩ儴瀹㈣鏁版嵁, 鍖呮嫭瀹屾垚鐜?涓柇杩欑被"鑷垜鎵硅瘎"鎸囨爣, 鏄粰浣犺嚜宸辩湅鐨?
- *   - Nori 鍢撮噷鏈€澶氭彁涓€浠?*姝ｅ悜涓旇瘽棰樼浉鍏?*鐨勪簨, 涓斾竴澶╀竴娆?(瑙?buildFocusHint)銆? * 姹囨€昏绠椾笌娉ㄥ叆鍒ゅ畾閮藉湪 services/pomo-stats.ts (绾€昏緫, 鏈夊崟娴?銆?*/
+// 注: 原先这里还有一个固定的 7 天 pomoBars, 已被 pomoRangeBars (7/30/365 可切) 取代并删除
+
+/* ---------------- 专注统计: 面板展示 + 给 Nori 的克制注入 ----------------
+ * 展示(面板)与注入(Nori 台词)分工不同:
+ *   - 面板给出全部客观数据, 包括完成率/中断这类"自我批评"指标, 是给你自己看的;
+ *   - Nori 嘴里最多提一件**正向且话题相关**的事, 且一天一次 (见 buildFocusHint)。
+ * 汇总计算与注入判定都在 services/pomo-stats.ts (纯逻辑, 有单测)。 */
 const pomoSummary = computed<PomoSummary>(() => pomoSummarize(pomoStats.days, 7, pomoDate.value))
 
-/* ---- 缁熻鑼冨洿鍒囨崲 (鏌辩姸鍥? 7 / 30 / 365 澶? ---- */
+/* ---- 统计范围切换 (柱状图: 7 / 30 / 365 天) ---- */
 const pomoRange = ref<7 | 30 | 365>(7)
 const pomoRangeBars = computed(() => {
 	const n = pomoRange.value
 	const out: {day: string; label: string; min: number; h: number}[] = []
 	let max = 1
-	// 鏌卞瓙澶瘑鏃跺彧鏍囬儴鍒嗘爣绛?(30 澶╂瘡 5 澶╀竴涓? 365 澶╁彧鏍囨湀浠介鏃?
+	// 柱子太密时只标部分标签 (30 天每 5 天一个, 365 天只标月份首日)
 	const labelStep = n <= 7 ? 1 : n <= 30 ? 5 : 30
 	for (let i = n - 1; i >= 0; i--) {
 		const d = shiftDay(pomoDate.value, -i)
@@ -5494,7 +5720,7 @@ const pomoRangeBars = computed(() => {
 		const showLabel = n <= 7 || i === 0 || (labelStep > 1 && i % labelStep === 0)
 		out.push({
 			day: k,
-			label: showLabel ? (i === 0 ? "浠? : (n > 30 ? `${d.getMonth() + 1}鏈坄 : String(d.getDate()))) : "",
+			label: showLabel ? (i === 0 ? "今" : (n > 30 ? `${d.getMonth() + 1}月` : String(d.getDate()))) : "",
 			min,
 			h: 4,
 		})
@@ -5504,7 +5730,7 @@ const pomoRangeBars = computed(() => {
 })
 const pomoRangeSummary = computed<PomoSummary>(() => pomoSummarize(pomoStats.days, pomoRange.value, pomoDate.value))
 
-/* ---- 鐙珛缁熻椤? 鐑姏鍥?+ 鐐归€夋煇澶?+ 鏈堝害姹囨€?---- */
+/* ---- 独立统计页: 热力图 + 点选某天 + 月度汇总 ---- */
 const pomoSelectedDay = ref<{date: string; min: number; done: number; abort: number} | null>(null)
 const pomoSelectDate = (date: string): void => {
     if (!date) return
@@ -5515,7 +5741,8 @@ const pomoHeat = computed<Heatmap>(() => buildHeatmap(pomoStats.days, 52, pomoDa
 const pomoMonths = computed(() => monthlyRollup(pomoStats.days, 12, pomoDate.value))
 const pomoHeatCanvas = ref<HTMLCanvasElement | null>(null)
 
-/** 鐢荤儹鍔涘浘: 闈欐€侀噸缁?(鏁版嵁鍙樺寲鎵嶇敾), 涓嶅弬涓庨€愬抚 鈥斺€? *  閬垮厤鍜?Live2D(WebGL) / 鏁版嵁娴?2D canvas) 鎶㈠悓涓€涓?GPU銆?*/
+/** 画热力图: 静态重绘 (数据变化才画), 不参与逐帧 ——
+ *  避免和 Live2D(WebGL) / 数据海(2D canvas) 抢同一个 GPU。 */
 const CELL = 9
 const CELL_GAP = 2
 const drawHeatmap = (): void => {
@@ -5548,7 +5775,7 @@ const drawHeatmap = (): void => {
 	}
 	ctx.globalAlpha = 1
 }
-/** 鐐圭儹鍔涘浘 鈫?閫変腑鏌愬ぉ (鍙嶇畻鍒?琛? */
+/** 点热力图 → 选中某天 (反算列/行) */
 const onHeatClick = (e: MouseEvent): void => {
 	const cv = pomoHeatCanvas.value
 	if (!cv) return
@@ -5562,35 +5789,36 @@ const onHeatClick = (e: MouseEvent): void => {
 	const d = pomoStats.days[c.date]
 	pomoSelectedDay.value = {date: c.date, min: c.min, done: d?.done || 0, abort: d?.abort || 0}
 }
-/** 杩涘叆缁熻椤垫椂鐢讳竴娆?(闈㈡澘鎵撳紑鍚?canvas 鎵嶆湁灏哄) */
+/** 进入统计页时画一次 (面板打开后 canvas 才有尺寸) */
 const openPomoStats = (): void => {
 	pomoRefresh()
 	panel.value = "pomoStats"
 	void nextTick(() => drawHeatmap())
 }
-// 闈㈡澘寮€鐫€鏃舵暟鎹彉浜?(濡傜暘鑼勫畬鎴?鏀惧純) 鈫?閲嶇粯鐑姏鍥? 鍚﹀垯瀹冨仠鍦ㄦ棫鐘舵€?watch([pomoHeat, () => panel.value], () => {
+// 面板开着时数据变了 (如番茄完成/放弃) → 重绘热力图, 否则它停在旧状态
+watch([pomoHeat, () => panel.value], () => {
 	if (pomoSelectedDay.value) pomoSelectDate(pomoSelectedDay.value.date)
 	if (panel.value === "pomoStats") void nextTick(() => drawHeatmap())
 })
-/** 绱鏃堕暱鐨勪汉璇濇牸寮?*/
+/** 累计时长的人话格式 */
 const fmtTotalMin = (m: number): string => {
 	const min = Math.round(m)
-	return min >= 60 ? `${Math.floor(min / 60)} 灏忔椂 ${min % 60} 鍒哷 : `${min} 鍒嗛挓`
+	return min >= 60 ? `${Math.floor(min / 60)} 小时 ${min % 60} 分` : `${min} 分钟`
 }
 
-/** "浠婂ぉ宸茬粡璺?Nori 鎻愯繃涓撴敞"鐨勬棩鏈熸爣璁?(姣忓ぉ鏈€澶氭彁涓€娆? 閬垮厤杩炵潃鑱婂伐浣滃氨鍙ュ彞鎻? */
+/** "今天已经跟 Nori 提过专注"的日期标记 (每天最多提一次, 避免连着聊工作就句句提) */
 const POMO_HINT_DAY_KEY = "pomo_hint_day"
 const focusHintDay = ref<string>(
 	(() => { try { return localStorage.getItem(POMO_HINT_DAY_KEY) || "" } catch { return "" } })(),
 )
-/** 娓呮帀杩囨湡鐨?宸叉彁杩?鏍囪 (璺ㄥぉ鑷姩閲嶇疆, 鏃犻渶瀹氭椂鍣? */
+/** 清掉过期的"已提过"标记 (跨天自动重置, 无需定时器) */
 const focusHintFresh = (): boolean => focusHintDay.value !== pomoStatDayKey()
 const markFocusHinted = (): void => {
 	focusHintDay.value = pomoStatDayKey()
-	try { localStorage.setItem(POMO_HINT_DAY_KEY, focusHintDay.value) } catch { /* 蹇界暐 */ }
+	try { localStorage.setItem(POMO_HINT_DAY_KEY, focusHintDay.value) } catch { /* 忽略 */ }
 }
 
-/** 閲岀▼纰?鍙簡绁濅竴娆?鐨勬爣璁版寔涔呭寲 (涓?pomo.json 鐨?celebrated 鍚屾) */
+/** 里程碑"只庆祝一次"的标记持久化 (与 pomo.json 的 celebrated 同步) */
 const markCelebrated = (key: string): void => {
 	try {
 		const b = noriB()
@@ -5601,7 +5829,7 @@ const markCelebrated = (key: string): void => {
 		}
 		pomoStats.celebrated = {...(pomoStats.celebrated ?? {}), [key]: Date.now()}
 		pomoStatsSave()
-	} catch { /* 蹇界暐 */ }
+	} catch { /* 忽略 */ }
 }
 
 const pomoLiveMin = computed(() => {
@@ -5611,30 +5839,31 @@ const pomoLiveMin = computed(() => {
     let delta = st.paused ? 0 : Math.max(0, pomoDisplayAt.value - pomoSnapshotAt)
     if (st.phase === "focus") delta = Math.min(delta, st.remainingMs || 0)
     const days = projectLiveDays(st.days || {}, st.now || Date.now(), delta)
-    // 鏃фˉ娌℃湁鍒嗘棩蹇収锛屼粎涓哄綋鍓嶇増鏈吋瀹规樉绀猴紝姝ｅ紡妗ュ缁堜娇鐢ㄥ垎鏃ユ暟鎹€?    return Math.floor((days[pomoDayKey(pomoDate.value)] || (!st.days || !Object.keys(st.days).length ? st.elapsedMs || 0 : 0)) / 60000)
+    // 旧桥没有分日快照，仅为当前版本兼容显示，正式桥始终使用分日数据。
+    return Math.floor((days[pomoDayKey(pomoDate.value)] || (!st.days || !Object.keys(st.days).length ? st.elapsedMs || 0 : 0)) / 60000)
 })
 const pomoEndText = computed(() => {
     const st = pomo.value
-    if (st.paused) return st.rebootPending ? "绛夊緟纭绂荤嚎鏃舵" : "鏃堕棿鍋滃湪杩欓噷锛屽噯澶囧ソ鍐嶇户缁?
+    if (st.paused) return st.rebootPending ? "等待确认离线时段" : "时间停在这里，准备好再继续"
     if (st.phase === "idle") return ""
-    if (st.phase === "countUp") return "涓嶈刀鏃堕棿锛屾寜鑷繁鐨勮妭濂忔潵"
+    if (st.phase === "countUp") return "不赶时间，按自己的节奏来"
     const remaining = Math.max(0, (st.remainingMs ?? st.remainMs) - (pomoDisplayAt.value - pomoSnapshotAt))
     const date = new Date(Date.now() + remaining)
-    return `棰勮 ${date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} 缁撴潫${st.phase === "focus" && st.autoBreak ? " 路 闅忓悗杩涘叆浼戞伅" : ""}`
+    return `预计 ${date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} 结束${st.phase === "focus" && st.autoBreak ? " · 随后进入休息" : ""}`
 })
 const pomoWeekBars = computed(() => {
-    const out = Array.from({length: 7}, (_, i) => { const d = shiftDay(pomoDate.value, i - 6), day = pomoDayKey(d); return {day, label: i === 6 ? "浠婂ぉ" : ["鏃?, "涓€", "浜?, "涓?, "鍥?, "浜?, "鍏?][d.getDay()], min: Math.round(dayMinutes(pomoStats.days[day])), h: 0} })
+    const out = Array.from({length: 7}, (_, i) => { const d = shiftDay(pomoDate.value, i - 6), day = pomoDayKey(d); return {day, label: i === 6 ? "今天" : ["日", "一", "二", "三", "四", "五", "六"][d.getDay()], min: Math.round(dayMinutes(pomoStats.days[day])), h: 0} })
     const max = Math.max(1, ...out.map(d => d.min)); return out.map(d => ({...d, h: d.min > 0 ? Math.max(5, d.min / max * 100) : 0}))
 })
-const pomoSyncText = computed(() => !pomoStatsReady.value ? "璁板綍灏氭湭璇诲彇锛岃閲嶈瘯銆? : pomoSyncPending.value
-    ? "鏈満宸蹭繚瀛橈紝鍏叡鍓湰寰呭悓姝ャ€傛鏌ュ瓨鍌ㄦ潈闄愬悗鐐归噸璇曘€?
-    : pomoSyncedAt.value ? `鏈満宸蹭繚瀛?路 鍏叡鍓湰鍚屾浜?${new Date(pomoSyncedAt.value).toLocaleString()}` : "璁板綍淇濆瓨鍦ㄦ湰鏈猴紱寤鸿瀹氭湡瀵煎嚭 JSON 澶囦唤銆?)
+const pomoSyncText = computed(() => !pomoStatsReady.value ? "记录尚未读取，请重试。" : pomoSyncPending.value
+    ? "本机已保存，公共副本待同步。检查存储权限后点重试。"
+    : pomoSyncedAt.value ? `本机已保存 · 公共副本同步于 ${new Date(pomoSyncedAt.value).toLocaleString()}` : "记录保存在本机；建议定期导出 JSON 备份。")
 const pomoReminderAction = computed(() => !pomoReminder.value ? "" : !pomoReminder.value.permission ? "notification" : !pomoReminder.value.channel ? "channel" : pomoReminder.value.controlChannel === false ? "controlChannel" : !pomoReminder.value.exact ? "exact" : "")
-const pomoReminderText = computed(() => !pomoCfg.notify ? "绯荤粺鎻愰啋宸插叧闂紝椤甸潰璁℃椂浠嶆甯搞€? : !pomoReminder.value ? "鍚庡彴鎻愰啋鍙楃郴缁熸潈闄愬拰鐪佺數绛栫暐褰卞搷銆?
-    : pomoReminder.value.scheduleError ? "鍚庡彴鎻愰啋瀹夋帓澶辫触锛岃閲嶈瘯銆? : !pomoReminder.value.permission ? "閫氱煡灏氭湭鎺堟潈銆? : !pomoReminder.value.channel ? "鐣寗閽熼€氱煡娓犻亾宸插叧闂€? : pomoReminder.value.controlChannel === false ? "璁℃椂鎺у埗閫氱煡宸插叧闂紝鏆傚仠涓庣粨鏉熻鍦ㄥ簲鐢ㄥ唴鎿嶄綔銆? : !pomoReminder.value.exact ? "绮剧‘鎻愰啋鏈紑鍚紝鍚庡彴閫氱煡鍙兘寤惰繜銆? : "鎻愰啋宸插氨缁?路 鍙湪閫氱煡鏍忔殏鍋滄垨缁撴潫璁℃椂銆?)
+const pomoReminderText = computed(() => !pomoCfg.notify ? "系统提醒已关闭，页面计时仍正常。" : !pomoReminder.value ? "后台提醒受系统权限和省电策略影响。"
+    : pomoReminder.value.scheduleError ? "后台提醒安排失败，请重试。" : !pomoReminder.value.permission ? "通知尚未授权。" : !pomoReminder.value.channel ? "番茄钟通知渠道已关闭。" : pomoReminder.value.controlChannel === false ? "计时控制通知已关闭，暂停与结束请在应用内操作。" : !pomoReminder.value.exact ? "精确提醒未开启，后台通知可能延迟。" : "提醒已就绪 · 可在通知栏暂停或结束计时。")
 const pomoReminderSettings = (kind: string): void => {
     try { noriB()?.pomoReminderSettings?.(kind) }
-    catch { pomoError.value = "鏆傛椂鏃犳硶鎵撳紑绯荤粺鎻愰啋璁剧疆" }
+    catch { pomoError.value = "暂时无法打开系统提醒设置" }
 }
 const pomoExport = (kind: "json" | "csv"): void => {
     pomoRefresh()
@@ -5642,14 +5871,14 @@ const pomoExport = (kind: "json" | "csv"): void => {
     try {
         const stamp = new Date(), name = `nori-focus-${pomoDayKey(stamp)}-${String(stamp.getHours()).padStart(2, "0")}${String(stamp.getMinutes()).padStart(2, "0")}${String(stamp.getSeconds()).padStart(2, "0")}.${kind}`
         const content = kind === "csv" ? pomoCsv(pomoStats) : JSON.stringify({kind: "nori-pomodoro", version: 1, exportedAt: Date.now(), stats: pomoStats}, null, 2)
-        if (noriB()?.writeFile?.(name, content) !== "ok") throw new Error("鏂囦欢淇濆瓨澶辫触锛岃妫€鏌ュ瓨鍌ㄦ潈闄?)
-        pomoMessage.value = `宸插鍑鸿嚦 Download/NoriDroid/${name}${pomo.value.phase !== "idle" ? "锛堝寘鍚凡缁撶畻璁板綍锛? : ""}`
+        if (noriB()?.writeFile?.(name, content) !== "ok") throw new Error("文件保存失败，请检查存储权限")
+        pomoMessage.value = `已导出至 Download/NoriDroid/${name}${pomo.value.phase !== "idle" ? "（包含已结算记录）" : ""}`
     } catch (e) { pomoError.value = (e as Error).message }
 }
 ;(window as unknown as {__noriPomoPickedRes?: (raw: string) => void}).__noriPomoPickedRes = (raw) => {
-    try { const result = JSON.parse(raw); if (result.cancelled) return; if (!result.ok) throw new Error(result.message || "璇诲彇澶辫触")
+    try { const result = JSON.parse(raw); if (result.cancelled) return; if (!result.ok) throw new Error(result.message || "读取失败")
         const preview = parsePomoBackup(result.content); pomoBackupContent = result.content
-        pomoRestorePreview.value = `澶囦唤涓湁 ${preview.days} 澶┿€?{preview.minutes} 鍒嗛挓銆傚綋鍓嶆湁 ${Object.keys(pomoStats.days).length} 澶╄褰曪紝灏嗘暣浣撴浛鎹紱閲嶅鎭㈠鍚屼竴浠戒笉浼氬彔鍔犮€俙
+        pomoRestorePreview.value = `备份中有 ${preview.days} 天、${preview.minutes} 分钟。当前有 ${Object.keys(pomoStats.days).length} 天记录，将整体替换；重复恢复同一份不会叠加。`
     } catch(e) { pomoError.value = (e as Error).message }
 }
 const pomoAction = (kind: string): void => {
@@ -5660,23 +5889,23 @@ const pomoAction = (kind: string): void => {
         if (kind === "start") pomoStartImpl(pomoCfg.focusMin, pomoCfg.breakMin)
         else if (kind === "countUp") pomoCountUpImpl()
         else if (kind === "pause") pomoPauseBtn()
-        else if (kind === "stop") { pomoConfirmEnd.value = false; const saved = pomoStopBtn(); if (saved !== undefined && pomo.value.phase === "idle") pomoMessage.value = `鏈 ${Math.floor(saved / 60000)} 鍒嗛挓宸茶褰曘€傛瘡涓€娈垫姇鍏ラ兘绠楁暟銆俙 }
+        else if (kind === "stop") { pomoConfirmEnd.value = false; const saved = pomoStopBtn(); if (saved !== undefined && pomo.value.phase === "idle") pomoMessage.value = `本段 ${Math.floor(saved / 60000)} 分钟已记录。每一段投入都算数。` }
         else if (kind === "notify") pomoOnNotifyChange()
         else if (kind === "stats") openPomoStats()
-        else if (kind === "retry") { pomoRefresh(); if (!pomoSettingsReadable) pomoCfgLoad(); if (pomoSettingsReady && pomoSettingsReadable) { const result = persistSettings(); pomoConfigError.value = result === "ok" ? "" : "璁剧疆淇濆瓨澶辫触锛岃妫€鏌ュ瓨鍌ㄦ潈闄? } }
+        else if (kind === "retry") { pomoRefresh(); if (!pomoSettingsReadable) pomoCfgLoad(); if (pomoSettingsReady && pomoSettingsReadable) { const result = persistSettings(); pomoConfigError.value = result === "ok" ? "" : "设置保存失败，请检查存储权限" } }
         else if (kind === "quietRestore") { pomoSulkCancelByUser(); applyQuiet() }
         else if (kind === "rebootInclude" || kind === "rebootExclude") { const raw = noriB()?.pomoResolveReboot?.(kind === "rebootInclude"); if (raw) pomoStateSet(raw); pomoRefresh() }
-        else if (kind === "import") { if (pomo.value.phase !== "idle") throw new Error("璇峰厛缁撴潫璁℃椂"); if (!noriB()?.pickPomoBackup) throw new Error("璇峰湪 Android 涓荤晫闈㈡仮澶嶅浠?); noriB()?.pickPomoBackup?.() }
+        else if (kind === "import") { if (pomo.value.phase !== "idle") throw new Error("请先结束计时"); if (!noriB()?.pickPomoBackup) throw new Error("请在 Android 主界面恢复备份"); noriB()?.pickPomoBackup?.() }
         else if (kind === "cancelRestore") { pomoBackupContent = ""; pomoRestorePreview.value = "" }
         else if (kind === "restore") {
-            if (!pomoBackupContent || pomo.value.phase !== "idle") throw new Error("璇峰厛缁撴潫璁℃椂骞堕噸鏂伴€夋嫨澶囦唤")
+            if (!pomoBackupContent || pomo.value.phase !== "idle") throw new Error("请先结束计时并重新选择备份")
             parsePomoBackup(pomoBackupContent)
-            const raw = noriB()?.pomoRestoreBackup?.(pomoBackupContent); if (!raw) throw new Error("鎭㈠鎺ュ彛涓嶅彲鐢?)
-            pomoAcceptDashboard(raw); pomoRestorePreview.value = ""; pomoBackupContent = ""; pomoMessage.value = "璁板綍宸叉仮澶嶏紱鎭㈠鍓嶅壇鏈繚瀛樺湪 pomo-before-restore.json銆?
+            const raw = noriB()?.pomoRestoreBackup?.(pomoBackupContent); if (!raw) throw new Error("恢复接口不可用")
+            pomoAcceptDashboard(raw); pomoRestorePreview.value = ""; pomoBackupContent = ""; pomoMessage.value = "记录已恢复；恢复前副本保存在 pomo-before-restore.json。"
         }
-        if ((kind === "start" || kind === "countUp") && before !== "idle" && before !== pomo.value.phase) pomoMessage.value = `宸蹭繚瀛樹笂涓€娈?${elapsed} 鍒嗛挓锛屾柊鐨勮鏃跺凡寮€濮嬨€俙
-        else if ((kind === "start" || kind === "countUp") && before === "idle" && pomo.value.phase !== "idle" && !pomoMessage.value && pomoCfg.feedback !== "silent") pomoMessage.value = "杩欎竴娈碉紝Nori 闄綘涓€璧枫€傛寜鑷繁鐨勮妭濂忓氨濂姐€?
-    } catch(e) { pomoError.value = `鎿嶄綔鏈畬鎴愶細${(e as Error).message}` }
+        if ((kind === "start" || kind === "countUp") && before !== "idle" && before !== pomo.value.phase) pomoMessage.value = `已保存上一段 ${elapsed} 分钟，新的计时已开始。`
+        else if ((kind === "start" || kind === "countUp") && before === "idle" && pomo.value.phase !== "idle" && !pomoMessage.value && pomoCfg.feedback !== "silent") pomoMessage.value = "这一段，Nori 陪你一起。按自己的节奏就好。"
+    } catch(e) { pomoError.value = `操作未完成：${(e as Error).message}` }
     finally { window.setTimeout(() => { pomoBusy.value = false }, 250) }
 }
 const openPomoFromNotification = (): void => { panel.value = "pomo"; pomoRefresh() }
@@ -5686,7 +5915,7 @@ const pomoWidgetStop = (): void => {
 }
 watch(panel, value => { if (value !== "pomo") pomoConfirmEnd.value = false })
 
-/* 鎮诞绐? 鎷栨嫿 + 缂╂斁 (浣嶇疆/澶у皬 localStorage 鎸佷箙鍖? 缁勪欢鏍?pointerdown.stop 鎴柇, 涓嶆儕鍔ㄦ懜澶?缂╂斁鎵嬪娍) */
+/* 悬浮窗: 拖拽 + 缩放 (位置/大小 localStorage 持久化; 组件根 pointerdown.stop 截断, 不惊动摸头/缩放手势) */
 const pomoWidgetEl = ref<HTMLElement | null>(null)
 const pomoPosLoad = (): void => {
 	try {
@@ -5696,11 +5925,11 @@ const pomoPosLoad = (): void => {
 			pomoPos.value = {x: Number(o.x) || 16, y: Number(o.y) || 96, w: Math.min(480, Math.max(240, Number(o.w) || 260))}
 			pomoMini.value = !!o.mini
 		}
-	} catch { /* 蹇界暐 */ }
+	} catch { /* 忽略 */ }
 	pomoClampPos()
 }
 const pomoPosSave = (): void => {
-	try { localStorage.setItem("pomo_widget", JSON.stringify({...pomoPos.value, mini: pomoMini.value})) } catch { /* 蹇界暐 */ }
+	try { localStorage.setItem("pomo_widget", JSON.stringify({...pomoPos.value, mini: pomoMini.value})) } catch { /* 忽略 */ }
 }
 const pomoClampPos = (): void => {
     const viewport = window.visualViewport
@@ -5741,25 +5970,29 @@ const onPomoRzMove = (e: PointerEvent): void => {
 const onPomoRzUp = (): void => { if (pomoRzSt) { pomoRzSt = null; pomoClampPos(); pomoPosSave() } }
 watch([pomoMini, panel, pomoWidgetEl], () => { void nextTick(() => { pomoClampPos(); pomoPosSave() }) })
 
-/* 鍒濆鍖?(setup 鏈?: 缁熻/閰嶇疆/缁勪欢浣嶇疆/妗ョ姸鎬?鏄剧ず鑺傛媿 */
+/* 初始化 (setup 期): 统计/配置/组件位置/桥状态/显示节拍 */
 pomoCfgLoad()
 noriB()?.pomoSetNotify?.(pomoCfg.notify)
 pomoStatsLoad()
 pomoPosLoad()
-try { const b0 = noriB(); if (b0?.pomoState) pomoStateSet(b0.pomoState()) } catch { /* 蹇界暐 */ }
-if (pomo.value.phase !== "idle") pomoWidgetOn.value = true   // 璁℃椂涓埛鏂?閲嶈浇: 缁勪欢鑷姩鍥炴潵
+try { const b0 = noriB(); if (b0?.pomoState) pomoStateSet(b0.pomoState()) } catch { /* 忽略 */ }
+if (pomo.value.phase !== "idle") pomoWidgetOn.value = true   // 计时中刷新/重载: 组件自动回来
 pomoUpdateDisplay()
 pomoRefreshDate()
 window.addEventListener("resize", pomoClampPos)
 window.visualViewport?.addEventListener("resize", pomoClampPos)
 window.visualViewport?.addEventListener("scroll", pomoClampPos)
 
-/* ---------------- CosyVoice 澹伴煶鍏嬮殕 ---------------- */
+/* ---------------- CosyVoice 声音克隆 ---------------- */
 
-/** 闊宠壊鎻愮ず鏂囨; 鏃犻棶棰樻椂涓虹┖涓层€? *  涓ょ被鑷村懡闂 鈥斺€?鍚屼竴涓敊璇?InvalidParameter)鐨勪袱闈? 閮藉繀椤诲湪浣跨敤鍓嶆嫤涓?
- *  - 娌¤闊宠壊: 鏈」鐩竴寰嬬敤鑷湁鍏嬮殕闊宠壊, 涓嶇敤浠讳綍绯荤粺闊宠壊, 鐣欑┖蹇呯劧澶辫触銆? *  - 闊宠壊鏄负**鍒殑妯″瀷**鍏嬮殕鐨? 瀹樻柟鏄庣‘"涓嶈兘灏嗕竴涓ā鍨嬬殑闊宠壊涓庡彟涓€涓ā鍨嬫贩鐢?,
- *    鍒囨崲妯″瀷鍚庣户缁敤鏃у厠闅嗘槸鏈€瀹规槗韪╃殑涓€绉嶃€? *  "褰掑睘"鍙湪杩欓噷缁?cosyVoiceModelOf 绠椾竴娆?(瀹冨唴閮ㄤ細鍏堟煡璁板綍銆佸啀鐢ㄩ煶鑹?id 鍓嶇紑鍏滃簳),
- *  閬垮厤涓ゅ鍚勭畻涓€閬嶈€屾紓绉? 鍚堟垚渚?streamCosyTTS 鐢ㄥ悓涓€濂楁枃妗堟湰鍦版嫤鎴? 淇濊瘉璇存硶涓€鑷淬€? *  瀹屽叏璁や笉鍑烘潵 (涓嶅睘浜庡凡鐭ユā鍨? 灏辫繑鍥?"", 瀹佸彲灏戞彁绀轰篃涓嶈鎶ャ€?*/
+/** 音色提示文案; 无问题时为空串。
+ *  两类致命问题 —— 同一个错误(InvalidParameter)的两面, 都必须在使用前拦下:
+ *  - 没设音色: 本项目一律用自有克隆音色, 不用任何系统音色, 留空必然失败。
+ *  - 音色是为**别的模型**克隆的: 官方明确"不能将一个模型的音色与另一个模型混用",
+ *    切换模型后继续用旧克隆是最容易踩的一种。
+ *  "归属"只在这里经 cosyVoiceModelOf 算一次 (它内部会先查记录、再用音色 id 前缀兜底),
+ *  避免两处各算一遍而漂移; 合成侧 streamCosyTTS 用同一套文案本地拦截, 保证说法一致。
+ *  完全认不出来 (不属于已知模型) 就返回 "", 宁可少提示也不误报。 */
 const cosyVoiceHint = computed(() => {
 	const v = (cfg.cosyVoice ?? "").trim()
 	if (!v) return COSY_NO_VOICE_ERROR
@@ -5778,9 +6011,14 @@ const cloneStatusText = ref("")
 const cloneStatusOk = ref(false)
 let cloneVoiceId = ""
 
-/* ---------------- 妯″瀷鎺堟潈楠岃瘉锛堢瓟棰橀棬锛?026-10-01锛?026-10-02 鎶芥垚涓ゅ鍏辩敤锛?026-10-14 涓夊锛?----------------
-   鍚屼竴閬撻棬瀹堜笁涓?瑕佽仈缃戞嬁 inori 涓滆タ"鐨勫姩浣滐細
-     路 clone 鈥斺€?涓€閿厠闅嗗唴缃煶鑹诧紙鍘熸牱锛氬缓闊宠壊 鈫?杞瀹℃牳 鈫?閫変腑骞舵寔涔呭寲锛涘弬鑰冮煶棰戝悓鏍疯蛋**鑱旂綉涓嬭浇**锛?                 鍘熺敓渚ц礋璐ｄ笅杞?瑙勮寖鎴?16bit锛岃 ChatBridge.createPresetCloneVoice锛?     路 model 鈥斺€?涓嬭浇杩樻病瑁呯殑 Live2D 妯″瀷锛堣涓嬮潰 pick()锛?*绛斿鎵嶇湡鐨勫紑濮嬩笅杞?*锛?     路 persona 鈥斺€?涓嬭浇瀹樻柟浜鸿鏂囨锛堣 openPersonaGate()锛?*绛斿鎵嶅幓鎷?.md**锛?   棰橀潰/绛旀/鍒ゅ嵎鍦?services/tts/clone-gate.ts锛堝敮涓€浜嬪疄婧愶級锛涜繖閲屽彧鏀?杩欓亾闂ㄦ鍒讳负璋佸紑"銆?   寮圭獥鍙湁涓€浠斤紝鍏嬮殕閭ｈ竟鐨勭被鍚?.clone-gate)涓庢枃妗堜竴瀛楁湭鏀?鈥斺€?probe-clone-gate 鏄姢鏍忋€?*/
+/* ---------------- 模型授权验证（答题门，2026-10-01；2026-10-02 抽成两处共用；2026-10-14 三处） ----------------
+   同一道门守三个"要联网拿 inori 东西"的动作：
+     · clone —— 一键克隆内置音色（原样：建音色 → 轮询审核 → 选中并持久化；参考音频同样走**联网下载**，
+                 原生侧负责下载+规范成 16bit，见 ChatBridge.createPresetCloneVoice）
+     · model —— 下载还没装的 Live2D 模型（见下面 pick()：**答对才真的开始下载**）
+     · persona —— 下载官方人设文案（见 openPersonaGate()：**答对才去拉 .md**）
+   题面/答案/判卷在 services/tts/clone-gate.ts（唯一事实源）；这里只放"这道门此刻为谁开"。
+   弹窗只有一份，克隆那边的类名(.clone-gate)与文案一字未改 —— probe-clone-gate 是护栏。 */
 type GateKind = "clone" | "model" | "persona"
 const gateOn = ref(false)
 const gateKind = ref<GateKind>("clone")
@@ -5788,14 +6026,15 @@ const gateInput = ref("")
 const gateMsg = ref("")
 const gateOk = ref(false)
 const gateBusy = ref(false)
-/** 绛斿涔嬪悗鐨?鏀捐鍔ㄤ綔"锛堜笅杞芥ā鍨?/ 涓嬭浇瀹樻柟浜鸿鐢ㄥ緱涓婏細鍏虫帀寮圭獥鍐嶅幓骞查偅浠朵簨锛夈€? *  鍏嬮殕鐨勫姩浣滃氨鍦ㄩ棬閲岃窇锛堣鎶?瀹℃牳涓€?涓€鐩存樉绀哄湪寮圭獥閲岋級锛屾墍浠ュ畠鏄?null銆?*/
+/** 答对之后的"放行动作"（下载模型 / 下载官方人设用得上：关掉弹窗再去干那件事）。
+ *  克隆的动作就在门里跑（要把"审核中…"一直显示在弹窗里），所以它是 null。 */
 let gatePass: (() => void) | null = null
 
-/** 涓绘寜閽枃妗堬細鍏嬮殕閭ｄ袱鍙ュ師鏍蜂繚鐣欙紱涓嬭浇妯″瀷涓庝笅杞戒汉璁鹃兘鎸夊姩浣滄敼鎴?楠岃瘉骞朵笅杞? */
-const gateGoLabel = computed(() => (gateKind.value === "clone" ? "楠岃瘉骞跺厠闅? : "楠岃瘉骞朵笅杞?))
-const gateBusyLabel = computed(() => (gateKind.value === "clone" ? "鍒涘缓涓€? : "涓嬭浇涓€?))
+/** 主按钮文案：克隆那两句原样保留；下载模型与下载人设都按动作改成"验证并下载" */
+const gateGoLabel = computed(() => (gateKind.value === "clone" ? "验证并克隆" : "验证并下载"))
+const gateBusyLabel = computed(() => (gateKind.value === "clone" ? "创建中…" : "下载中…"))
 
-/** 寮€闂細娓呮帀涓婁竴娆＄殑杈撳叆/鎻愮ず銆俹nPass 鍙湪**绛斿涔嬪悗**鎵嶈璋冪敤锛堢瓟閿?鍙栨秷閮界涓嶅埌瀹冿級 */
+/** 开门：清掉上一次的输入/提示。onPass 只在**答对之后**才被调用（答错/取消都碰不到它） */
 const openGate = (kind: GateKind, onPass?: () => void): void => {
 	gateKind.value = kind
 	gatePass = onPass ?? null
@@ -5804,78 +6043,78 @@ const openGate = (kind: GateKind, onPass?: () => void): void => {
 	gateOk.value = false
 	gateOn.value = true
 }
-/** 鍙栨秷 / 鐐归伄缃?/ 鐐光湑锛氬叧闂ㄥ嵆鏀惧純锛坓atePass 涓€璧蜂涪鎺?鈬?缁濅笉浼氬伔鍋峰紑濮嬩笅杞斤級锛涘繖鐨勬椂鍊欎笉璁稿叧 */
+/** 取消 / 点遮罩 / 点✕：关门即放弃（gatePass 一起丢掉 ⇒ 绝不会偷偷开始下载）；忙的时候不许关 */
 const closeGate = (): void => {
 	if (gateBusy.value) return
 	gateOn.value = false
 	gatePass = null
 }
 
-/** 涓€閿厠闅嗙殑鍏ュ彛鎸夐挳锛圱TS 椤碉級锛氬紑鍚屼竴閬撻棬锛岀瓟瀵瑰悗璧颁笅闈?clone 閭ｅ */
+/** 一键克隆的入口按钮（TTS 页）：开同一道门，答对后走下面 clone 那套 */
 const openCloneGate = (): void => openGate("clone")
 
-/** 涓€閿厠闅嗭細鍒ゅ嵎宸茬敱 doGate 鍋氭帀 鈫?寤洪煶鑹?鈫?杞瀹℃牳锛堜笌鎵嬪姩娴佺▼涓€鑷达級鈫?閫変腑骞舵寔涔呭寲 */
+/** 一键克隆：判卷已由 doGate 做掉 → 建音色 → 轮询审核（与手动流程一致）→ 选中并持久化 */
 const doCloneGate = async (): Promise<void> => {
 	const key = cfg.cosyApiKey?.trim() || ""
 	if (!key) {
 		gateOk.value = false
-		gateMsg.value = "璇峰厛鍦ㄣ€岃闊炽€嶉噷濉啓鍗冮棶 API Key"
+		gateMsg.value = "请先在「语音」里填写千问 API Key"
 		return
 	}
 	gateBusy.value = true
 	gateMsg.value = ""
-	// 閿佸畾妯″瀷: 鍚庨潰杞鏈€闀?2 鍒嗛挓, 鏈熼棿鐢ㄦ埛鍙兘鏀逛笅鎷? 璁伴敊妯″瀷浼氳"闊宠壊鈫旀ā鍨?缁戝畾澶辩湡
+	// 锁定模型: 后面轮询最长 2 分钟, 期间用户可能改下拉, 记错模型会让"音色↔模型"绑定失真
 	const gateModel = cfg.cosyModel || "cosyvoice-v3.5-flash"
 	try {
 		const r = await createPresetCloneVoice(key, gateModel, clonePrefix.value.trim() || "nori")
 		if (!r.ok) {
 			gateOk.value = false
-			gateMsg.value = r.message ?? "鍒涘缓澶辫触"
+			gateMsg.value = r.message ?? "创建失败"
 			return
 		}
 		const vid = r.voice_id ?? ""
 		gateOk.value = true
-		gateMsg.value = "宸插垱寤猴紝绛夊緟瀹℃牳鈥?
+		gateMsg.value = "已创建，等待审核…"
 		for (let i = 0; i < 24; i++) {
 			await new Promise((res) => setTimeout(res, 5000))
 			const q = await queryCloneVoice(key, vid)
-			if (!q.ok) { gateOk.value = false; gateMsg.value = `鏌ヨ澶辫触: ${q.message ?? ""}`; return }
+			if (!q.ok) { gateOk.value = false; gateMsg.value = `查询失败: ${q.message ?? ""}`; return }
 			const st = q.status ?? ""
 			if (st === "OK") {
 				cfg.cosyVoice = vid
 				rememberCloneVoice(vid, q.target_model || gateModel)
 				persistSettings()
 				gateOk.value = true
-				gateMsg.value = "瀹℃牳閫氳繃 鉁?宸茶涓哄綋鍓嶉煶鑹?
-				triggerBubble("闊宠壊鍑嗗濂戒簡锛岃鍙ヨ瘽璇曡瘯锛?)
+				gateMsg.value = "审核通过 ✅ 已设为当前音色"
+				triggerBubble("音色准备好了，说句话试试？")
 				setTimeout(() => { gateOn.value = false; gateBusy.value = false }, 1200)
 				return
 			}
 			if (st === "UNDEPLOYED") {
 				gateOk.value = false
-				gateMsg.value = "瀹℃牳鏈€氳繃锛圲NDEPLOYED锛夛紝鎹竴娈甸煶棰戝啀璇曞惂"
+				gateMsg.value = "审核未通过（UNDEPLOYED），换一段音频再试吧"
 				return
 			}
-			gateMsg.value = `瀹℃牳涓€?(${Math.min(i + 1, 24)}/24)`
+			gateMsg.value = `审核中… (${Math.min(i + 1, 24)}/24)`
 		}
 		gateOk.value = false
-		gateMsg.value = "绛夊お涔呬簡锛岀◢鍚庡彲鍦ㄣ€岄煶鑹层€嶉噷鐪嬬湅鏈夋病鏈夊嚭鏉?
+		gateMsg.value = "等太久了，稍后可在「音色」里看看有没有出来"
 	} finally {
 		gateBusy.value = false
 	}
 }
 
-/** 鍒ゅ嵎锛堜袱澶勫姩浣滃叡鐢級锛氱瓟閿欏彧鎻愮ず銆?*涓嶆墽琛屼换浣曞姩浣?*锛涚瓟瀵规墠鍒嗗矓鍒板叿浣撳姩浣?*/
+/** 判卷（两处动作共用）：答错只提示、**不执行任何动作**；答对才分岔到具体动作 */
 const doGate = async (): Promise<void> => {
 	if (gateBusy.value) return
 	if (!checkCloneAnswer(gateInput.value)) {
 		gateOk.value = false
-		gateMsg.value = "绛旀涓嶅锛屽啀鎯虫兂锝?
+		gateMsg.value = "答案不对，再想想～"
 		return
 	}
 	if (gateKind.value === "clone") { await doCloneGate(); return }
-	// 涓嬭浇妯″瀷 / 涓嬭浇瀹樻柟浜鸿锛氱瓟瀵瑰嵆鏀捐 鈥斺€?鍏虫帀寮圭獥锛屽墿涓嬬殑浜嬬敱 gatePass 鍘诲共
-	// 锛堟ā鍨嬫槸鍥炲埌鍘熸潵鐨?鍒囨ā鍨嬧啋涓嬭浇"娴佺▼锛岃繘搴﹀湪 topbar锛涗汉璁炬槸鍘绘媺 .md 鍐嶈惤鐩橈級
+	// 下载模型 / 下载官方人设：答对即放行 —— 关掉弹窗，剩下的事由 gatePass 去干
+	// （模型是回到原来的"切模型→下载"流程，进度在 topbar；人设是去拉 .md 再落盘）
 	const pass = gatePass
 	gateOn.value = false
 	gatePass = null
@@ -5897,7 +6136,7 @@ const doPickVoice = async () => {
 			cloneFileSize.value = r.size ?? 0
 			cloneMsg.value = ""
 		} else {
-			cloneMsg.value = r.message ?? "閫夋嫨澶辫触"
+			cloneMsg.value = r.message ?? "选择失败"
 			cloneMsgOk.value = false
 		}
 	} finally {
@@ -5905,7 +6144,8 @@ const doPickVoice = async () => {
 	}
 }
 
-/** 璁板綍/鏇存柊鏌愪釜鍏嬮殕闊宠壊鐨勬墍灞炴ā鍨?(鍚?id 瑕嗙洊, 鏂?id 杩藉姞)銆? *  蹇呴』鎸佷箙鍖栬繖涓粦瀹氬叧绯? 瀹樻柟鏄庣‘闊宠壊涓嶈兘璺ㄦā鍨嬫贩鐢? 涓嶈涓嬫潵鐢ㄦ埛涓€鎹㈡ā鍨嬪氨浼氶潤榛樼敤閿欓煶鑹层€?*/
+/** 记录/更新某个克隆音色的所属模型 (同 id 覆盖, 新 id 追加)。
+ *  必须持久化这个绑定关系: 官方明确音色不能跨模型混用, 不记下来用户一换模型就会静默用错音色。 */
 const rememberCloneVoice = (id: string, model: string): void => {
 	const vid = (id ?? "").trim()
 	if (!vid) return
@@ -5924,48 +6164,48 @@ const doCreateClone = async () => {
 	try {
 		const key = cfg.cosyApiKey?.trim() || ""
 		if (!key) {
-			cloneMsg.value = "璇峰厛濉啓鍗冮棶 API Key"
+			cloneMsg.value = "请先填写千问 API Key"
 			cloneMsgOk.value = false
 			return
 		}
-		// 閿佸畾鍏嬮殕鐢ㄧ殑妯″瀷: 鍚庨潰杞鏈€闀?2 鍒嗛挓, 鏈熼棿鐢ㄦ埛鍙兘鏀广€屾ā鍨嬨€嶄笅鎷?
-		// 璁伴敊妯″瀷浼氳"缁戝畾鍏崇郴"鐩存帴澶辩湡
+		// 锁定克隆用的模型: 后面轮询最长 2 分钟, 期间用户可能改「模型」下拉,
+		// 记错模型会让"绑定关系"直接失真
 		const cloneModel = cfg.cosyModel || "cosyvoice-v3.5-flash"
 		const r = await createCloneVoice(key, cloneModel, clonePrefix.value.trim() || "myvoice")
 		if (!r.ok) {
-			cloneMsg.value = r.message ?? "鍒涘缓澶辫触"
+			cloneMsg.value = r.message ?? "创建失败"
 			cloneMsgOk.value = false
 			return
 		}
 		cloneVoiceId = r.voice_id ?? ""
-		cloneMsg.value = `鍒涘缓鎴愬姛锛岀瓑寰呭鏍糕€
+		cloneMsg.value = `创建成功，等待审核…`
 		cloneMsgOk.value = true
-		// 杞鐘舵€佺洿鍒?OK / UNDEPLOYED (鏈€澶?~2 鍒嗛挓)
+		// 轮询状态直到 OK / UNDEPLOYED (最多 ~2 分钟)
 		for (let i = 0; i < 24; i++) {
 			await new Promise((res) => setTimeout(res, 5000))
 			const q = await queryCloneVoice(key, cloneVoiceId)
 			if (!q.ok) {
-				cloneStatusText.value = `鏌ヨ澶辫触: ${q.message ?? ""}`
+				cloneStatusText.value = `查询失败: ${q.message ?? ""}`
 				cloneStatusOk.value = false
 				break
 			}
 			const st = q.status ?? ""
 			if (st === "OK") {
-				cloneStatusText.value = `瀹℃牳閫氳繃 鉁?宸插姞鍏ユ垜鐨勯煶鑹瞏
+				cloneStatusText.value = `审核通过 ✅ 已加入我的音色`
 				cloneStatusOk.value = true
 				cfg.cosyVoice = cloneVoiceId
-				// 璁颁笅"杩欎釜闊宠壊鏄负鍝釜妯″瀷鍏嬮殕鐨?: 鎺ュ彛杩斿洖鐨?target_model 鏈€鏉冨▉,
-				// 缂哄け鏃堕€€鍥炲厠闅嗘椂閿佸畾鐨?cloneModel (涓嶆槸褰撳墠涓嬫媺鍊?
+				// 记下"这个音色是为哪个模型克隆的": 接口返回的 target_model 最权威,
+				// 缺失时退回克隆时锁定的 cloneModel (不是当前下拉值)
 				rememberCloneVoice(cloneVoiceId, q.target_model || cloneModel)
 				persistSettings()
 				break
 			}
 			if (st === "UNDEPLOYED") {
-				cloneStatusText.value = `瀹℃牳鏈€氳繃 (UNDEPLOYED)锛岃鏇存崲闊抽閲嶈瘯`
+				cloneStatusText.value = `审核未通过 (UNDEPLOYED)，请更换音频重试`
 				cloneStatusOk.value = false
 				break
 			}
-			cloneStatusText.value = `瀹℃牳涓€?(${Math.min(i + 1, 24)}/24)`
+			cloneStatusText.value = `审核中… (${Math.min(i + 1, 24)}/24)`
 			cloneStatusOk.value = true
 		}
 	} finally {
@@ -5975,20 +6215,22 @@ const doCreateClone = async () => {
 
 onSpeakingChange((playing) => {
 	speaking.value = playing
-	// TTS 闂伩: Nori 寮€鍙ｆ湕璇绘椂鑳屾櫙闊充箰鑷姩鍘嬩綆鍒?20%, 璇村畬鎭㈠
+	// TTS 闪避: Nori 开口朗读时背景音乐自动压低到 20%, 说完恢复
 	setBgmDucking(playing)
-	/* 鎽稿ご鍙拌瘝鐨勬皵娉?璇村畬鍗虫敹" 鈥斺€?鈿?`onSpeakingChange` 鏄?*鍗曟Ы璧嬪€?*
-	   锛坄player.onStateChange = cb`锛? 鎵€浠ヨ繖娈靛繀椤诲啓鍦ㄨ繖涓?*宸叉湁**鐨勫洖璋冮噷,
-	   鍙﹁捣涓€娆?`onSpeakingChange(...)` 浼氭妸涓婇潰鐨?鍋滄鏈楄鎸夐挳 + BGM 闂伩"鏁翠釜瑕嗙洊鎺夈€?*/
+	/* 摸头台词的气泡"说完即收" —— ⚠ `onSpeakingChange` 是**单槽赋值**
+	   （`player.onStateChange = cb`）, 所以这段必须写在这个**已有**的回调里,
+	   另起一次 `onSpeakingChange(...)` 会把上面的"停止朗读按钮 + BGM 闪避"整个覆盖掉。 */
 	if (petLineVoiceTailTimer) { clearTimeout(petLineVoiceTailTimer); petLineVoiceTailTimer = null }
 	if (playing) {
 		lastVoiceAt = Date.now()
 		if (petLineBubble) petLineSpoke = true
 		return
 	}
-	// 鍙湁"纭疄寮€杩囧彛"鎵嶆敹; 涓€鐩存病鍑哄０(TTS 澶辫触)浜ょ粰 7s 鍏滃簳瀹氭椂鍣?	if (!petLineBubble || !petLineSpoke) return
-	/* 鈿?涓嶈兘绔嬪埢鏀? `speaking=false` 鏈繀鏄?璇村畬浜? 鈥斺€?娴佸紡鎾斁涓棿鐨勯潤榛?	   锛堝彞闂?/ WebAudio 鍥為€€閫愬潡鎾?/ 缃戠粶鍗′竴涓嬶級涔熶細鎶婂畠缃洖 false,
-	   绔嬪埢鏀朵細鎶婃皵娉″湪"璇村埌涓€鍗?鏃舵姽鎺夈€傜瓑涓€涓?VOICE_TAIL 鍐嶇‘璁や竴娆￠潤榛樸€?*/
+	// 只有"确实开过口"才收; 一直没出声(TTS 失败)交给 7s 兜底定时器
+	if (!petLineBubble || !petLineSpoke) return
+	/* ⚠ 不能立刻收: `speaking=false` 未必是"说完了" —— 流式播放中间的静默
+	   （句间 / WebAudio 回退逐块播 / 网络卡一下）也会把它置回 false,
+	   立刻收会把气泡在"说到一半"时抹掉。等一个 VOICE_TAIL 再确认一次静默。 */
 	petLineVoiceTailTimer = setTimeout(() => {
 		petLineVoiceTailTimer = null
 		if (!speaking.value && Date.now() - lastVoiceAt >= PET_LINE_VOICE_TAIL_MS) clearPetLineBubble()
@@ -6001,10 +6243,10 @@ const doTestTTS = async () => {
 	try {
 		const r = await testTTS(cfg)
 		if (r.ok) {
-			ttsMsg.value = "杩炴帴鎴愬姛锛屾鍦ㄨ瘯鍚€?
+			ttsMsg.value = "连接成功，正在试听…"
 			ttsMsgOk.value = true
 		} else {
-			ttsMsg.value = r.error ?? "娴嬭瘯澶辫触"
+			ttsMsg.value = r.error ?? "测试失败"
 			ttsMsgOk.value = false
 		}
 	} finally {
@@ -6012,7 +6254,7 @@ const doTestTTS = async () => {
 	}
 }
 
-/* ---------------- 浣欓鏌ヨ ---------------- */
+/* ---------------- 余额查询 ---------------- */
 const balFish = ref("")
 const balDs = ref("")
 const balCosy = ref("")
@@ -6024,7 +6266,7 @@ const balMsgOk = ref(false)
 
 const queryFishBalance = async () => {
 	if (!(cfg.ttsApiKey ?? "").trim()) {
-		balMsg.value = "璇峰厛濉啓 Fish Audio API Key"
+		balMsg.value = "请先填写 Fish Audio API Key"
 		balMsgOk.value = false
 		return
 	}
@@ -6033,12 +6275,12 @@ const queryFishBalance = async () => {
 	try {
 		const r = await checkFishBalance(cfg.ttsBaseUrl, cfg.ttsApiKey)
 		if (r.ok) {
-			balFish.value = `浣欓 ${r.credit ?? "0"}${r.hasFreeCredit ? "锛堝惈鍏嶈垂棰濆害锛? : ""}`
-			balMsg.value = "Fish Audio 浣欓鏌ヨ鎴愬姛"
+			balFish.value = `余额 ${r.credit ?? "0"}${r.hasFreeCredit ? "（含免费额度）" : ""}`
+			balMsg.value = "Fish Audio 余额查询成功"
 			balMsgOk.value = true
 		} else {
 			balFish.value = ""
-			balMsg.value = `Fish Audio: ${r.message ?? "鏌ヨ澶辫触"}`
+			balMsg.value = `Fish Audio: ${r.message ?? "查询失败"}`
 			balMsgOk.value = false
 		}
 	} finally {
@@ -6048,7 +6290,7 @@ const queryFishBalance = async () => {
 
 const queryDeepSeekBalance = async () => {
 	if (!(cfg.apiKey ?? "").trim()) {
-		balMsg.value = "璇峰厛鍦ㄨ亰澶╄缃噷閰嶇疆 DeepSeek API Key"
+		balMsg.value = "请先在聊天设置里配置 DeepSeek API Key"
 		balMsgOk.value = false
 		return
 	}
@@ -6057,12 +6299,12 @@ const queryDeepSeekBalance = async () => {
 	try {
 		const r = await checkDeepSeekBalance(cfg.baseUrl, cfg.apiKey)
 		if (r.ok) {
-			balDs.value = r.balance ?? "鏃犱綑棰濅俊鎭?
-			balMsg.value = r.isAvailable === false ? "DeepSeek 璐︽埛褰撳墠涓嶅彲鐢? : "DeepSeek 浣欓鏌ヨ鎴愬姛"
+			balDs.value = r.balance ?? "无余额信息"
+			balMsg.value = r.isAvailable === false ? "DeepSeek 账户当前不可用" : "DeepSeek 余额查询成功"
 			balMsgOk.value = r.isAvailable !== false
 		} else {
 			balDs.value = ""
-			balMsg.value = `DeepSeek: ${r.message ?? "鏌ヨ澶辫触"}`
+			balMsg.value = `DeepSeek: ${r.message ?? "查询失败"}`
 			balMsgOk.value = false
 		}
 	} finally {
@@ -6072,7 +6314,7 @@ const queryDeepSeekBalance = async () => {
 
 const queryCosyBalance = async () => {
 	if (!(cfg.cosyApiKey ?? "").trim()) {
-		balMsg.value = "璇峰厛濉啓鍗冮棶 API Key"
+		balMsg.value = "请先填写千问 API Key"
 		balMsgOk.value = false
 		return
 	}
@@ -6081,12 +6323,12 @@ const queryCosyBalance = async () => {
 	try {
 		const r = await checkCosyBalance(cfg.cosyBaseUrl, cfg.cosyApiKey)
 		if (r.ok) {
-			balCosy.value = r.balance ?? "鏃犱綑棰濅俊鎭?
-			balMsg.value = "鍗冮棶浣欓鏌ヨ鎴愬姛"
+			balCosy.value = r.balance ?? "无余额信息"
+			balMsg.value = "千问余额查询成功"
 			balMsgOk.value = true
 		} else {
 			balCosy.value = ""
-			balMsg.value = `鍗冮棶: ${r.message ?? "鏌ヨ澶辫触"}`
+			balMsg.value = `千问: ${r.message ?? "查询失败"}`
 			balMsgOk.value = false
 		}
 	} finally {
@@ -6094,7 +6336,7 @@ const queryCosyBalance = async () => {
 	}
 }
 
-/* ---------------- 闊宠壊鍒楄〃 ---------------- */
+/* ---------------- 音色列表 ---------------- */
 const voiceOptions = ref<VoiceInfo[]>([])
 const voicesLoading = ref(false)
 const voicesMsg = ref("")
@@ -6102,7 +6344,7 @@ const voicesMsgOk = ref(false)
 
 const loadVoices = async () => {
 	if (!(cfg.ttsApiKey ?? "").trim()) {
-		voicesMsg.value = "璇峰厛濉啓 Fish Audio API Key"
+		voicesMsg.value = "请先填写 Fish Audio API Key"
 		voicesMsgOk.value = false
 		return
 	}
@@ -6113,11 +6355,11 @@ const loadVoices = async () => {
 		if (r.ok) {
 			voiceOptions.value = r.voices ?? []
 			voicesMsg.value = voiceOptions.value.length
-				? `鎵惧埌 ${voiceOptions.value.length} 涓彲鐢ㄩ煶鑹诧紙鍙樉绀哄凡璁粌鐨?TTS 闊宠壊锛塦
-				: "娌℃湁鎵惧埌闊宠壊銆傚彲鍦?fish.audio 鍏嬮殕闊宠壊, 鎴栨墜鍔ㄨ緭鍏?Reference ID"
+				? `找到 ${voiceOptions.value.length} 个可用音色（只显示已训练的 TTS 音色）`
+				: "没有找到音色。可在 fish.audio 克隆音色, 或手动输入 Reference ID"
 			voicesMsgOk.value = true
 		} else {
-			voicesMsg.value = r.message ?? "鎷夊彇闊宠壊鍒楄〃澶辫触"
+			voicesMsg.value = r.message ?? "拉取音色列表失败"
 			voicesMsgOk.value = false
 		}
 	} finally {
@@ -6128,7 +6370,7 @@ const loadVoices = async () => {
 
 
 
-/** 姝ｆ枃鍏抽敭璇?鈫?琛ㄦ儏鍚?(瑙勫垯鍦?markerRules.ts 鍏变韩) */
+/** 正文关键词 → 表情名 (规则在 markerRules.ts 共享) */
 const detectExpression = (text: string): string | null =>
 	detectExpressionByRules(text, expressions.value)
 
@@ -6137,27 +6379,27 @@ const playIdleMotionOnce = () => {
 	if (p) l2d.playMotionByIndex(p.group, p.index)
 }
 
-/** 涓囪兘鍏滃簳鍔ㄤ綔: 鏄犲皠澶辫触鏃舵挱鏀?idle 寰幆鍔ㄤ綔 (涓€? 涓嶅拰琛ㄦ儏鎵撴灦) */
+/** 万能兜底动作: 映射失败时播放 idle 循环动作 (中性, 不和表情打架) */
 const playIdleFallback = () => {
 	const p = pickNeutralIdle(motions.value)
 	if (p) l2d.playMotionByIndex(p.group, p.index)
 }
 
-/** 鏍囪椹卞姩鐨勮〃鎯呭鐞? 鏄犲皠鎴愬姛鎾斁, 澶辫触鍒欐竻闄ゅ綋鍓嶈〃鎯?(涓嶆挱闅忔満 idle, 閬垮厤涓庡姩浣滃彔鍔?
- *  **鎽稿ご琛ㄦ儏浼樺厛**锛堢敤鎴峰畾鐨勮鏍?3锛? 姝ｅ湪鎽稿ご鏃朵笉鎶?琛ㄦ儏灞? 鈥斺€?鍚﹀垯涓€寮犲槾灏辨妸琚懜鏃剁殑鑴告崲鎺夈€?*/
+/** 标记驱动的表情处理: 映射成功播放, 失败则清除当前表情 (不播随机 idle, 避免与动作叠加)
+ *  **摸头表情优先**（用户定的规格 3）: 正在摸头时不抢"表情层" —— 否则一张嘴就把被摸时的脸换掉。 */
 const playMarkerEmotion = (word: string): void => {
 	if (petExpressionHoldsLayer()) return
 	const emo = resolveMarkerEmotionShared(word, expressions.value)
 	if (emo) {
-		try { l2d.playExpression(emo) } catch { /* 蹇界暐 */ }
+		try { l2d.playExpression(emo) } catch { /* 忽略 */ }
 	} else {
-		try { l2d.stopExpression() } catch { /* 蹇界暐 */ }
+		try { l2d.stopExpression() } catch { /* 忽略 */ }
 	}
 }
 
-/** 鏍囪椹卞姩鐨勫姩浣滃鐞? 鏄犲皠鎴愬姛鎾斁, 澶辫触鍒欐挱 idle 涓囪兘鍏滃簳 (涓嶅拰琛ㄦ儏鎵撴灦)
- *  鎾畬缁熶竴"鍥炰腑鎬х姸鎬? 鈥斺€?妯″瀷閲屾墍鏈夊姩浣滈兘鏄?Loop:true 涓嶄細鑷繁缁撴潫,
- *  涓嶅垏鍥炲幓灏变細涓€鐩翠繚鎸?瀹炴祴: 璇淬€屽洶銆嶅悗涓€鐩寸潯鍒颁笅娆¤璇?銆?*/
+/** 标记驱动的动作处理: 映射成功播放, 失败则播 idle 万能兜底 (不和表情打架)
+ *  播完统一"回中性状态" —— 模型里所有动作都是 Loop:true 不会自己结束,
+ *  不切回去就会一直保持(实测: 说「困」后一直睡到下次说话)。 */
 const playMarkerMotion = (word: string): void => {
 	const mo = resolveMarkerMotionShared(word, flatMotionNames())
 	if (mo) {
@@ -6166,15 +6408,15 @@ const playMarkerMotion = (word: string): void => {
 	} else playIdleFallback()
 }
 
-/** 鍥炰腑鎬х姸鎬? 涓€?idle + 娓呮帀琛ㄦ儏 (鍚﹀垯銆屽洶銆嶇殑 Sleep 琛ㄦ儏浼氳鐪肩潧涓€鐩撮棴鐫€, 鐪嬬潃杩樻槸鐫?
- *  浣?*姝ｅ湪鎽稿ご鏃朵笉娓呰〃鎯?* 鈥斺€?閭ｆ槸鐢ㄦ埛瀹?鎽稿ご浼樺厛"鐨勫彟涓€鍗婏紙鍚﹀垯鍔ㄤ綔鍒扮偣鍥炰腑鎬т細鎶婅鎽哥殑鑴告姽鎺夛級銆?*/
+/** 回中性状态: 中性 idle + 清掉表情 (否则「困」的 Sleep 表情会让眼睛一直闭着, 看着还是睡)
+ *  但**正在摸头时不清表情** —— 那是用户定"摸头优先"的另一半（否则动作到点回中性会把被摸的脸抹掉）。 */
 const returnToNeutral = (): void => {
 	playIdleFallback()
 	if (petExpressionHoldsLayer()) return
-	try { l2d.stopExpression() } catch { /* 蹇界暐 */ }
+	try { l2d.stopExpression() } catch { /* 忽略 */ }
 }
 
-/** 鎵€鏈夊姩浣滃悕 (鎵佸钩鍒楄〃, 渚涘尮閰嶄笌 AI 閫夋嫨) */
+/** 所有动作名 (扁平列表, 供匹配与 AI 选择) */
 const flatMotionNames = (): string[] => {
 	const names: string[] = []
 	for (const g of motions.value) {
@@ -6184,8 +6426,8 @@ const flatMotionNames = (): string[] => {
 }
 
 /**
- * 鍏抽敭璇嶈鍒欓€夊姩浣滃苟鎾斁 (绔嬪嵆鍙嶉; AI 缁嗗寲鍦?analyzeAfterReply).
- * 鍛戒腑鍗虫挱鏀?(force 浼樺厛绾ц鐩栭殢鏈?idle), 鏈懡涓笉鎵撴壈. 瑙勫垯鍦?markerRules.ts 鍏变韩.
+ * 关键词规则选动作并播放 (立即反馈; AI 细化在 analyzeAfterReply).
+ * 命中即播放 (force 优先级覆盖随机 idle), 未命中不打扰. 规则在 markerRules.ts 共享.
  */
 const pickMotionByKeyword = (text: string): void => {
 	if (!ready.value || !motions.value.length) return
@@ -6198,7 +6440,7 @@ const pickMotionByKeyword = (text: string): void => {
 
 const triggerEmotion = (text: string) => {
 	if (!ready.value) return
-	if (petExpressionHoldsLayer()) { playIdleMotionOnce(); return }   // 鎽稿ご浼樺厛: 涓嶈鐩栬鎽告椂鐨勮劯
+	if (petExpressionHoldsLayer()) { playIdleMotionOnce(); return }   // 摸头优先: 不覆盖被摸时的脸
 	const emo = detectExpression(text)
 	if (emo) {
 		l2d.playExpression(emo)
@@ -6208,45 +6450,48 @@ const triggerEmotion = (text: string) => {
 	playIdleMotionOnce()
 }
 
-/* ---------------- 娴佸紡琛ㄦ儏/鍔ㄤ綔鏍囪瑙ｆ瀽 ----------------
- * 鏂规: AI 鍦ㄥ洖澶嶆湯灏鹃檮涓婇殣钘忔爣璁?銆愯〃鎯?寮€蹇冦€戙€愬姩浣?jump銆?
- * 鍓嶇娴佸紡鎺ユ敹鏃跺嵆鏃惰В鏋愬苟鍓ョ (涓嶈繘姝ｆ枃銆佷笉杩?TTS銆佷笉鏄剧ず).
- * 鏍囪鍙兘琚綉缁滃垎鍧椾粠涓棿鍒囨柇, 鍥犳闇€瑕佽法鍧楃紦鍐?
- * 瀹炵幇宸叉娊鍙栧埌 services/chat/markers.ts (涓?App 涓庢偓娴獥姘旀场鍏辩敤).
+/* ---------------- 流式表情/动作标记解析 ----------------
+ * 方案: AI 在回复末尾附上隐藏标记 【表情:开心】【动作:jump】,
+ * 前端流式接收时即时解析并剥离 (不进正文、不进 TTS、不显示).
+ * 标记可能被网络分块从中间切断, 因此需要跨块缓冲.
+ * 实现已抽取到 services/chat/markers.ts (主 App 与悬浮窗气泡共用).
  */
 
-/** 鑱婂ぉ娴佸紡瀵硅瘽鐨勭嫭绔嬫爣璁扮紦鍐插璞?(涓庤Е鎽歌Е鍙戦殧绂? */
+/** 聊天流式对话的独立标记缓冲对象 (与触摸触发隔离) */
 const chatMarkerBuf = {value: ""}
-/** 瑙︽懜瑙﹀彂瀵硅瘽鐨勭嫭绔嬫爣璁扮紦鍐?(涓庤亰澶╂祦寮忛殧绂? 閬垮厤骞跺彂韪╄笍) */
+/** 触摸触发对话的独立标记缓冲 (与聊天流式隔离, 避免并发踩踏) */
 const touchMarkerBuf = {value: ""}
 
-/** 鏍囪璇嶆槧灏勯€昏緫鍦?services/live2d/markerRules.ts 鍏变韩 (resolveMarkerEmotion/Motion) */
+/** 标记词映射逻辑在 services/live2d/markerRules.ts 共享 (resolveMarkerEmotion/Motion) */
 
 /**
- * 鍚堝苟 AI 鍒嗘瀽 (琛ㄦ儏缁嗗寲 + 璁板繂鎻愬彇, 涓€娆?LLM 璋冪敤, 鐪?token 鐪佸欢杩?
- * - 琛ㄦ儏: 鍏堢敱鍏抽敭璇嶈鍒欏嵆鏃舵挱鏀? 杩欓噷鐢?AI 缁撴灉缁嗗寲/绾犳
- * - 璁板繂: 瑙勫垯缁撴灉 + AI 鎻愬彇缁撴灉鍚堝苟鍘婚噸鍏ュ簱
+ * 合并 AI 分析 (表情细化 + 记忆提取, 一次 LLM 调用, 省 token 省延迟)
+ * - 表情: 先由关键词规则即时播放, 这里用 AI 结果细化/纠正
+ * - 记忆: 规则结果 + AI 提取结果合并去重入库
  */
 const analyzeAfterReply = async (userText: string, _replyText: string) => {
-	// 琛ㄦ儏/鍔ㄤ綔宸茬敱娴佸紡鏍囪椹卞姩, 杩欓噷鍙仛璁板繂鍐欏叆:
-	// Mem0 涓ゆ寮?鈫?瑙勫垯鍏嶈垂鍏滃簳 + AI 鎻愬彇浜嬪疄 + AI 鍐崇瓥鍏ュ簱(ADD/UPDATE/DELETE/NONE),
-	// 鏈夊噣鏂板/鏀瑰啓鏃剁敤姘旀场鎻愮ず (璁╃敤鎴风煡閬?Nori 璁颁綇浜嗕粈涔?.
+	// 表情/动作已由流式标记驱动, 这里只做记忆写入:
+	// Mem0 两段式 → 规则免费兜底 + AI 提取事实 + AI 决策入库(ADD/UPDATE/DELETE/NONE),
+	// 有净新增/改写时用气泡提示 (让用户知道 Nori 记住了什么).
 	try {
 		const llmOk = cfg.memoryLlmExtract && !!cfg.apiKey.trim() && !!cfg.model.trim()
-		// 鏈€杩戝璇?(涓嶅惈褰撳墠鍙? 渚?AI 鐞嗚В鎸囦唬, 涓嶄綔涓烘彁鍙栨潵婧?		const recent = messages.value
+		// 最近对话 (不含当前句) 供 AI 理解指代, 不作为提取来源
+		const recent = messages.value
 			.filter(m => m.role === "user" || m.role === "assistant")
 			.slice(-6, -1)
 			.filter(m => !(m.role === "user" && m.content === userText))
 			.map(m => ({role: m.role, content: m.content}))
-		/** 璁板繂鐩稿叧鐨勫皬璋冪敤缁熶竴璧拌繖閲?(璁板繂鎻愬彇涓庣洰鏍囨敹灏惧叡鐢ㄥ悓涓€涓垽鎹笌绔偣) */
+		/** 记忆相关的小调用统一走这里 (记忆提取与目标收尾共用同一个判据与端点) */
 		const llmCall = async (prompt: string): Promise<string> => {
 			const r = await sendChat(cfg.baseUrl, cfg.apiKey, cfg.model, [
 				{role: "system", content: prompt} as ChatMsg,
 			])
 			return r.ok ? (r.content ?? "") : ""
 		}
-		/* 璁板繂鍐欏叆 (2026-09-27 閲嶆瀯 P3: 榛樿**涓嶅啀**閫愬彞鎻愬彇)銆?		   鐜板湪鐨勫垎宸? 杩戞湡瀵硅瘽闈犲師鏂囦笂涓嬫枃, 璁板繂鐢?姣忔鍘嗗彶鎬荤粨椤烘墜绛涘嚭"鐢熶骇
-		   (瑙佷笅鏂?summarizeIfNeeded 鈫?services/memory 鐨勮蹇嗗潡閫氶亾)銆?		   鐣?memoryRealtimeExtract 寮€鍏冲彧涓哄嚭闂鑳戒竴閿垏鍥炴棫鐨勯€愬彞閫氶亾銆?*/
+		/* 记忆写入 (2026-09-27 重构 P3: 默认**不再**逐句提取)。
+		   现在的分工: 近期对话靠原文上下文, 记忆由"每次历史总结顺手筛出"生产
+		   (见下方 summarizeIfNeeded → services/memory 的记忆块通道)。
+		   留 memoryRealtimeExtract 开关只为出问题能一键切回旧的逐句通道。 */
 		if (cfg.memoryRealtimeExtract) {
 			const res = await extractMemoriesSmart(
 				userText,
@@ -6254,21 +6499,23 @@ const analyzeAfterReply = async (userText: string, _replyText: string) => {
 				recent,
 			)
 			if (res.tips.length) {
-				const fmt = `璁颁綇浜嗭細${res.tips.join("銆?)}`
-				triggerBubble(fmt.length > 36 ? `${fmt.slice(0, 36)}鈥 : fmt, 3200)
+				const fmt = `记住了：${res.tips.join("、")}`
+				triggerBubble(fmt.length > 36 ? `${fmt.slice(0, 36)}…` : fmt, 3200)
 			}
 		}
-		/* 鐩爣鏀跺熬 (2026-09-27 鐢ㄦ埛瑕佹眰): 涓讳汉杩欏彞鑻ユ槑纭〃绀烘煇涓€岄櫔鐫€浣犵殑浜嬨€嶅凡瀹屾垚/宸叉斁寮?
-		   鐢?LLM 鍒ゅ畾骞舵妸瀹冧粠娓呭崟閲屾憳鎺?鈥斺€?鍚﹀垯鐩爣浼氳姣?3 澶╅棶涓€娆°€佹案杩滀笉鏀跺熬銆?		   路 搴撻噷娌℃湁鐩爣鏃?*闆惰皟鐢?*(pruneDoneGoals 鍐呴儴鍏堟煡);
-		   路 鍒ゅ畾澶辫触/瓒呮椂/缂栭€?id 鈫?浠€涔堥兘涓嶅垹 (瑙?memory/index.ts 鐨勬敞閲?;
-		   路 涓庤蹇嗘彁鍙栧叡鐢ㄥ悓涓€涓?llmCall 鍒ゆ嵁 (閮借姹傚紑鍏冲紑鍚笖閰嶄簡 Key)銆?		   鈿?鍗曠嫭涓€娆¤皟鐢ㄨ€屼笉鏄苟杩涜蹇嗘彁鍙? 涓や欢浜嬭涔夋棤鍏? 鍚堝苟浼氫簰鐩告薄鏌? 鑰?鍒ら敊灏卞垹鐩爣"
-		     灞炰簬鐢ㄦ埛鏁版嵁鎹熷け, 涓嶅€煎緱涓虹渷涓€娆¤皟鐢ㄥ啋杩欎釜闄┿€?*/
+		/* 目标收尾 (2026-09-27 用户要求): 主人这句若明确表示某个「陪着你的事」已完成/已放弃,
+		   由 LLM 判定并把它从清单里摘掉 —— 否则目标会被每 3 天问一次、永远不收尾。
+		   · 库里没有目标时**零调用**(pruneDoneGoals 内部先查);
+		   · 判定失败/超时/编造 id → 什么都不删 (见 memory/index.ts 的注释);
+		   · 与记忆提取共用同一个 llmCall 判据 (都要求开关开启且配了 Key)。
+		   ⚠ 单独一次调用而不是并进记忆提取: 两件事语义无关, 合并会互相污染, 而"判错就删目标"
+		     属于用户数据损失, 不值得为省一次调用冒这个险。 */
 		if (llmOk) {
 			try {
 				const done = await pruneDoneGoals(userText, llmCall, recent)
 				if (done.length) {
-					const fmt = `杩欎釜鐩爣鎴戝氨鍏堟敹璧锋潵鍟︼細${done.join("銆?)}`
-					triggerBubble(fmt.length > 40 ? `${fmt.slice(0, 40)}鈥 : fmt, 3600)
+					const fmt = `这个目标我就先收起来啦：${done.join("、")}`
+					triggerBubble(fmt.length > 40 ? `${fmt.slice(0, 40)}…` : fmt, 3600)
 				}
 			} catch (e) {
 				console.error("[goal] pruneDoneGoals failed:", e)
@@ -6276,7 +6523,7 @@ const analyzeAfterReply = async (userText: string, _replyText: string) => {
 		}
 		refreshMemView()
 	} catch (e) {
-		// 鍏滃簳: 瑙勫垯璁板繂
+		// 兜底: 规则记忆
 		console.error("[mem] extractMemoriesSmart failed:", e)
 		try {
 			addMemoriesFromText(userText)
@@ -6288,12 +6535,16 @@ const analyzeAfterReply = async (userText: string, _replyText: string) => {
 }
 
 /**
- * 璁板繂搴撳叆鍙ｇ殑"瀹崇緸鎷﹂棬"鐘舵€?(2026-09-27 鐢ㄦ埛瑕佹眰)銆? *
- * 鐢ㄦ埛鐐广€岃蹇嗗簱銆嶆椂鍏堝脊姘旀场 + 蹇典竴鍙ャ€岃繖鏍峰瓙鐪嬬殑璇濓紝nori 浼氬缇炵殑銆傘€? **鐐圭涓変笅鎵嶇湡鐨勮繘鍘?*銆? * 涓轰粈涔堣鏈夎繖鏉? 璁板繂搴撴槸濂圭殑"蹇冮噷璇?, 鐢ㄦ埛甯屾湜杩涘幓涔嬪墠鏈変釜褰撻潰鐨勫弽搴? 鑰屼笉鏄潤榛樼炕寮€銆? *
- * 璁℃暟澶嶄綅瑙勫垯 (涓嶈皑鎱庡氨浼氶攣姝绘垨褰㈠悓铏氳):
- *   路 `entryGateLeaveTimer`: 4 绉掓病鍐嶇偣 鈫?鍋囪鐢ㄦ埛璧板紑浜? 璁℃暟褰掗浂 (鍚﹀垯"鐐逛袱娆°€佽繃涓€浼氬効鐐逛竴娆?灏辫繘鍘讳簡);
- *   路 鎵撳紑/鍏抽棴浠讳綍闈㈡澘 (openPanel) 鈫?褰掗浂;
- *   路 鐪熸杩涘叆璁板繂搴?鈫?褰掗浂 (涓嬫鍐嶈繘瑕侀噸鏂版暟涓変笅)銆? */
+ * 记忆库入口的"害羞拦门"状态 (2026-09-27 用户要求)。
+ *
+ * 用户点「记忆库」时先弹气泡 + 念一句「这样子看的话，nori 会害羞的。」, **点第三下才真的进去**。
+ * 为什么要有这条: 记忆库是她的"心里话", 用户希望进去之前有个当面的反应, 而不是静默翻开。
+ *
+ * 计数复位规则 (不谨慎就会锁死或形同虚设):
+ *   · `entryGateLeaveTimer`: 4 秒没再点 → 假设用户走开了, 计数归零 (否则"点两次、过一会儿点一次"就进去了);
+ *   · 打开/关闭任何面板 (openPanel) → 归零;
+ *   · 真正进入记忆库 → 归零 (下次再进要重新数三下)。
+ */
 const MEM_ENTRY_CLICKS = 3
 const memEntryClicks = ref(0)
 let memEntryLeaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -6303,16 +6554,18 @@ const resetMemEntryGate = (): void => {
 	if (memEntryLeaveTimer) { clearTimeout(memEntryLeaveTimer); memEntryLeaveTimer = null }
 }
 
-/** 鎽稿ご鍙拌瘝閭ｇ"椤哄彛涓€鍙?鐨勬湕璇?(涓夐亾闂? 鈶燭TS 灏辩华 鈶′笉鍦ㄦ湕璇?鐢熸垚涓?鈶㈠熬闊崇獥)銆?*/
+/** 摸头台词那种"顺口一句"的朗读 (三道闸: ①TTS 就绪 ②不在朗读/生成中 ③尾音窗)。 */
 const speakSideLine = (line: string): void => {
 	if (!isTtsReady(cfg)) return
 	if (speaking.value || Date.now() - lastVoiceAt < PET_LINE_VOICE_TAIL_MS) return
 	if (chatStreaming.value || touchStreaming.value || typing.value) return
-	void speakTTS(cfg, line).catch(() => { /* 澶辫触宸茬敱 setTtsErrorHandler 鎻愮ず */ })
+	void speakTTS(cfg, line).catch(() => { /* 失败已由 setTtsErrorHandler 提示 */ })
 }
 
 /**
- * 鐐瑰嚮璁剧疆椤甸噷鐨勩€岃蹇嗗簱銆嶅叆鍙ｃ€? * 鍓嶄袱娆″彧缁欏弽搴?(姘旀场 + 鏈楄), 绗笁娆℃墠鐪熺殑鎵撳紑銆? */
+ * 点击设置页里的「记忆库」入口。
+ * 前两次只给反应 (气泡 + 朗读), 第三次才真的打开。
+ */
 const onMemEntryTap = (): void => {
 	memEntryClicks.value += 1
 	if (memEntryClicks.value >= MEM_ENTRY_CLICKS) {
@@ -6321,16 +6574,18 @@ const onMemEntryTap = (): void => {
 		return
 	}
 	const left = MEM_ENTRY_CLICKS - memEntryClicks.value
-	/* 姘旀场鐢?*灏忔皵娉?*锛坄triggerBubble`锛屼笌銆岃浣忎簡锛氣€︺€嶅悓涓€濂楋級锛屼笉鐢?Nori 姘旀场锛?	   路 涓?璁板繂鏂板唴瀹?鐨勬彁绀鸿瑙夌粺涓€锛堢敤鎴?2026-09-27 瑕佹眰锛夛紱
-	   路 灏忔皵娉?z-index 15锛岃亰澶╅潰鏉挎墦寮€鏃朵篃鐪嬪緱瑙?鈥斺€?鑰?Nori 姘旀场锛?8锛変細鐩栧湪闈㈡澘鍐呭涓娿€?*/
-	triggerBubble(`杩欐牱瀛愮湅鐨勮瘽锛宯ori 浼氬缇炵殑銆傦紙杩樺樊 ${left} 涓嬶級`, 3000)
-	speakSideLine("杩欐牱瀛愮湅鐨勮瘽锛宯ori 浼氬缇炵殑銆?)
+	/* 气泡用**小气泡**（`triggerBubble`，与「记住了：…」同一套），不用 Nori 气泡：
+	   · 与"记忆新内容"的提示视觉统一（用户 2026-09-27 要求）；
+	   · 小气泡 z-index 15，聊天面板打开时也看得见 —— 而 Nori 气泡（58）会盖在面板内容上。 */
+	triggerBubble(`这样子看的话，nori 会害羞的。（还差 ${left} 下）`, 3000)
+	speakSideLine("这样子看的话，nori 会害羞的。")
 	if (memEntryLeaveTimer) clearTimeout(memEntryLeaveTimer)
 	memEntryLeaveTimer = setTimeout(() => { memEntryLeaveTimer = null; memEntryClicks.value = 0 }, MEM_ENTRY_LEAVE_MS)
 }
 
-/** E2E/瀹炴満璇婃柇鎺㈤拡: 鑱婂ぉ涓庤蹇嗙绾跨殑鏈€灏忕姸鎬佸揩鐓?(绾, 涓嶅缓杩炴帴)銆? *  鎺掓煡"鍙戝畬娑堟伅鍚庤蹇?鐩爣鍒ゅ畾娌″姩闈?杩欑被闂鏃? 鎺у埗鍙版暡 `__noriDiagChat()` 灏辫兘鐪嬪埌
- *  鍒板簳鏄憼娌￠厤 Key 鈶℃秷鎭病鍙戝嚭鍘?鈶㈠洖澶嶄负绌?杩樻槸 鈶ｆ彁鍙栬寮€鍏冲叧鎺変簡銆?*/
+/** E2E/实机诊断探针: 聊天与记忆管线的最小状态快照 (纯读, 不建连接)。
+ *  排查"发完消息后记忆/目标判定没动静"这类问题时, 控制台敲 `__noriDiagChat()` 就能看到
+ *  到底是①没配 Key ②消息没发出去 ③回复为空 还是 ④提取被开关关掉了。 */
 ;(window as unknown as {__noriDiagChat?: () => unknown}).__noriDiagChat = () => ({
 	hasKey: !!cfg.apiKey.trim(),
 	model: cfg.model,
@@ -6346,8 +6601,9 @@ const onMemEntryTap = (): void => {
 
 const grantStorage = () => requestStoragePermission()
 
-/** 鎸佷箙鍖栧叏閮ㄨ缃?(闈欓粯淇濆瓨; 鍐欏け璐ュ彧璁版棩蹇?鈥斺€?婊戝潡/寮€鍏宠繖绫婚珮棰戣皟鐢ㄤ笉閫傚悎寮规彁绀?銆? *  @returns 鏄惁鐪熺殑鍐欏叆鎴愬姛, 渚涙樉寮?淇濆瓨璁剧疆"鎸夐挳濡傚疄鍙嶉 */
-/** 钀界洏銆侤returns 鍘熺敓 writeFile 鐨勫師濮嬭繑鍥?("ok" / "err:xxx"), 渚涗繚瀛樻寜閽瀹炴姤鍘熷洜 */
+/** 持久化全部设置 (静默保存; 写失败只记日志 —— 滑块/开关这类高频调用不适合弹提示)。
+ *  @returns 是否真的写入成功, 供显式"保存设置"按钮如实反馈 */
+/** 落盘。@returns 原生 writeFile 的原始返回 ("ok" / "err:xxx"), 供保存按钮如实报原因 */
 const persistSettings = (): string => {
 	const raw = saveSettingsRaw({
         pomo: normalizePomo(pomoCfg),
@@ -6384,7 +6640,7 @@ const persistSettings = (): string => {
 		bgmVolume: Number.isFinite(Number(cfg.bgmVolume)) ? Math.min(1, Math.max(0, Number(cfg.bgmVolume))) : 0.35,
 		sfxVolume: Number.isFinite(Number(cfg.sfxVolume)) ? Math.min(1, Math.max(0, Number(cfg.sfxVolume))) : 0.5,
 		dataseaBg: !!cfg.dataseaBg,
-		// 鐣岄潰瀛椾綋锛?026-10-15锛? 蹇呴』杩涜繖浠?閫愬瓧娈?鐨勮惤鐩樻竻鍗曪紝鍚﹀垯閲嶅惎灏卞洖绯荤粺瀛椾綋
+		// 界面字体（2026-10-15）: 必须进这份"逐字段"的落盘清单，否则重启就回系统字体
 		uiFont: normalizeUiFont(cfg.uiFont),
 		timeAware: cfg.timeAware !== false,
 		ambientEnabled: !!cfg.ambientEnabled,
@@ -6399,7 +6655,7 @@ const persistSettings = (): string => {
 		smartRecall: !!cfg.smartRecall,
 		emotionLlm: !!cfg.emotionLlm,
 		deepseekThinking: !!cfg.deepseekThinking,
-		/** 杩佺Щ鏍囪: 涓€鏃﹀啓杩囩洏, 璇存槑涓婇潰瀵?`deepseekThinking` 鐨勮鍙栧凡缁忔槸"鐢ㄦ埛鐪熼€夌殑鍊? */
+		/** 迁移标记: 一旦写过盘, 说明上面对 `deepseekThinking` 的读取已经是"用户真选的值" */
 		thinkDefaultV2: true,
 		lookFlipX: !!cfg.lookFlipX,
 		lookFlipY: !!cfg.lookFlipY,
@@ -6407,34 +6663,36 @@ const persistSettings = (): string => {
 		floatEnabled: !!cfg.floatEnabled,
 		floatBubbleW: Number(cfg.floatBubbleW) || 82,
 		floatRenderScale: normalizeRenderScale(cfg.floatRenderScale, nativeDpr.value),
-		// 鍦ㄧ嚎浜烘暟寮€鍏筹紙2026-10-21锛? 蹇呴』杩涜繖浠?閫愬瓧娈?娓呭崟锛屽惁鍒欏叧鎺夊悗閲嶅惎鍙堝彉鍥炲紑
+		// 在线人数开关（2026-10-21）: 必须进这份"逐字段"清单，否则关掉后重启又变回开
 		presenceEnabled: cfg.presenceEnabled !== false,
 	})
-	if (raw !== "ok") console.error("[settings] 鍐欑洏澶辫触:", raw)
+	if (raw !== "ok") console.error("[settings] 写盘失败:", raw)
 	return raw
 }
 
 const saveSettingsNow = () => {
-	// 濡傚疄鍙嶉: 鍐欑洏澶辫触鏃朵笉鍐嶈皫鎶?璁剧疆宸蹭繚瀛?, 鑰屼笖鎶婂師鐢熺粰鐨勭湡瀹炲師鍥犱竴骞舵樉绀?鈥斺€?	// 鍙"瀛樺偍涓嶅彲鍐?浼氭妸 err:insert / err:stream / SecurityException 绛夊樊寮傚叏鐩栨帀, 鐪熸満娌℃硶瀹氫綅銆?	const raw = persistSettings()
+	// 如实反馈: 写盘失败时不再谎报"设置已保存", 而且把原生给的真实原因一并显示 ——
+	// 只说"存储不可写"会把 err:insert / err:stream / SecurityException 等差异全盖掉, 真机没法定位。
+	const raw = persistSettings()
 	applyRenderScale()
 	modelLoadMsg.value = ""
 	const ok = raw === "ok"
-	triggerBubble(ok ? "璁剧疆宸蹭繚瀛? : `璁剧疆淇濆瓨澶辫触锛?{raw} 鈥斺€?璇锋墦寮€銆屾墍鏈夋枃浠惰闂潈闄愩€嶏紙绯荤粺璁剧疆 鈫?搴旂敤 鈫?NoriDroid 鈫?鐗规畩搴旂敤鏉冮檺锛塦, ok ? 2000 : 6000)
+	triggerBubble(ok ? "设置已保存" : `设置保存失败：${raw} —— 请打开「所有文件访问权限」（系统设置 → 应用 → NoriDroid → 特殊应用权限）`, ok ? 2000 : 6000)
 }
 
-/* ---------------- 鎮诞绐?---------------- */
+/* ---------------- 悬浮窗 ---------------- */
 const floatPermission = ref<"unknown" | "granted" | "denied" | "pending" | "revoked">("unknown")
 let floatEnablePending = false
 const floatPermissionHint = computed(() => {
-	if (floatPermission.value === "pending") return "绛夊緟绯荤粺鎺堟潈锛屾巿鏉冭繑鍥炲悗鑷姩寮€鍚€?
-	if (floatPermission.value === "revoked") return "鎮诞绐楁潈闄愬凡琚挙閿€锛岃閲嶆柊寮€鍚苟鎺堟潈銆?
-	if (floatPermission.value === "denied") return "灏氭湭鑾峰緱鎮诞绐楁潈闄愶紝寮€鍚椂浼氬墠寰€绯荤粺璁剧疆銆?
-	if (floatPermission.value === "granted") return "鎮诞绐楁潈闄愬凡鎺堟潈銆?
-	return "棣栨寮€鍚渶瑕佹巿鏉冩偓娴獥鏉冮檺銆?
+	if (floatPermission.value === "pending") return "等待系统授权，授权返回后自动开启。"
+	if (floatPermission.value === "revoked") return "悬浮窗权限已被撤销，请重新开启并授权。"
+	if (floatPermission.value === "denied") return "尚未获得悬浮窗权限，开启时会前往系统设置。"
+	if (floatPermission.value === "granted") return "悬浮窗权限已授权。"
+	return "首次开启需要授权悬浮窗权限。"
 })
 const saveFloatEnabled = () => {
 	persistSettings()
-	try { window.NoriChat?.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 蹇界暐 */ }
+	try { window.NoriChat?.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 忽略 */ }
 }
 const refreshFloatPermission = () => {
 	const nori = window.NoriChat
@@ -6454,10 +6712,10 @@ const refreshFloatPermission = () => {
 		} else if (granted) floatPermission.value = "granted"
 		else if (floatPermission.value !== "revoked") floatPermission.value = "denied"
 		if (!granted) nori.hideFloat?.()
-	} catch { /* 蹇界暐 */ }
+	} catch { /* 忽略 */ }
 }
 
-/** 鎺堟潈鍓嶄繚鐣欏叧闂姸鎬侊紱杩斿洖搴旂敤鍚庢牳瀵规潈闄愶紝鍐嶅惎鐢ㄥ師鐢熸爣璁般€?*/
+/** 授权前保留关闭状态；返回应用后核对权限，再启用原生标记。 */
 const onFloatToggle = (event: Event) => {
 	const nori = window.NoriChat
 	floatEnablePending = false
@@ -6465,33 +6723,34 @@ const onFloatToggle = (event: Event) => {
 		try {
 			if (!nori?.canFloat?.()) {
 				cfg.floatEnabled = false
-				// v-model 鍚屼竴浜嬩欢鍐?true鈫抐alse 鍙兘琚悎骞朵负鏃犲彉鍖栵紝鏄惧紡杩樺師鍘熺敓澶嶉€夋銆?				if (event.target instanceof HTMLInputElement) event.target.checked = false
+				// v-model 同一事件内 true→false 可能被合并为无变化，显式还原原生复选框。
+				if (event.target instanceof HTMLInputElement) event.target.checked = false
 				floatEnablePending = !!nori?.requestFloatPermission
 				floatPermission.value = floatEnablePending ? "pending" : "denied"
 				saveFloatEnabled()
-				triggerBubble("璇峰湪绯荤粺璁剧疆閲屽厑璁告偓娴獥鏉冮檺")
+				triggerBubble("请在系统设置里允许悬浮窗权限")
 				nori?.requestFloatPermission?.()
 				return
 			}
 			floatPermission.value = "granted"
-			triggerBubble("宸插紑鍚細绂诲紑搴旂敤鍚?Nori 浼氱暀鍦ㄥ睆骞曚笂")
+			triggerBubble("已开启：离开应用后 Nori 会留在屏幕上")
 		} catch {
 			cfg.floatEnabled = false
 			if (event.target instanceof HTMLInputElement) event.target.checked = false
 		}
 	} else {
-		try { nori?.hideFloat?.() } catch { /* 蹇界暐 */ }
+		try { nori?.hideFloat?.() } catch { /* 忽略 */ }
 	}
 	saveFloatEnabled()
 }
 
-/** 鎮诞绐? 娓叉煋鍒嗚鲸鐜囪缃?鈫?淇濆瓨 + 瀹炴椂閫氱煡鎮诞绐楅〉闈?*/
+/** 悬浮窗: 渲染分辨率设置 → 保存 + 实时通知悬浮窗页面 */
 const resetFloatWindow = () => {
 	try {
 		if (!window.NoriChat?.resetFloatWindow) return
 		window.NoriChat.resetFloatWindow()
-		triggerBubble("宸查噸缃紝绂诲紑搴旂敤鍚庡彲鏌ョ湅鎮诞绐?)
-	} catch { triggerBubble("閲嶇疆澶辫触锛岃閲嶈瘯") }
+		triggerBubble("已重置，离开应用后可查看悬浮窗")
+	} catch { triggerBubble("重置失败，请重试") }
 }
 
 const onFloatRenderScale = () => {
@@ -6499,10 +6758,10 @@ const onFloatRenderScale = () => {
 	persistSettings()
 	try {
 		window.NoriChat?.setFloatRenderScale?.(cfg.floatRenderScale)
-	} catch { /* 蹇界暐 */ }
+	} catch { /* 忽略 */ }
 }
 
-// 闊宠壊閫夋嫨鍚庤嚜鍔ㄤ繚瀛?(闃叉姈, 閬垮厤鎵嬫粦杩炵画鍒囨崲鏃堕绻佸啓鏂囦欢)
+// 音色选择后自动保存 (防抖, 避免手滑连续切换时频繁写文件)
 let voiceSaveTimer: ReturnType<typeof setTimeout> | null = null
 const saveVoicesDebounced = () => {
 	if (voiceSaveTimer) clearTimeout(voiceSaveTimer)
@@ -6511,9 +6770,12 @@ const saveVoicesDebounced = () => {
 		persistSettings()
 	}, 600)
 }
-// Fish 鐨勯煶鑹?watch(() => cfg.ttsReferenceId, saveVoicesDebounced)
-// 鍗冮棶鐨勬ā鍨嬩笌闊宠壊 鈥斺€?涓庝笂闈㈠悓涓€濂楅槻鎶栧啓娉曘€?// 涓嶇敤 @change 鐨勫師鍥? 鐢ㄦ埛鎵撳畬瀛楃洿鎺ュ叧闈㈡澘鏃?input 涓嶄細澶辩劍, change 鏍规湰涓嶈Е鍙? 鏀瑰姩灏变涪浜?
-// watch 鍦ㄦ渶鍚庝竴娆¤緭鍏ュ悗 600ms 钀界洏, 涓嶄緷璧栧け鐒︺€?watch([() => cfg.cosyModel, () => cfg.cosyVoice], saveVoicesDebounced)
+// Fish 的音色
+watch(() => cfg.ttsReferenceId, saveVoicesDebounced)
+// 千问的模型与音色 —— 与上面同一套防抖写法。
+// 不用 @change 的原因: 用户打完字直接关面板时 input 不会失焦, change 根本不触发, 改动就丢了;
+// watch 在最后一次输入后 600ms 落盘, 不依赖失焦。
+watch([() => cfg.cosyModel, () => cfg.cosyVoice], saveVoicesDebounced)
 
 const onResize = () => {
 	syncChatLayout()
@@ -6524,8 +6786,9 @@ const onResize = () => {
 const refreshStorage = () => {
 	if (!document.hidden) { window.dispatchEvent(new Event("nori-diary-updated")); scheduleDiary() }
 	storageReady.value = isStorageReady()
-	// 銆屾墍鏈夋枃浠惰闂潈闄愩€嶅彲鑳芥槸鍦ㄧ郴缁熻缃噷鍒氭巿浜堢殑 鈥斺€?姣忔鍥炲墠鍙伴兘鍒锋柊涓€娆?
-	// 鐢ㄦ埛鎺堟潈杩斿洖鍚庤缃〉鐨勩€屽凡鎺堟潈 鉁撱€嶄細绔嬪埢鍙樼豢, 涓嶇敤閲嶅紑闈㈡澘銆?	allFilesAccess.value = hasAllFilesAccess()
+	// 「所有文件访问权限」可能是在系统设置里刚授予的 —— 每次回前台都刷新一次,
+	// 用户授权返回后设置页的「已授权 ✓」会立刻变绿, 不用重开面板。
+	allFilesAccess.value = hasAllFilesAccess()
 	if (!document.hidden) {
 		if (!pomoSettingsReadable) pomoCfgLoad()
 		pomoRefreshDate()
@@ -6535,15 +6798,21 @@ const refreshStorage = () => {
 }
 
 /**
- * 椤甸潰涓嶅彲瑙?鈬?**涓や釜娓叉煋寰幆閮藉仠**锛?026-10-02 鐢ㄦ埛鎶ャ€岃繑鍥炰富鐣岄潰涓ラ噸鎺夊抚銆嶏級銆? *
- * 涓轰粈涔堟樉寮忓仠: rAF 鍦?`document.hidden` 鏃舵湰鏉ュ氨鍋滀簡锛屼絾 Android WebView 鐨?闅愯棌"鍙鐩? * 鍒囧悗鍙?鎭睆锛?*琚埆鐨勭獥鍙ｇ洊浣?*锛堟偓娴獥銆佹皵娉″璇濇锛夋椂椤甸潰浠嶆槸 visible锛屼袱鏉″惊鐜? * 锛圠ive2D + 鏁版嵁娴凤紝瀹炴祴鍚勫崰婊′竴甯ч绠楋級浼氱収璺戜笉璇€傝€屼笖鐢ㄦ埛鐪嬪埌鐨?鎺夊抚"寰€寰€鏄?*鎸佺画鍙戠儹鍚? * 鐨勯檷棰?*锛屾墍浠?涓嶈鐢荤殑鏃跺€欎竴甯ч兘涓嶇敾"蹇呴』鏄惧紡鍐欏嚭鏉ワ紝鑰屼笉鏄緷璧栨祻瑙堝櫒瀹炵幇銆? *
- * 鎭㈠鏄嵆鏃剁殑: Live2D 鍙槸涓嶇敾锛堟ā鍨?鐢诲竷/鎵嬪娍鍛戒腑閮戒笉鍔級锛屾暟鎹捣閲嶆柊璧峰惊鐜€? */
+ * 页面不可见 ⇒ **两个渲染循环都停**（2026-10-02 用户报「返回主界面严重掉帧」）。
+ *
+ * 为什么显式停: rAF 在 `document.hidden` 时本来就停了，但 Android WebView 的"隐藏"只覆盖
+ * 切后台/息屏；**被别的窗口盖住**（悬浮窗、气泡对话框）时页面仍是 visible，两条循环
+ * （Live2D + 数据海，实测各占满一帧预算）会照跑不误。而且用户看到的"掉帧"往往是**持续发热后
+ * 的降频**，所以"不该画的时候一帧都不画"必须显式写出来，而不是依赖浏览器实现。
+ *
+ * 恢复是即时的: Live2D 只是不画（模型/画布/手势命中都不动），数据海重新起循环。
+ */
 const setStageRenderPaused = (paused: boolean): void => {
-	try { l2d.pauseRender(paused) } catch { /* 蹇界暐 */ }
+	try { l2d.pauseRender(paused) } catch { /* 忽略 */ }
 	try {
 		if (paused) stopDataseaBg()
 		else if (cfg.dataseaBg) setDataseaBgEnabled(true)
-	} catch { /* 蹇界暐 */ }
+	} catch { /* 忽略 */ }
 }
 
 const renderPause = createRenderPauseState(setStageRenderPaused)
@@ -6556,7 +6825,8 @@ const onVisibility = () => {
 	const paused = renderPause.setHidden(document.hidden)
 	if (!paused) refreshFloatPermission()
 	refreshStorage()
-	// 鍒囧悗鍙? 绔嬪嵆钀界洏闃叉姈涓殑鑱婂ぉ璁板綍, 閬垮厤涓㈡渶鍚庝竴娆″啓鍏?	if (paused) {
+	// 切后台: 立即落盘防抖中的聊天记录, 避免丢最后一次写入
+	if (paused) {
 		cancelStageInteraction()
 		stopAutoDiary()
 		pomoUpdateDisplay()
@@ -6566,15 +6836,16 @@ const onVisibility = () => {
 		stopTTS()
 		pauseBgm()
 	} else {
-		// 鍦ㄧ嚎浜烘暟锛?026-10-21锛? 鍥炲墠鍙拌ˉ涓€娆″績璺筹紙璺濅笂娆?> 60s 鎵嶅彂锛?		if (cfg.presenceEnabled) presenceOnVisible(APP_VERSION)
+		// 在线人数（2026-10-21）: 回前台补一次心跳（距上次 > 60s 才发）
+		if (cfg.presenceEnabled) presenceOnVisible(APP_VERSION)
 		if (health.value.lastPersistError) refreshMemFromDisk()
 		if (!bgmHeld()) resumeBgm()
 		if (!chatStreaming.value && !touchStreaming.value) {
-			// 鍒囧洖鍓嶅彴: 閲嶆柊鍔犺浇鑱婂ぉ璁板綍 鈥斺€?鎮诞绐楀璇濇鍙兘宸插啓鍏ュ叡浜殑 chat.json,
-			// 涓?App 涓嶉噸寤烘椂鍐呭瓨閲屾槸鏃ф暟鎹? 蹇呴』鍒锋柊鎵嶈兘鐪嬪埌鎮诞绐楀璇?
-			// 娴佸紡杩涜涓烦杩? send/handleTouchTrigger 鐨勯棴鍖呮寔鏈夋棫鏁扮粍閲岀殑 liveBubble,
-			// 鏁磋〃鏇挎崲浼氳鍦ㄩ€斿洖澶嶅啓鍒拌劚绂绘覆鏌撶殑瀵硅薄涓?鈫?鏃笉涓婂睆涔熶笉钀界洏 (FE-H2)
-			try { messages.value = loadChat() } catch { /* 蹇界暐 */ }
+			// 切回前台: 重新加载聊天记录 —— 悬浮窗对话框可能已写入共享的 chat.json,
+			// 主 App 不重建时内存里是旧数据, 必须刷新才能看到悬浮窗对话.
+			// 流式进行中跳过: send/handleTouchTrigger 的闭包持有旧数组里的 liveBubble,
+			// 整表替换会让在途回复写到脱离渲染的对象上 → 既不上屏也不落盘 (FE-H2)
+			try { messages.value = loadChat() } catch { /* 忽略 */ }
 		}
 	}
 }
@@ -6595,25 +6866,27 @@ onMounted(async () => {
 	window.addEventListener("nori-app-pause", onNativeVisibility)
 	window.addEventListener("nori-app-resume", onNativeVisibility)
 	document.addEventListener("visibilitychange", onVisibility)
-	// TTS 鍚堟垚澶辫触鎻愮ず (涓嶆墦鏂璇?
-	setTtsErrorHandler((msg) => triggerBubble(`璇煶鍚堟垚澶辫触锛?{msg}`))
-	// BGM 鍔犺浇澶辫触鎻愮ず
-	setBgmErrorHandler((msg) => triggerBubble(`鑳屾櫙闊充箰锛?{msg}`))
+	// TTS 合成失败提示 (不打断对话)
+	setTtsErrorHandler((msg) => triggerBubble(`语音合成失败：${msg}`))
+	// BGM 加载失败提示
+	setBgmErrorHandler((msg) => triggerBubble(`背景音乐：${msg}`))
 
 	
 	const s = loadSettings()
 	cfg.apiKey = s.apiKey
 	cfg.baseUrl = s.baseUrl || "https://api.openai.com/v1"
 	cfg.model = s.model
-	// 涓婃閫夌殑 Live2D 妯″瀷 (鏃ц缃枃浠舵病鏈夎繖涓瓧娈?鈫?绌轰覆 鈬?鍚姩璧?宸茶鍒楄〃绗竴涓?)
+	// 上次选的 Live2D 模型 (旧设置文件没有这个字段 → 空串 ⇒ 启动走"已装列表第一个")
 	cfg.live2dModel = s.live2dModel ?? ""
 	cfg.bubbleScale = s.bubbleScale || 1
 	cfg.bubbleWidth = Number(s.bubbleWidth) || 82
-	// 榛樿灏侀《 1.5x锛?026-10-05 浠?2 涓嬭皟锛? 鍙板紡/澶у睆涓婁袱灞傚悎璁″～鍏?3.206 鈫?1.297 MP(鈭?0%)銆?	// 鐢ㄦ埛鏄惧紡璁剧疆杩囩殑鍊间笉鍙楀奖鍝嶃€傜湡姝ｇ敓鏁堢殑鍊嶇巼杩樹細琚?鏈€闀胯竟涓婇檺"鍐嶅す涓€娆?瑙?live2d/index.ts)銆?	cfg.renderScale = normalizeRenderScale(s.renderScale, Math.min(nativeDpr.value, 1.5))
-	// 鏃ц缃枃浠舵病鏈?l2dFps 鈫?normalizeFps 鍥炶惤鍒伴粯璁ゆ。 (60)
+	// 默认封顶 1.5x（2026-10-05 从 2 下调）: 台式/大屏上两层合计填充 3.206 → 1.297 MP(−60%)。
+	// 用户显式设置过的值不受影响。真正生效的倍率还会被"最长边上限"再夹一次(见 live2d/index.ts)。
+	cfg.renderScale = normalizeRenderScale(s.renderScale, Math.min(nativeDpr.value, 1.5))
+	// 旧设置文件没有 l2dFps → normalizeFps 回落到默认档 (60)
 	cfg.l2dFps = normalizeFps(s.l2dFps)
 	cfg.ttsEnabled = !!s.ttsEnabled
-	// 鍙ｅ瀷榛樿鍏抽棴锛涙棫璁剧疆鏂囦欢缂哄皯璇ュ瓧娈垫椂蹇呴』淇濇寔鍏抽棴
+	// 口型默认关闭；旧设置文件缺少该字段时必须保持关闭
 	cfg.lipSyncEnabled = s.lipSyncEnabled === true
 	cfg.petTouchEnabled = s.petTouchEnabled !== false
 	cfg.petTouchEffects = s.petTouchEffects !== false
@@ -6639,26 +6912,28 @@ onMounted(async () => {
 	cfg.sfxVolume = Number.isFinite(Number(s.sfxVolume)) ? Math.min(1, Math.max(0, Number(s.sfxVolume))) : 0.5
 	setSfxVolume(Number(cfg.sfxVolume))
 	cfg.dataseaBg = s.dataseaBg !== false
-	cfg.timeAware = s.timeAware !== false      // 鏃ц缃枃浠舵病杩欎釜瀛楁 鈬?榛樿寮€
+	cfg.timeAware = s.timeAware !== false      // 旧设置文件没这个字段 ⇒ 默认开
 	cfg.ambientEnabled = s.ambientEnabled !== false
 	cfg.dataseaBg = s.dataseaBg !== false
-	/* 鐣岄潰瀛椾綋锛?026-10-15锛? 鑰佽缃枃浠舵病杩欎釜瀛楁 鈫?绯荤粺榛樿锛?	 * 绔嬪埢钀藉埌 <html data-ui-font>锛岄伩鍏嶉甯у厛鐢ㄧ郴缁熷瓧浣撳啀璺充竴涓嬨€?*/
+	/* 界面字体（2026-10-15）: 老设置文件没这个字段 → 系统默认；
+	 * 立刻落到 <html data-ui-font>，避免首帧先用系统字体再跳一下。 */
 	cfg.uiFont = applyUiFont(s.uiFont)
 	cfg.quietMode = ["off", "auto", "manual"].includes(String(s.quietMode)) ? String(s.quietMode) : "off"
 	cfg.quietOn = !!s.quietOn
 	cfg.cosyCloneVoices = normalizeCloneVoices(s.cosyCloneVoices)
 	cfg.trimHistory = s.trimHistory !== false
 	cfg.memoryLlmExtract = !!s.memoryLlmExtract
-	// 瀹炴椂閫氶亾榛樿**鍏?* (閲嶆瀯 P3): 鍙湁鏄惧紡瀛樿繃 true 鎵嶅紑 (鑰佽缃枃浠堕噷娌℃湁杩欎釜瀛楁 鈫?鍏?
+	// 实时通道默认**关** (重构 P3): 只有显式存过 true 才开 (老设置文件里没有这个字段 → 关)
 	cfg.memoryRealtimeExtract = s.memoryRealtimeExtract === true
 	cfg.memoryAutoTuneExamples = s.memoryAutoTuneExamples === true
 	cfg.memoryDiagnostics = s.memoryDiagnostics === true
-	setDiagEnabled(cfg.memoryDiagnostics)   // 璇婃柇鏃ュ織寮€鍏冲悓姝ョ粰璁板繂妯″潡 (鍏崇潃鏃跺畠闆跺紑閿€)
+	setDiagEnabled(cfg.memoryDiagnostics)   // 诊断日志开关同步给记忆模块 (关着时它零开销)
 	cfg.smartRecall = s.smartRecall !== false
 	cfg.emotionLlm = s.emotionLlm !== false
-	/* 鎬濊€冩ā寮? 2026-10-02 鐢ㄦ埛绾犳涓?*榛樿寮€**銆?	 * 鑰佽缃枃浠堕噷閭ｄ釜 `false` 鏄?*鏃ч粯璁?*鑷姩鍐欒繘鍘荤殑 (persistSettings 浼氭妸鍏ㄩ儴瀛楁鍐欑洏),
-	 * 涓嶄唬琛ㄧ敤鎴风殑閫夋嫨 鈥斺€?鎵€浠ユ寜 `thinkDefaultV2` 鏍囪**涓€娆℃€ц縼绉?*鎴愬紑;
-	 * 杩佺Щ杩囩殑鏈哄櫒涓? 鐢ㄦ埛鎵嬪姩鍏虫帀灏辨案涔呯敓鏁?(鏍囪宸茶惤鐩? 涓嶄細鍐嶈缈诲洖鏉?銆?*/
+	/* 思考模式: 2026-10-02 用户纠正为**默认开**。
+	 * 老设置文件里那个 `false` 是**旧默认**自动写进去的 (persistSettings 会把全部字段写盘),
+	 * 不代表用户的选择 —— 所以按 `thinkDefaultV2` 标记**一次性迁移**成开;
+	 * 迁移过的机器上, 用户手动关掉就永久生效 (标记已落盘, 不会再被翻回来)。 */
 	cfg.deepseekThinking = s.thinkDefaultV2 === true ? !!s.deepseekThinking : true
 	cfg.lookFlipX = !!s.lookFlipX
 	cfg.lookFlipY = !!s.lookFlipY
@@ -6666,16 +6941,17 @@ onMounted(async () => {
 	cfg.floatEnabled = !!s.floatEnabled
 	cfg.floatBubbleW = Number(s.floatBubbleW) || 82
 	cfg.floatRenderScale = normalizeRenderScale(s.floatRenderScale, nativeDpr.value)
-	// 鍦ㄧ嚎浜烘暟锛?026-10-21锛? 鑰佽缃枃浠舵病杩欎釜瀛楁 鈬?榛樿寮€
+	// 在线人数（2026-10-21）: 老设置文件没这个字段 ⇒ 默认开
 	cfg.presenceEnabled = s.presenceEnabled !== false
-	// 鍚屾鍘熺敓鎮诞绐楀紑鍏虫爣璁?(閫€鍑哄垽鏂敤, 涓嶄緷璧?settings.json 璇诲啓鏃跺簭)
-	try { window.NoriChat?.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 蹇界暐 */ }
+	// 同步原生悬浮窗开关标记 (退出判断用, 不依赖 settings.json 读写时序)
+	try { window.NoriChat?.setFloatEnabled?.(!!cfg.floatEnabled) } catch { /* 忽略 */ }
 	refreshFloatPermission()
-	// 鍦ㄧ嚎浜烘暟锛?026-10-21锛? 鍙湁閰嶇疆浜嗚鏁版湇鍔℃墠鎺ョ嚎/鍙戝績璺筹紱鏈厤缃椂闆惰姹?	ensurePresenceWiring()
+	// 在线人数（2026-10-21）: 只有配置了计数服务才接线/发心跳；未配置时零请求
+	ensurePresenceWiring()
 	if (presenceReady.value && cfg.presenceEnabled) startPresence(APP_VERSION)
-	// 搴旂敤鍐呮湕璇婚煶閲?(鎸夎缃垵濮嬪寲; 涔嬪悗婊戝潡鍙疄鏃惰皟鏁?
+	// 应用内朗读音量 (按设置初始化; 之后滑块可实时调整)
 	setTtsVolume(Number(cfg.ttsVolume))
-	// 鑳屾櫙闊充箰: 娉ㄥ唽璧勬簮鐘舵€佸洖璋冨悗鎭㈠鎾斁 (缂哄け鏃惰嚜鍔ㄤ笅杞? 鑷姩鎾斁琚嫤鏃舵湇鍔″唴鎸傛墜鍔块噸璇?
+	// 背景音乐: 注册资源状态回调后恢复播放 (缺失时自动下载; 自动播放被拦时服务内挂手势重试)
 	setBgmStateHandler((st, pct) => {
 		bgmState.value = st
 		bgmPct.value = pct
@@ -6684,12 +6960,15 @@ onMounted(async () => {
 			bgmNowName.value = id ? bgmNameOf(id) : ""
 		}
 	})
-	// 瀹夐潤妯″紡鑷剤蹇呴』鍦?syncBgm **涔嬪墠**: 鑻ヤ笂娆′笓娉ㄦ湡闂磋鏉€, settings.json 閲屾畫鐣?	// manual+on, 鑰?syncBgm 浼氱収鐫€瀹?*璧锋挱** 鈥斺€?闅忓悗 applyQuiet 鎵嶆妸瀹冩寕璧? 缁撴灉鏄?	// "鍏堝搷鍗婄鍐嶉潤闊?銆傚厛杩樺師鎴愯繘涓撴敞鍓嶇殑閰嶇疆, syncBgm 涓€寮€濮嬪氨涓嶄細鎾€?	// (鑷姩妯″紡鐨勯噸浼版斁鍦ㄥ悗闈? 姣忓垎閽熶竴娆? 璺ㄨ繃 23:00/8:00 杈圭晫鍗虫椂鍒囨崲)
+	// 安静模式自愈必须在 syncBgm **之前**: 若上次专注期间被杀, settings.json 里残留
+	// manual+on, 而 syncBgm 会照着它**起播** —— 随后 applyQuiet 才把它挂起, 结果是
+	// "先响半秒再静音"。先还原成进专注前的配置, syncBgm 一开始就不会播。
+	// (自动模式的重估放在后面, 每分钟一次, 跨过 23:00/8:00 边界即时切换)
     pomoSettingsReady = true
     if (pomoNeedsMigration && pomoSettingsReadable) {
         const result = persistSettings()
         if (result === "ok") { pomoNeedsMigration = false; localStorage.removeItem("pomo_cfg") }
-        else pomoConfigError.value = "涓撴敞璁剧疆杩佺Щ寰呬繚瀛橈紝璇锋鏌ュ瓨鍌ㄦ潈闄愩€?
+        else pomoConfigError.value = "专注设置迁移待保存，请检查存储权限。"
     }
     window.addEventListener("nori-open-pomo", openPomoFromNotification)
     if (noriB()?.pomoOpenedFromNotification?.()) openPomoFromNotification()
@@ -6700,21 +6979,21 @@ onMounted(async () => {
 		const bgmId = syncBgm(cfg)
 		bgmNowName.value = bgmId ? bgmNameOf(bgmId) : ""
 	}
-	// 闊虫晥鏂囦欢: 娉ㄥ唽涓嬭浇缁撴灉鍥炶皟 + **棣栨杩涘叆璇讳竴娆＄姸鎬?* (娌′笅杞芥椂璁剧疆閲屾樉绀恒€屾湭涓嬭浇銆?
-	// 鎸夐敭闊抽潤榛樹笉鎾?鈥斺€?鍒ゆ柇鍦?services/sfx.ts 閲? 姣忔鎾箣鍓嶇幇闂竴娆″師鐢?
+	// 音效文件: 注册下载结果回调 + **首次进入读一次状态** (没下载时设置里显示「未下载」,
+	// 按键音静默不播 —— 判断在 services/sfx.ts 里, 每次播之前现问一次原生)
 	setSfxDownloadHandler((r: SfxDownloadResult) => {
 		sfxBusy.value = false
 		if (r.ok) sfxShowStatus({ready: true, done: r.total, total: r.total})
 		else sfxShowStatus({ready: false, done: r.done, total: r.total}, r.failed)
 	})
 	sfxRefresh()
-	// 鏁版嵁娴峰姩鎬佽儗鏅?(璁剧疆鍙叧; rAF 鍦ㄩ殣钘忔椂澶╃劧鍋滄憜)
+	// 数据海动态背景 (设置可关; rAF 在隐藏时天然停摆)
 	habitRecord("open")
 	if (cfg.dataseaBg && dataseaCanvas.value) initDataseaBg(dataseaCanvas.value)
 	renderPause.setNativePaused(window.__noriAppPaused === true)
 	// Background initialization may have started after an earlier native pause event.
 	setStageRenderPaused(renderPause.setHidden(document.hidden))
-	// Ambient 涓诲姩鎼瘽: 瀹夐潤鍑犲垎閽熷悗杞昏交璇翠竴鍙?(璇枡鏈湴, 闆?token)
+	// Ambient 主动搭话: 安静几分钟后轻轻说一句 (语料本地, 零 token)
 	startAmbient({
 		speak: (line) => {
 			if (!chatOpen.value) showAiBubble(line)
@@ -6722,8 +7001,8 @@ onMounted(async () => {
 		goalLine: () => {
 			const line = goalCarePrompt()
 			if (line) {
-				const m = line.match(/銆?.+?)銆?)
-				return m ? `瀵逛簡锛屼綘璇磋銆?{m[1]}銆嶇殑锛岃繘灞曟€庝箞鏍峰暒锛熶笉瑕佹湁鍘嬪姏鍝︼紝鎴戝氨鏄棶闂€俙 : line
+				const m = line.match(/「(.+?)」/)
+				return m ? `对了，你说要「${m[1]}」的，进展怎么样啦？不要有压力哦，我就是问问。` : line
 			}
 			return null
 		},
@@ -6734,9 +7013,9 @@ onMounted(async () => {
 		if (cfg.quietMode === "auto") applyQuiet()
 	}, 60_000)
 	window.__noriRenderScale = normalizeRenderScale(renderScaleNum.value, 1)
-	// 鑳屾櫙鐢诲竷鎸夎繖涓埢搴﹂噸绠椾竴娆? initDataseaBg(涓婇潰)璺戝湪瀹冧箣鍓? 閭ｆ椂杩樿涓嶅埌 __noriRenderScale
+	// 背景画布按这个刻度重算一次: initDataseaBg(上面)跑在它之前, 那时还读不到 __noriRenderScale
 	resizeDataseaBg()
-	// 鍚姩鍗冲簲鐢ㄥ抚鐜囨。浣?(璁剧疆鍔犺浇瀹屾垚鍚庢墠鏈夋晥; l2d 鐨?installFrameCap 宸茬粰榛樿妗?
+	// 启动即应用帧率档位 (设置加载完成后才有效; l2d 的 installFrameCap 已给默认档)
 	applyL2dFps()
 	storagePath.value = getStorageDir()
 	storageReady.value = isStorageReady()
@@ -6746,9 +7025,10 @@ onMounted(async () => {
 		localStorage.setItem("storage_asked", "1")
 		setTimeout(grantStorage, 1200)
 	}
-	/* 鏂版墜寮曞: 棣栨鎵撳紑 (杩樻病寤虹珛鏁版嵁鐩綍) 涓旀病鐪嬭繃鏃惰嚜鍔ㄥ脊涓€娆°€?	 * 鍒ゆ嵁鐢?isStorageReady() 鑰屼笉鏄?memory.json 瀛樹笉瀛樺湪": 瀹冭鐨勫氨鏄?Downloads/NoriDroid 鐩綍,
-	 * 鐩綍寤哄ソ鍗充负"涓嶆槸绗竴娆?銆傚闄?1.6s 鏄瓑棣栧抚/妯″瀷璧峰ご, 閬垮厤鍜屽惎鍔ㄥ姩鐢绘姠娉ㄦ剰鍔?
-	 * 瀛樺偍鏉冮檺寮圭獥 (涓婇潰閭ｄ釜 setTimeout) 浼氱洊浣忓紩瀵? 鎵€浠ヨ繖閲屽埢鎰忔櫄浜庡畠銆?*/
+	/* 新手引导: 首次打开 (还没建立数据目录) 且没看过时自动弹一次。
+	 * 判据用 isStorageReady() 而不是"memory.json 存不存在": 它读的就是 Downloads/NoriDroid 目录,
+	 * 目录建好即为"不是第一次"。宽限 1.6s 是等首帧/模型起头, 避免和启动动画抢注意力;
+	 * 存储权限弹窗 (上面那个 setTimeout) 会盖住引导, 所以这里刻意晚于它。 */
 	if (!storageReady.value && !localStorage.getItem(INTRO_SEEN_KEY)) {
 		setTimeout(() => {
 			if (!localStorage.getItem(INTRO_SEEN_KEY) && !introOn.value) introOpen()
@@ -6764,31 +7044,34 @@ onMounted(async () => {
 	if (cleanedChat.length !== loadedChat.length || cleanedChat.some((m, i) => m !== loadedChat[i])) persistChat(cleanedChat)
 	refreshMemView()
 	window.dispatchEvent(new Event("nori-diary-updated"))
-	// 鑷畾涔変汉璁剧殑閭ｈ鐘舵€?(鏈夊鍏ヨ繃灏辨樉绀恒€岃嚜瀹氫箟 路 N 瀛椼€? 鍚﹀垯鍐呯疆)
+	// 自定义人设的那行状态 (有导入过就显示「自定义 · N 字」, 否则内置)
 	refreshPersonaState()
 	if (cfg.apiKey.trim()) refreshModels()
 
-	// 鏈湴妯″瀷鍏堣 (鍚姩鎻愰€?: 鍏堟壂鏈湴宸茶妯″瀷绔嬪嵆寮€濮嬪姞杞? 缃戝叧鍒楄〃鍚庡彴鎷夊彇.
-	// 鏃ч€昏緫 await 鑱旂綉鍒楄〃鎴愬姛鍚庢墠 loadModel 鈥斺€?寮辩綉/绂荤嚎鏃剁櫧绛夊埌瓒呮椂鎵嶈妯″瀷
+	// 本地模型先行 (启动提速): 先扫本地已装模型立即开始加载, 网关列表后台拉取.
+	// 旧逻辑 await 联网列表成功后才 loadModel —— 弱网/离线时白等到超时才见模型
 	try {
 		const installed = await listInstalled()
 		if (installed.length) {
-			// 浼樺厛鐢?*涓婃閫夌殑閭ｅ彧**锛?026-09-30 淇細浠ュ墠鍐欐 installed[0].id锛屾崲妯″瀷鍚庨噸鍚氨鍥炵涓€鍙級;
-			// 浣嗗繀椤绘牎楠屽畠浠嶇劧瑁呯潃锛堟ā鍨嬪彲鑳借鍗歌浇/鎹㈡満锛夛紝鏍￠獙涓嶈繃鎵嶅洖钀藉垪琛ㄧ涓€涓€?			const saved = cfg.live2dModel
+			// 优先用**上次选的那只**（2026-09-30 修：以前写死 installed[0].id，换模型后重启就回第一只）;
+			// 但必须校验它仍然装着（模型可能被卸载/换机），校验不过才回落列表第一个。
+			const saved = cfg.live2dModel
 			const usable = !!saved && installed.some((m) => m.id === saved)
 			currentModelId.value = usable ? saved : installed[0].id
-			// 鎶?瀹為檯鐢熸晥鐨?璁板洖鍐呭瓨锛堜笉棰濆鍐欑洏锛氱瓑涓嬫淇濆瓨璁剧疆鏃惰嚜鐒惰惤鐩橈級锛?			// 杩欐牱"鍥炶惤"杩囦竴娆′箣鍚庯紝涓嬫鍚姩鐩存帴鍛戒腑銆?			cfg.live2dModel = currentModelId.value
+			// 把"实际生效的"记回内存（不额外写盘：等下次保存设置时自然落盘），
+			// 这样"回落"过一次之后，下次启动直接命中。
+			cfg.live2dModel = currentModelId.value
 		}
-	} catch { /* 蹇界暐 */ }
-	void loadModel().catch(() => { /* loadModel 鍐呴儴鏈夐敊璇彁绀?*/ })
+	} catch { /* 忽略 */ }
+	void loadModel().catch(() => { /* loadModel 内部有错误提示 */ })
 
-	// 缃戝叧鍒楄〃鍚庡彴鍒锋柊: 鍙洿鏂?UI 鍒楄〃, 涓嶅啀闃诲/鍒囨崲妯″瀷鍔犺浇
+	// 网关列表后台刷新: 只更新 UI 列表, 不再阻塞/切换模型加载
 	void (async () => {
 		try {
 			modelList.value = await fetchModelList()
 			listError.value = ""
 		} catch (e: any) {
-			listError.value = "鑾峰彇妯″瀷鍒楄〃澶辫触: " + (e?.message ?? String(e)) + "锛堝皢浣跨敤鏈湴宸蹭笅杞界殑妯″瀷锛?
+			listError.value = "获取模型列表失败: " + (e?.message ?? String(e)) + "（将使用本地已下载的模型）"
 		}
 	})()
 })
@@ -6811,16 +7094,19 @@ onBeforeUnmount(async () => {
 	window.removeEventListener("nori-app-pause", onNativeVisibility)
 	window.removeEventListener("nori-app-resume", onNativeVisibility)
 	document.removeEventListener("visibilitychange", onVisibility)
-	// 鍦ㄧ嚎浜烘暟锛?026-10-21锛? 鍋滃績璺?+ 娓?60s 鍒锋柊璁℃椂鍣?	stopPresence()
+	// 在线人数（2026-10-21）: 停心跳 + 清 60s 刷新计时器
+	stopPresence()
 	if (presenceUnsub) { presenceUnsub(); presenceUnsub = null }
 	if (presenceTickTimer) { clearInterval(presenceTickTimer); presenceTickTimer = 0 }
 	if (touchBubbleTimer) clearTimeout(touchBubbleTimer)
 	if (touchCooldownTimer) clearTimeout(touchCooldownTimer)
 	if (voiceSaveTimer) clearTimeout(voiceSaveTimer)
-	// 椤甸潰閿€姣佸墠: 钀界洏闃叉姈涓殑鑱婂ぉ璁板綍, 閬垮厤涓㈡渶鍚庝竴鏉?	flushChatPersist()
-	// 椤甸潰閿€姣佸墠: 璁板繂/鎬荤粨鐨勯槻鎶栧啓鐩樹篃绔嬪嵆钀界洏 (闃蹭涪鏈€鍚庢敼鍔?
+	// 页面销毁前: 落盘防抖中的聊天记录, 避免丢最后一条
+	flushChatPersist()
+	// 页面销毁前: 记忆/总结的防抖写盘也立即落盘 (防丢最后改动)
 	await flushMemoryPersist()
-	// 鎮诞绐楃殑鍚姩鐢?MainActivity 鐢熷懡鍛ㄦ湡缁熶竴澶勭悊锛岄〉闈㈠嵏杞戒笉閲嶅鎷夎捣銆?	// 椤甸潰閿€姣佸墠鍋滄鏈楄 / 娴佸紡鑱婂ぉ / 鑳屾櫙闊充箰
+	// 悬浮窗的启动由 MainActivity 生命周期统一处理，页面卸载不重复拉起。
+	// 页面销毁前停止朗读 / 流式聊天 / 背景音乐
 	stopTTS()
 	cancelChatStream()
 	pauseBgm()
@@ -6841,7 +7127,7 @@ onBeforeUnmount(async () => {
 	detector.destroy()
 	cancelReturnToNeutral()
 	clearPetFx()
-	// 鍚堟垚闊崇殑鍣０婧愭槸 loop 鐨? 涓嶆樉寮忓仠鎺? 閫€鍑洪〉闈㈠悗瀹冭繕浼氬崰鐫€闊抽鐒︾偣
+	// 合成音的噪声源是 loop 的: 不显式停掉, 退出页面后它还会占着音频焦点
 	disposePetAudio()
 	await l2d.destroy()
 })
@@ -6857,37 +7143,39 @@ onBeforeUnmount(async () => {
 	touch-action: none;
 	user-select: none;
 
-	/* ============ 璁捐 token: 鍙栬嚜缃戦〉鐗?NoriOS 鐨?--px-* 璁捐绯荤粺 ============
-	 * 鏉ユ簮: D:\norios缃戦〉鐗圽archive_0831_nori-os\os.inori.ai\assets\index-FU-0vwSE.css
-	 * (缃戦〉鐗?:root 閲岀殑 --px-* 鏄潈濞佸彇鍊? 杩欓噷鏄?*閫愯壊鎼繍**, 涓嶆槸鎴戣嚜宸遍厤鐨?
+	/* ============ 设计 token: 取自网页版 NoriOS 的 --px-* 设计系统 ============
+	 * 来源: D:\norios网页版\archive_0831_nori-os\os.inori.ai\assets\index-FU-0vwSE.css
+	 * (网页版 :root 里的 --px-* 是权威取值, 这里是**逐色搬运**, 不是我自己配的)
 	 *
-	 * 瀹氫箟鍦?.stage-root 鑰屼笉鏄?:root 鈥斺€?scoped 鏍峰紡浼氱粰閫夋嫨鍣ㄥ姞 `[data-v-xxx]`,
-	 * 鍐欐垚 `:root` 浼氬彉鎴?`:root[data-v-xxx]`, 鍖归厤涓嶅埌浠讳綍鍏冪礌, token 鍏ㄩ儴闈欓粯钀界┖銆?	 *
-	 * 涓庢敼閫犲墠鐨勫尯鍒?(鑲夌溂鍙鐨勯儴鍒?:
-	 *   路 搴曡壊浠?鐏拌摑"鏀逛负娣辫摑闃跺眰: #050912/#0f172a 鈫?--px-void/--px-bg/--px-panel/--px-panel-2
-	 *   路 寮鸿皟鑹?#7dd3fc 鈫?#67e8f9(闈?: 鏁翠綋浠?鏌斿拰钃濈伆"杞负"闈掕壊鍍忕礌"鑹茬郴
-	 *   路 鎻忚竟浠?rgba 鐏?鈫?涓嶉€忔槑娣辫摑 #1e335c/#2a4377 (鍍忕礌椋庣‖杈?
-	 *   路 璐ㄦ劅鏀圭敤缃戦〉鐗堢殑"浜笂宸?+ 鏆椾笅鍙?纭嚫璧? 鍙栦唬鏌斿拰鍙戝厜
+	 * 定义在 .stage-root 而不是 :root —— scoped 样式会给选择器加 `[data-v-xxx]`,
+	 * 写成 `:root` 会变成 `:root[data-v-xxx]`, 匹配不到任何元素, token 全部静默落空。
+	 *
+	 * 与改造前的区别 (肉眼可见的部分):
+	 *   · 底色从"灰蓝"改为深蓝阶层: #050912/#0f172a → --px-void/--px-bg/--px-panel/--px-panel-2
+	 *   · 强调色 #7dd3fc → #67e8f9(青): 整体从"柔和蓝灰"转为"青色像素"色系
+	 *   · 描边从 rgba 灰 → 不透明深蓝 #1e335c/#2a4377 (像素风硬边)
+	 *   · 质感改用网页版的"亮上左 + 暗下右"硬凸起, 取代柔和发光
 	 */
 	--px-void: #050811;
 	--px-bg: #0a1326;
 	--px-panel: #0d1b33;
-	--px-panel-2: #183055;             /* 鎶崌闈?(姣旂綉椤电増鐨?#142648 鐣ヤ寒, 璁?鎶捣"鐪嬪緱鍑烘潵) */
+	--px-panel-2: #183055;             /* 抬升面 (比网页版的 #142648 略亮, 让"抬起"看得出来) */
 	--px-stroke: #2a4377;
 	--px-line: #1e335c;
-	/* ---- 浜害鎸?鍙楅檺鑹叉澘"鏀舵暃杩囦竴妗?(2026-09-26 鐢ㄦ埛鍙嶉"鍍忕礌椋庡お浜?) ----
-	 * 缃戦〉鐗堝師鍊?--px-cyan(#67e8f9, 浜害0.674 / 瀵规瘮13.8:1) 涓?#d6fbff(0.905 / 18.2:1) 灞炰簬
-	 * **婊″睆楂樹寒**; 鑰屽儚绱犻 UI 鐨勯€氳鍋氭硶鏄綆楗卞拰鍙楅檺鑹叉澘 (NES.css 鐨?NES 姣忎釜 sprite 鍙湁 3 鑹?,
-	 * 娣辫壊涓婚涔熶笉璇ョ敤鎺ヨ繎绾櫧鐨勯珮鍏?(UX Movement / Material dark theme: 绾粦 + 楂樹寒 = 瑙嗙柌鍔?銆?	 * 鐜板湪: 寮鸿皟闄嶅埌 8.6:1銆佸嚫璧烽珮鍏夐檷鍒?11.9:1; 鏈€浜偅妗ｅ彧鐣欑粰涓绘寜閽繖绫诲崟涓?CTA銆?*/
-	--px-cyan-src: #67e8f9;            /* 缃戦〉鐗堝師鍊肩暀妗?(鎯冲洖鍒板師瑙傛劅灏辨妸 --px-cyan 鎸囧洖瀹? */
+	/* ---- 亮度按"受限色板"收敛过一档 (2026-09-26 用户反馈"像素风太亮") ----
+	 * 网页版原值 --px-cyan(#67e8f9, 亮度0.674 / 对比13.8:1) 与 #d6fbff(0.905 / 18.2:1) 属于
+	 * **满屏高亮**; 而像素风 UI 的通行做法是低饱和受限色板 (NES.css 的 NES 每个 sprite 只有 3 色),
+	 * 深色主题也不该用接近纯白的高光 (UX Movement / Material dark theme: 纯黑 + 高亮 = 视疲劳)。
+	 * 现在: 强调降到 8.6:1、凸起高光降到 11.9:1; 最亮那档只留给主按钮这类单个 CTA。 */
+	--px-cyan-src: #67e8f9;            /* 网页版原值留档 (想回到原观感就把 --px-cyan 指回它) */
 	--px-hilite-src: #d6fbff;
-	--px-cyan: #4fb8cc;                /* 寮鸿皟: 浜害 0.403 / 瀵规瘮 8.6:1 (鍘?0.674 / 13.8:1) */
+	--px-cyan: #4fb8cc;                /* 强调: 亮度 0.403 / 对比 8.6:1 (原 0.674 / 13.8:1) */
 	--px-cyan-mid: #3aa0b5;
 	--px-cyan-dim: #0e7490;
 	--px-cyan-deep: #062c3d;
-	--px-hilite: #7fd4e6;              /* 鍑歌捣"浜笂宸?: 浜害 0.573 / 瀵规瘮 11.9:1 (鍘?0.905 / 18.2:1) */
-	--px-text: #e6f1f7;                /* 姝ｆ枃: 鍘?#f8fafc 鏄?19.1:1, 鐣ラ檷鍑忓皯瀵规瘮鐤插姵 */
-	--px-amber: #d9b45c;               /* 璇箟鑹插悓姝ュ幓楗卞拰, 涓庡彈闄愯壊鏉夸竴鑷?*/
+	--px-hilite: #7fd4e6;              /* 凸起"亮上左": 亮度 0.573 / 对比 11.9:1 (原 0.905 / 18.2:1) */
+	--px-text: #e6f1f7;                /* 正文: 原 #f8fafc 是 19.1:1, 略降减少对比疲劳 */
+	--px-amber: #d9b45c;               /* 语义色同步去饱和, 与受限色板一致 */
 	--px-amber-deep: #92400e;
 	--px-magenta: #c98fd4;
 	--px-magenta-deep: #701a75;
@@ -6899,8 +7187,8 @@ onBeforeUnmount(async () => {
 	--px-grey: #94a3b8;
 	--px-dim: #7c8db5;
 
-	/* 鏃ц涔?token 淇濈暀涓?*鍒悕**, 鎸囧悜鏂拌壊鏉?鈥斺€?杩欐牱宸叉湁鐨?100+ 澶?var() 寮曠敤涓嶇敤閫愪釜鏀?
-	   鏁撮〉鎹㈣偆鍙彂鐢熷湪杩欎竴涓湴鏂? 涔熶笉浼氭紡鎺変换浣曚竴澶勩€?*/
+	/* 旧语义 token 保留为**别名**, 指向新色板 —— 这样已有的 100+ 处 var() 引用不用逐个改,
+	   整页换肤只发生在这一个地方, 也不会漏掉任何一处。 */
 	--surface: var(--px-panel);
 	--surface-raise: #12233f;
 	--line-strong: var(--px-stroke);
@@ -6916,8 +7204,10 @@ onBeforeUnmount(async () => {
 
 .ripple-host { display: none; }
 
-/* ================= 澶栬椋庢牸: 鏌斿拰 (鍙繚鐣欑綉椤电増鑹叉澘) =================
- * 甯冨眬闃舵: 鎶婂儚绱犻纭紪鐮佺殑褰㈢姸鍙傛暟鏀舵暃鎴愬彉閲忋€? * 鍍忕礌椋庝笅瀹冧滑绛変簬鐜板湪鐨勭‖鍊?0 鍦嗚 / 2px 杈?/ #d6fbff 浜竟 / #050811 鏆楄竟), 鏌斿拰椋庝笅鐢变笅闈? * 鐨?`.ui-soft` 瑕嗙洊灞傛暣浣撴崲鎺夈€?*鑹叉澘涓€涓瓧閮戒笉鍔?* 鈥斺€?涓ょ椋庢牸鐨勫樊寮傚彧鍦ㄥ舰鐘朵笌璐ㄦ劅銆?*/
+/* ================= 外观风格: 柔和 (只保留网页版色板) =================
+ * 布局阶段: 把像素风硬编码的形状参数收敛成变量。
+ * 像素风下它们等于现在的硬值(0 圆角 / 2px 边 / #d6fbff 亮边 / #050811 暗边), 柔和风下由下面
+ * 的 `.ui-soft` 覆盖层整体换掉。**色板一个字都不动** —— 两种风格的差异只在形状与质感。 */
 .ui-pixel, .ui-soft {
 	--ui-radius-panel: 0px;
 	--ui-radius-card: 0px;
@@ -6926,24 +7216,28 @@ onBeforeUnmount(async () => {
 	--ui-line-w: 2px;
 	--ui-line-c: var(--px-stroke);
 	--ui-line-c-soft: var(--px-line);
-	--ui-hi: var(--px-hilite);      /* 鍑歌捣"浜笂宸? */
-	--ui-lo: var(--px-void);        /* 鍑歌捣"鏆椾笅鍙? */
-	--ui-lift: 4px;                 /* 纭姇褰遍珮搴?*/
-	/* 鈿?杩欓噷**涓嶈兘鍐?none**: 璇ュ彉閲忚鎷艰繘閫楀彿鍒嗛殧鐨勯槾褰卞垪琛?(`..., var(--ui-shadow)`),
-	   `none` 涓嶆槸鍚堟硶鍒楄〃椤?鈥斺€?娴忚鍣ㄤ細**鏁存潯 box-shadow 涓㈠純**, 鍍忕礌椋庣殑鍑歌捣闈欓粯娑堝け
-	   (瀹炴祴: computedStyle 鍙樻垚 none, 鎸夐挳涓嶅啀鏈夌珛浣撴劅)銆傛墍浠ョ敤"闆堕槾褰?鍗犱綅銆?*/
+	--ui-hi: var(--px-hilite);      /* 凸起"亮上左" */
+	--ui-lo: var(--px-void);        /* 凸起"暗下右" */
+	--ui-lift: 4px;                 /* 硬投影高度 */
+	/* ⚠ 这里**不能写 none**: 该变量被拼进逗号分隔的阴影列表 (`..., var(--ui-shadow)`),
+	   `none` 不是合法列表项 —— 浏览器会**整条 box-shadow 丢弃**, 像素风的凸起静默消失
+	   (实测: computedStyle 变成 none, 按钮不再有立体感)。所以用"零阴影"占位。 */
 	--ui-shadow: 0 0 0 rgba(0, 0, 0, 0);
-	/** 闈㈡澘椤堕儴閭ｄ竴閬撶粏楂樺厜 (鍍忕礌椋庣殑"浜笂宸?); 鏌斿拰椋庝笅鎹㈡垚鍏ㄩ€忔槑, 鐢?--ui-shadow 鎺ョ */
+	/** 面板顶部那一道细高光 (像素风的"亮上左"); 柔和风下换成全透明, 由 --ui-shadow 接管 */
 	--ui-inner-glow: var(--px-panel-2);
-	/** 闈㈡澘涓嬫部閭ｄ竴閬撶‖搴曡竟 (鍍忕礌椋庣殑"鏆椾笅鍙?): 2026-10-25 鎶芥垚鍙橀噺 鈥斺€?涔嬪墠瀹冭鍐欐鎴?	 *  `0 -6px 0 0 rgba(5,8,17,0.55)` 鐨?*瀛楅潰閲?*, 鏌斿拰椋庤鐩栦笉鍒? 浜庢槸鍦嗚+鏌斿拰闃村奖鐨?	 *  闈㈡澘涓嬫部浠嶆寕鐫€鍍忕礌椋庣殑纭竟 (e2e-pixel-ui 鐨?鏌斿拰: 涓嶅啀鏈夊儚绱犲嚫璧?灏辨槸杩欎箞绾㈢殑)銆?*/
+	/** 面板下沿那一道硬底边 (像素风的"暗下右"): 2026-10-25 抽成变量 —— 之前它被写死成
+	 *  `0 -6px 0 0 rgba(5,8,17,0.55)` 的**字面量**, 柔和风覆盖不到, 于是圆角+柔和阴影的
+	 *  面板下沿仍挂着像素风的硬边 (e2e-pixel-ui 的"柔和: 不再有像素凸起"就是这么红的)。 */
 	--ui-sheet-edge: 0 -6px 0 0 rgba(5, 8, 17, 0.55);
-	/** 鑳屾櫙妯＄硦寮哄害 (C4, 2026-09-27): 鍍忕礌椋庝竴寰?0 鈥斺€?`backdrop-filter` 鏄?*姣忓抚瀵硅儗鍚庢暣鍧楀尯鍩?	 *  閲嶆柊閲囨牱鍚堟垚**, 鍦?60fps + Live2D(WebGL) + 鏁版嵁娴?2D canvas) 鍚屽睆鏃舵槸瀹炴墦瀹炵殑 GPU 寮€閿€銆?	 *  鍍忕礌椋庢湰鏉ヤ篃涓嶉渶瑕佹ā绯?(鍍忕礌 UI 鐨勯€氳鍋氭硶鏄疄鑹查潰鏉?+ 纭竟)銆?*/
+	/** 背景模糊强度 (C4, 2026-09-27): 像素风一律 0 —— `backdrop-filter` 是**每帧对背后整块区域
+	 *  重新采样合成**, 在 60fps + Live2D(WebGL) + 数据海(2D canvas) 同屏时是实打实的 GPU 开销。
+	 *  像素风本来也不需要模糊 (像素 UI 的通行做法是实色面板 + 硬边)。 */
 	--ui-blur-bubble: 0px;
 	--ui-blur-chip: 0px;
 	--ui-blur-mask: 0px;
 	--ui-press: inset -2px -2px 0 0 var(--ui-hi), inset 2px 2px 0 0 var(--ui-lo);
 }
-/* ---- 鏌斿拰: 鍦嗚鍥炴潵 + 鍗婇€忔槑缁嗘弿杈?+ 鏌斿拰闃村奖; **淇濈暀鎸変笅鍑归櫡** ---- */
+/* ---- 柔和: 圆角回来 + 半透明细描边 + 柔和阴影; **保留按下凹陷** ---- */
 .ui-soft {
 	--ui-radius-panel: 20px;
 	--ui-radius-card: 12px;
@@ -6955,21 +7249,22 @@ onBeforeUnmount(async () => {
 	--ui-lift: 0px;
 	--ui-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
 	--ui-inner-glow: rgba(0, 0, 0, 0);
-	/* 鏌斿拰椋庝笉瑕佸儚绱犻閭ｉ亾纭簳杈? 浠嶇劧鐢?闆堕槾褰?鍗犱綅 (涓嶈兘鍐?none, 鍚﹀垯鏁存潯 box-shadow 琚涪寮? */
+	/* 柔和风不要像素风那道硬底边; 仍然用"零阴影"占位 (不能写 none, 否则整条 box-shadow 被丢弃) */
 	--ui-sheet-edge: 0 0 0 0 rgba(0, 0, 0, 0);
-	/* 鏌斿拰椋庢仮澶嶄竴鐐规瘺鐜荤拑璐ㄦ劅 (姣斿師鏉ョ殑 10/14/12px 鏇寸渷): 姘旀场 6px銆佽钀芥彁绀?8px銆?	   瑕佸交搴曠渷鐢靛彲浠ユ妸杩欏嚑涓€间篃鍐?0 鈥斺€?瑙傛劅宸紓寰堝皬銆?*/
+	/* 柔和风恢复一点毛玻璃质感 (比原来的 10/14/12px 更省): 气泡 6px、角落提示 8px。
+	   要彻底省电可以把这几个值也写 0 —— 观感差异很小。 */
 	--ui-blur-bubble: 6px;
 	--ui-blur-chip: 8px;
 	--ui-blur-mask: 3px;
-	/* 鏌斿拰椋?*涓嶈**鍍忕礌鍑歌捣 (浜笂宸?+ 鏆椾笅鍙?, 鎹㈡垚鍑犱箮鐪嬩笉瑙佺殑鍐呮弿杈?
-	   浣?*鎸変笅鍑归櫡淇濈暀** 鈥斺€?閭ｆ槸鐢ㄦ埛鏄庣‘璇?鎬濊矾涓嶉敊"鐨勯儴鍒嗐€?*/
+	/* 柔和风**不要**像素凸起 (亮上左 + 暗下右), 换成几乎看不见的内描边;
+	   但**按下凹陷保留** —— 那是用户明确说"思路不错"的部分。 */
 	--ui-hi: rgba(255, 255, 255, 0.06);
 	--ui-lo: rgba(0, 0, 0, 0.28);
-	/* 鎸変笅鍑归櫡: 涓庡儚绱犻鍚屼竴鎬濊矾, 鎹㈡垚鏌斿拰鐨?inset 鍐呴槾褰?*/
+	/* 按下凹陷: 与像素风同一思路, 换成柔和的 inset 内阴影 */
 	--ui-press: inset 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
-/* 娼睈鐜荤拑锛氬悓涓€濂楁帶浠剁殑绗簩绉嶈鎰燂紝鐢ㄦ洿娓呮櫚鐨勯潚鑹插眰娆″拰鏌斿拰娴奖鍖哄垎灞傜骇銆?*/
+/* 潮汐玻璃：同一套控件的第二种观感，用更清晰的青色层次和柔和浮影区分层级。 */
 .ui-tide {
 	--ui-radius-panel: 18px;
 	--ui-radius-card: 14px;
@@ -7008,7 +7303,7 @@ onBeforeUnmount(async () => {
 	border-color: rgba(127, 212, 230, 0.34);
 }
 
-/* 鎵嬫寚瑙︽懜杩借釜: 鍗婇€忔槑灏忕櫧鐐?*/
+/* 手指触摸追踪: 半透明小白点 */
 .touch-dot-host {
 	position: absolute;
 	inset: 0;
@@ -7023,7 +7318,7 @@ onBeforeUnmount(async () => {
 	width: 22px;
 	height: 22px;
 	border-radius: 50%;
-	/* 鐧借壊娓愬彉淇濈暀楂樺厜涓庡崐閫忔槑璐ㄦ劅 */
+	/* 白色渐变保留高光与半透明质感 */
 	background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.35) 55%, rgba(255,255,255,0.08) 100%);
 	border: 1px solid rgba(255,255,255,0.5);
 	box-shadow: 0 0 12px rgba(255,255,255,0.35), inset 0 0 6px rgba(255,255,255,0.3);
@@ -7108,7 +7403,7 @@ onBeforeUnmount(async () => {
 	text-align: center;
 }
 
-/* TTS 闈㈡澘鍒嗙粍 */
+/* TTS 面板分组 */
 .tts-sec {
 	display: flex;
 	flex-direction: column;
@@ -7129,7 +7424,7 @@ onBeforeUnmount(async () => {
 	flex-direction: column;
 	gap: 6px;
 	label { font-size: 13px; color: var(--fg-2); }
-	/* 涓?.settings-row 鍚屾: 琛?number/password, 閬垮厤榛樿鐧藉簳 */
+	/* 与 .settings-row 同款: 补 number/password, 避免默认白底 */
 	input[type=text], input[type=password], input[type=number] {
 		background: rgba(30, 41, 59, 0.9);
 		border: 1px solid var(--line-strong);
@@ -7157,14 +7452,14 @@ onBeforeUnmount(async () => {
 	input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent-strong); }
 }
 
-/* 浣欓鏌ヨ */
+/* 余额查询 */
 .bal-grid {
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 }
 
-/* 闊宠壊閫夋嫨琛?*/
+/* 音色选择行 */
 .voice-pick {
 	display: flex;
 	gap: 8px;
@@ -7201,13 +7496,13 @@ onBeforeUnmount(async () => {
 	.mini { flex: 1; }
 }
 
-/* 鎿嶄綔鎸夐挳琛?*/
+/* 操作按钮行 */
 .btn-row {
 	display: flex;
 	gap: 8px;
 	.btn { flex: 1; width: auto; margin-top: 0; }
 }
-/* 璁板繂闈㈡澘 4 涓搷浣滄寜閽? 绐勫睆鑷姩鎹㈣ */
+/* 记忆面板 4 个操作按钮: 窄屏自动换行 */
 .btn-row.mem-btns { flex-wrap: wrap; }
 .btn-row.mem-btns .mini { flex: 1 1 auto; text-align: center; }
 .touch-page .touch-overlay.drawing, .touch-page .touch-overlay.testing { cursor: crosshair; }
@@ -7326,7 +7621,7 @@ onBeforeUnmount(async () => {
 	font-size: 15px;
 	line-height: 1.55;
 	white-space: pre-wrap;
-	/* 涓庤亰澶╂皵娉′竴鑷? 涓枃鎸夊瓧鑷劧鎹㈣ + 鏍囩偣绂佸垯 (keep-all 浼氳鏃犳爣鐐归暱鍙ョ‖鍒? */
+	/* 与聊天气泡一致: 中文按字自然换行 + 标点禁则 (keep-all 会让无标点长句硬切) */
 	word-break: normal;
 	line-break: strict;
 	overflow-wrap: break-word;
@@ -7399,16 +7694,16 @@ onBeforeUnmount(async () => {
 	max-height: 58vh;
 	display: flex;
 	flex-direction: column;
-	/* 闈㈡澘鏀逛负瀹屽叏閫忔槑: 鍘绘帀鏁村潡姣涚幓鐠? 璁╄儗鏅?妯″瀷閫忓嚭鏉?
-	   姘旀场鏀圭敤鑷韩鍗婇€忔槑濉厖鎵挎媴鍙鎬?(瑙佷笅), 鍥犳杩欓噷涓嶅啀闇€瑕佷换浣曡儗鏅眰.
-	   鎬ц兘涓婅繖鏄噣鏀剁泭: 鍘熷厛 ::before 鐨?backdrop-filter 瑕佹瘡甯у绾﹀崐涓睆骞曞仛
-	   鍖哄煙閲嶉噰鏍? 鑰屽簳涓嬬殑 Live2D(WebGL) 涓庢暟鎹捣(2D canvas) 閮藉湪閫愬抚娓叉煋, 鍏辩敤鍚屼竴涓?GPU.
-	   杩炲甫鍘绘帀 border 涓?box-shadow 鈥斺€?瀹冧滑鍘熸湰鏄鍦ㄦ瘺鐜荤拑鍧椾笂鐨? 闈㈡澘閫忔槑鍚庝細鍙樻垚
-	   鎮┖鐨勪竴鍦堢嚎鍜屼竴鏉℃殫甯? */
+	/* 面板改为完全透明: 去掉整块毛玻璃, 让背景/模型透出来.
+	   气泡改用自身半透明填充承担可读性 (见下), 因此这里不再需要任何背景层.
+	   性能上这是净收益: 原先 ::before 的 backdrop-filter 要每帧对约半个屏幕做
+	   区域重采样, 而底下的 Live2D(WebGL) 与数据海(2D canvas) 都在逐帧渲染, 共用同一个 GPU.
+	   连带去掉 border 与 box-shadow —— 它们原本是框在毛玻璃块上的, 面板透明后会变成
+	   悬空的一圈线和一条暗带. */
 	background: transparent;
 	border: none;
-	/* 淇濈暀鍦嗚: border 鍘绘帀浜? 浣?overflow:hidden 闇€瑕佸畠浣滀负瑁佸壀鍗婂緞,
-	   鍚﹀垯婊氬姩鍐呭浼氭孩鍑洪潰鏉胯竟鐣?*/
+	/* 保留圆角: border 去掉了, 但 overflow:hidden 需要它作为裁剪半径,
+	   否则滚动内容会溢出面板边界 */
 	border-radius: var(--ui-radius-card);
 	z-index: 12;
 	overflow: hidden;
@@ -7449,17 +7744,17 @@ onBeforeUnmount(async () => {
 	border-radius: var(--ui-radius-card);
 	font-size: 1em;
 	white-space: pre-wrap;
-	/* 涓枃鎸夊瓧鑷劧鎹㈣ (涓庡井淇＄瓑涓€鑷?: 涔嬪墠鐨?keep-all 浼氳鏃犳爣鐐归暱鍙ユ暣娈典笉鍙柇,
-	   鍒版皵娉¤竟缂樿杩湪浠绘剰浣嶇疆纭垏 鈥斺€?杩欐鏄?闀垮彞涓棿琚己鍒舵崲琛?鐨勬牴婧?
-	   line-break: strict 淇濈暀鏍囩偣绂佸垯 (銆傦紒锛熺瓑涓嶅嚭鐜板湪琛岄), 鑻辨枃闀垮崟璇嶇敱
-	   overflow-wrap 鍙湪鏁磋鏀句笉涓嬫椂鎵嶆媶 */
+	/* 中文按字自然换行 (与微信等一致): 之前的 keep-all 会让无标点长句整段不可断,
+	   到气泡边缘被迫在任意位置硬切 —— 这正是"长句中间被强制换行"的根源;
+	   line-break: strict 保留标点禁则 (。！？等不出现在行首), 英文长单词由
+	   overflow-wrap 只在整行放不下时才拆 */
 	word-break: normal;
 	line-break: strict;
 	overflow-wrap: break-word;
 	color: var(--fg);
 }
 .bubble-wrap.user .bubble {
-	/* 鎵佸钩鐫€鑹?(閰嶅悎闈㈡澘绾ф瘺鐜荤拑): 姘旀场涓嶅啀鍚勮嚜寮€ backdrop-filter */
+	/* 扁平着色 (配合面板级毛玻璃): 气泡不再各自开 backdrop-filter */
 	background: linear-gradient(135deg, rgba(56, 189, 248, 0.55) 0%, rgba(99, 102, 241, 0.55) 100%);
 	border: 1px solid var(--line);
 	color: #fff;
@@ -7467,16 +7762,16 @@ onBeforeUnmount(async () => {
 	border-bottom-right-radius: 4px;
 }
 .bubble-wrap.assistant .bubble {
-	/* 闈㈡澘閫忔槑鍚? Nori 鐨勬皵娉¤嚜宸辨壙鎷?鍙鍙堝彲閫?鐨勫钩琛?
-	   搴曡壊鐢?0.62 闄嶅埌 0.34 (绾～鍏? 涓嶄骇鐢熷悎鎴愬眰, 涓嶉噰鏍疯儗鏅?鈫?闆?backdrop-filter 鎴愭湰),
-	   骞惰ˉ涓€灞傛枃瀛楁姇褰?鈥斺€?鍗婇€忔槑搴曞帇鍒版ā鍨嬩寒閮ㄦ椂, 鍏夐潬搴曡壊瀵规瘮涓嶅. */
+	/* 面板透明后, Nori 的气泡自己承担"可读又可透"的平衡:
+	   底色由 0.62 降到 0.34 (纯填充, 不产生合成层, 不采样背景 → 零 backdrop-filter 成本),
+	   并补一层文字投影 —— 半透明底压到模型亮部时, 光靠底色对比不够. */
 	background: rgba(30, 41, 59, 0.34);
 	border: 1px solid var(--line-strong);
 	color: #e8eef7;
 	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 	border-bottom-left-radius: 4px;
 }
-/* 瑁佸壀鍗犱綅绗? 灞呬腑寮卞寲鏄剧ず (閲嶅惎鍚庝笉鍐嶆秷澶? FE-M4) */
+/* 裁剪占位符: 居中弱化显示 (重启后不再消失, FE-M4) */
 .bubble-wrap.system { align-items: center; }
 .bubble-wrap.system .bubble {
 	background: transparent;
@@ -7657,7 +7952,7 @@ onBeforeUnmount(async () => {
 	padding: 4px 14px;
 	font-size: 12px;
 }
-/* ---- 鐣寗閽熸偓娴獥 ---- */
+/* ---- 番茄钟悬浮窗 ---- */
 .pomo-widget {
 	position: fixed;
 	z-index: 18;
@@ -7770,10 +8065,10 @@ onBeforeUnmount(async () => {
 .focus-sheet .pomo-months{margin-top:14px}
 @media(max-width:380px){.sheet.focus-sheet{padding:15px;max-height:92dvh}}
 @media(prefers-reduced-motion:reduce){.pw-bar i{transition:none}}
-/* ---- 鐣寗閽熼潰鏉?---- */
+/* ---- 番茄钟面板 ---- */
 .pomo-pair { display: flex; align-items: center; gap: 8px }
-/* 涓庤缃潰鏉垮叾瀹冭緭鍏ユ鍚屾澶栬; 瀹藉害鎸?鍗曡涓や綅鏁?涓変綅鏁?+ 鏃犳暟瀛楃澶?瀹氫负 96px
-   (鍘?84px 鏄寜鏃犲唴杈硅窛鐨勯粯璁ょ櫧搴曟瀹氱殑, 鍔犱笂 padding 鍚庢斁涓嶄笅 max=120 鐨勪笁浣嶆暟) */
+/* 与设置面板其它输入框同款外观; 宽度按"单行两位数/三位数 + 无数字箭头"定为 96px
+   (原 84px 是按无内边距的默认白底框定的, 加上 padding 后放不下 max=120 的三位数) */
 .pomo-pair input {
 	width: 96px;
 	text-align: center;
@@ -7791,7 +8086,7 @@ onBeforeUnmount(async () => {
 }
 .pomo-chip.on { background: var(--px-cyan-deep); border-color: var(--px-cyan); color: var(--px-white) }
 .pomo-today { color: var(--px-white); font-size: 13px }
-/* 瀹屾垚鐜?骞冲潎姣忔: 娆＄骇淇℃伅, 寮卞寲鏄剧ず */
+/* 完成率/平均每段: 次级信息, 弱化显示 */
 .pomo-sub { display: flex; gap: 12px; margin-top: 2px; font-size: 11px; color: var(--px-dim) }
 .pomo-bars {
 	display: flex;
@@ -7805,14 +8100,14 @@ onBeforeUnmount(async () => {
 }
 .pomo-bars .pb-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100% }
 .pomo-bars .pb-col i { width: 100%; max-width: 22px; border-radius: var(--ui-radius-ctl) 4px 0 0; background: linear-gradient(180deg, var(--px-cyan), var(--px-cyan-dim)) }
-/* 鏌遍《甯告樉鍒嗛挓鏁? 鎵嬫満涓?hover 涓嶅彲鐢? 鍘熷厛鐨?title 绛変簬鐪嬩笉鍒?*/
+/* 柱顶常显分钟数: 手机上 hover 不可用, 原先的 title 等于看不到 */
 .pomo-bars .pb-col .pb-val { font-size: 10px; font-weight: 600; color: var(--px-grey); margin-bottom: 2px }
 .pomo-bars .pb-col span { font-size: 10px; color: var(--px-dim); margin-top: 4px }
-/* 30/365 澶╂。: 鏌卞瓙鍙樼獎銆侀棿闅欏彉灏? 鍚﹀垯涓€鏍逛笉鍒?1px 鐪嬩笉娓?*/
+/* 30/365 天档: 柱子变窄、间隙变小, 否则一根不到 1px 看不清 */
 .pomo-bars.dense { gap: 1px; padding: 6px 6px }
 .pomo-bars.dense .pb-col i { max-width: 100%; border-radius: 2px 2px 0 0 }
 .pomo-bars.dense .pb-col span { font-size: 8px; margin-top: 2px }
-/* 鑼冨洿鍒囨崲鍣?*/
+/* 范围切换器 */
 .pomo-range { display: flex; gap: 6px; margin: 2px 0 6px }
 .pomo-rbtn {
 	min-height:44px;
@@ -7826,7 +8121,7 @@ onBeforeUnmount(async () => {
 	&.on { background: var(--px-cyan-deep); border-color: var(--px-cyan); color: var(--px-white) }
 	&.all { flex: 0 0 auto; padding: 6px 12px; color: var(--accent) }
 }
-/* 鐑姏鍥惧鍣? 涓€骞?52 鍒楁瘮闈㈡澘瀹? 蹇呴』鍙í鍚戞粴鍔?*/
+/* 热力图容器: 一年 52 列比面板宽, 必须可横向滚动 */
 .pomo-heat-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; padding-bottom: 4px }
 .pomo-heat { display: block; image-rendering: pixelated; cursor: pointer }
 .pomo-heat-legend { display: flex; align-items: center; gap: 4px; margin-top: 6px; justify-content: flex-end }
@@ -7845,7 +8140,7 @@ onBeforeUnmount(async () => {
 	b { font-size: 13px; color: var(--px-white) }
 	span { font-size: 12px; color: var(--px-grey) }
 }
-/* 鏈堝害姹囨€绘潯 */
+/* 月度汇总条 */
 .pomo-months { display: flex; flex-direction: column; gap: 4px }
 .pm-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--px-grey) }
 .pm-name { flex: 0 0 44px; color: var(--px-dim) }
@@ -7885,7 +8180,7 @@ onBeforeUnmount(async () => {
 	backdrop-filter: blur(14px);
 	-webkit-backdrop-filter: blur(14px);
 }
-/* 搴曟爮鎸夊疄闄呭叆鍙ｆ暟閲忓潎鍒嗭紝涓嶄负宸茬Щ闄ょ殑鍏ュ彛淇濈暀绌哄垪銆?*/
+/* 底栏按实际入口数量均分，不为已移除的入口保留空列。 */
 .fab {
 	min-width: 0;
 	display: flex;
@@ -7934,7 +8229,7 @@ onBeforeUnmount(async () => {
 
 .sheet-mask {
 	position: fixed; inset: 0;
-	background: rgba(5, 8, 17, 0.68);      /* --px-void 鍗婇€忔槑 */
+	background: rgba(5, 8, 17, 0.68);      /* --px-void 半透明 */
 	z-index: 20;
 	display: flex; align-items: flex-end;
 }
@@ -7942,7 +8237,7 @@ onBeforeUnmount(async () => {
 	width: 100%;
 	max-height: 74vh;
 	background: var(--px-panel);
-	/* 鍍忕礌椋? 鐩磋 + 2px 纭弿杈?(缃戦〉鐗?.pixel-idle * 鐨?2px solid var(--px-void) 鍚屾簮) */
+	/* 像素风: 直角 + 2px 硬描边 (网页版 .pixel-idle * 的 2px solid var(--px-void) 同源) */
 	border-top-left-radius: var(--ui-radius-panel);
 	border-top-right-radius: var(--ui-radius-panel);
 	border-top: var(--ui-line-w) solid var(--ui-line-c);
@@ -7955,8 +8250,8 @@ onBeforeUnmount(async () => {
 	padding: 8px 2px 12px;
 	border-bottom: var(--ui-line-w) solid var(--ui-line-c-soft);
 	margin-bottom: 12px;
-	/* 2026-10-01 鍒狅細鍘熸潵杩欓噷鏈変竴灞?45掳 鎶栧姩鏉＄汗搴曠汗锛堟妱鑷綉椤电増 .pixel-dither-cyan锛夛紝
-	   鐢ㄦ埛鐪嬪疄鏈烘埅鍥惧悗鍒ゅ畾"澶笐" 鈬?鍘绘帀锛屽彧淇濈暀涓嬮潰鐨勫垎闅旂嚎銆傦紙鏂瑰悜涓婁篃涓?涓嶅啀鍙傝€冪綉椤电増"涓€鑷达級 */
+	/* 2026-10-01 删：原来这里有一层 45° 抖动条纹底纹（抄自网页版 .pixel-dither-cyan），
+	   用户看实机截图后判定"太丑" ⇒ 去掉，只保留下面的分隔线。（方向上也与"不再参考网页版"一致） */
 }
 .sheet-title { font-size: 16px; font-weight: 600; color: var(--px-white); letter-spacing: 0.5px; }
 .x {
@@ -7967,8 +8262,9 @@ onBeforeUnmount(async () => {
 	box-shadow: inset -2px -2px 0 0 var(--ui-lo), inset 2px 2px 0 0 var(--ui-hi), var(--ui-shadow);
 	&:active { box-shadow: var(--ui-press); }
 }
-/* 銆屸枲 鍋滄鐢熸垚銆?銆屸枲 鍋滄銆嶆槸**甯︽枃瀛?*鐨勬寜閽? 涓嶈兘濂?.x 鐨勫浐瀹?32x32 鈥斺€?   鍚﹀垯 5 涓瓧鎸ゅ湪 32px 閲屼細閫愬瓧鎹㈣銆佹孩鍑鸿竟妗?(瀹炴満鎴浘灏辨槸绔栨帓鐨?鍋?姝?鐢?鎴?),
-   鑰屼笖鎵撳紑璁剧疆闈㈡澘鏃惰繕浼氶€忚繃鍗婇€忔槑閬僵闇插湪闈㈡澘澶栥€傚洖閫€鐐? backups\鍋滄鐢熸垚UI-* */
+/* 「■ 停止生成」/「■ 停止」是**带文字**的按钮, 不能套 .x 的固定 32x32 ——
+   否则 5 个字挤在 32px 里会逐字换行、溢出边框 (实机截图就是竖排的"停/止/生/成"),
+   而且打开设置面板时还会透过半透明遮罩露在面板外。回退点: backups\停止生成UI-* */
 .x.stop {
 	width: auto; min-width: 32px; height: 32px;
 	padding: 0 8px;
@@ -7977,7 +8273,7 @@ onBeforeUnmount(async () => {
 }
 .sheet-body { overflow-y: auto; flex: 1; min-height: 0; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
 
-/* 璁剧疆椤碉細淇濇寔鐜版湁鎺т欢鍜屼笟鍔′簨浠讹紝鍙敤鍒嗙粍涓庡眰绾ч檷浣庨暱鍒楄〃鐨勯槄璇昏礋鎷呫€?*/
+/* 设置页：保持现有控件和业务事件，只用分组与层级降低长列表的阅读负担。 */
 .settings-shell {
 	display: flex;
 	flex-direction: column;
@@ -8428,7 +8724,7 @@ onBeforeUnmount(async () => {
 .settings-license-link b { color: var(--accent); font-size: 12px; }
 .settings-license-link small { color: var(--fg-dim); font-size: 10px; }
 .settings-license-link > span:last-child { flex: 0 0 auto; color: var(--accent); font-size: 17px; }
-/* 鍦ㄧ嚎浜烘暟锛?026-10-23锛? 璁剧疆涓€绾ч〉搴曢儴銆佸紑婧愯鍙叆鍙ｄ笅鏂?*/
+/* 在线人数（2026-10-23）: 设置一级页底部、开源许可入口下方 */
 .settings-presence {
 	display: flex;
 	align-items: center;
@@ -8481,7 +8777,8 @@ onBeforeUnmount(async () => {
 	padding: 10px 2px;
 	display: flex; flex-direction: column; gap: 6px;
 	label { font-size: 13px; color: var(--fg-2); }
-	/* 鏁板瓧杈撳叆 (涓撴敞/浼戞伅鍒嗛挓) 蹇呴』涓€骞惰鐩? 鍙啓 text/password 鏃?number 浼氳惤鍥?	   WebView 鐨勯粯璁ょ櫧搴? 鍦ㄦ繁鑹查潰鏉夸笂闈炲父鍒虹溂. 灏栬鏁板瓧绠ご鍚屾牱鐢?appearance 鍘绘帀. */
+	/* 数字输入 (专注/休息分钟) 必须一并覆盖: 只写 text/password 时 number 会落回
+	   WebView 的默认白底, 在深色面板上非常刺眼. 尖角数字箭头同样用 appearance 去掉. */
 	input[type=text], input[type=password], input[type=number] {
 		background: rgba(30, 41, 59, 0.9);
 		border: 1px solid var(--line-strong);
@@ -8492,8 +8789,9 @@ onBeforeUnmount(async () => {
 		outline: none;
 	}
 	input[type=number] { -webkit-appearance: none; appearance: textfield; }
-	/* select 鍚屾牱瑕佹樉寮忚鐩? 鍘熷厛鍙粰浜?.field select, 鑰岀暘鑼?璁剧疆/鎮诞绐楅潰鏉跨殑涓嬫媺閮藉湪
-	   .settings-row > .row-inline 閲? 娌¤瑕嗙洊 鈫?钀藉洖 WebView 榛樿鐧藉簳銆?	   (鎵€鏈?.row-inline 閮藉湪 .settings-row 鍐? 鏁呰繖涓€鏉″嵆鍙叏瑕嗙洊) */
+	/* select 同样要显式覆盖: 原先只给了 .field select, 而番茄/设置/悬浮窗面板的下拉都在
+	   .settings-row > .row-inline 里, 没被覆盖 → 落回 WebView 默认白底。
+	   (所有 .row-inline 都在 .settings-row 内, 故这一条即可全覆盖) */
 	select {
 		background: rgba(30, 41, 59, 0.9);
 		color: var(--fg);
@@ -8504,7 +8802,7 @@ onBeforeUnmount(async () => {
 	}
 	input[type=range] { width: 100%; accent-color: var(--accent-strong); }
 }
-/* 璁剧疆椤归噷鐨?寮€鍏宠": 鏍囩鍦ㄥ乏, 鍕鹃€夋鍦ㄥ彸 */
+/* 设置项里的"开关行": 标签在左, 勾选框在右 */
 .row-inline {
 	display: flex;
 	align-items: center;
@@ -8542,7 +8840,7 @@ onBeforeUnmount(async () => {
 }
 .label-only + .hint { line-height: 1.7; }
 
-/* 璁板繂绯荤粺灞曠ず */
+/* 记忆系统展示 */
 .mem-block {
 	border-top: 1px dashed var(--line-strong);
 	padding-top: 12px;
@@ -8572,26 +8870,26 @@ onBeforeUnmount(async () => {
 	&.project { background: #064e3b; color: var(--px-green); border-color: var(--px-green); }
 	&.event { background: rgba(251, 146, 60, 0.18); color: #fdba74; }
 	&.relationship { background: rgba(244, 114, 182, 0.18); color: #f9a8d4; }
-	/* 鏉ユ簮鏍囨敞 (B2): 銆屼綘澹版槑銆? 涓€х伆; 銆屾垜鎺ㄦ柇銆? 鍋忎富棰樿壊, 鎻愮ず"杩欐潯鏄ス鐨勭寽娴? */
+	/* 来源标注 (B2): 「你声明」= 中性灰; 「我推断」= 偏主题色, 提示"这条是她的猜测" */
 	&.src { background: var(--px-panel-2); color: var(--px-grey); border-color: var(--px-line); }
 	&.src.inferred { background: var(--px-cyan-deep); color: var(--px-cyan); border-color: var(--px-cyan-dim); }
 }
 .mem-text { flex: 1 1 auto; min-width: 110px; font-size: 13px; color: var(--fg); line-height: 1.45; word-break: break-all; }
-/* 鐩爣/鍥哄畾 鍥炬爣涓嶅啀鍗犳爣绛句綅, 鐩存帴璐村湪姝ｆ枃琛岄 (B: 鏍囩澶贡 鈫?涓€琛屽彧鐣欎竴涓富鏍囩) */
+/* 目标/固定 图标不再占标签位, 直接贴在正文行首 (B: 标签太乱 → 一行只留一个主标签) */
 .mem-ico { margin-right: 2px; }
 .mem-group { margin-top: 2px; }
-/* P4: 鍧楄鍥?鈥斺€?涓€涓潡 = 涓€娆″巻鍙叉€荤粨瑕嗙洊鐨勪竴娈靛璇? 鍧楁爣棰樻槸"涓婚 路 鏃堕棿娈?路 N 鏉″璇?,
-   鍧楀唴灏忚妭鏍囬闄嶄竴绾?(鏇村皬鏇存贰), 璁?鍧?> 绫诲瀷"鐨勫眰绾т竴鐪肩湅寰楀嚭鏉?*/
-/* 宸叉敹璧?/ 宸插垹闄?(2026-09-28): 涓庛€屽凡浣滃簾銆嶅悓涓€濂楁姌鍙犳牱寮? 浣嗗悇鑷竴涓?class 渚夸簬鍖哄垎涓?E2E 鏂█ */
+/* P4: 块视图 —— 一个块 = 一次历史总结覆盖的一段对话; 块标题是"主题 · 时间段 · N 条对话",
+   块内小节标题降一级 (更小更淡), 让"块 > 类型"的层级一眼看得出来 */
+/* 已收起 / 已删除 (2026-09-28): 与「已作废」同一套折叠样式, 但各自一个 class 便于区分与 E2E 断言 */
 .mem-faded > summary { cursor: pointer; color: var(--px-grey); }
 .mem-deleted > summary { cursor: pointer; color: var(--px-grey); }
-/* 璁板繂浼樺寲 (鏁寸悊浼樺寲): 涓€涓皬鑺?+ 涓変釜鎸夐挳 + 鍙睍寮€鐨勭ず渚嬮瑙?*/
+/* 记忆优化 (整理优化): 一个小节 + 三个按钮 + 可展开的示例预览 */
 .mem-tune { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--ui-line-c-soft); }
 .mem-tune-btns { margin-top: 2px; }
-/* 璁板繂璇婃柇 (P1): 涓庛€岃蹇嗕紭鍖栥€嶅悓涓€濂楁姌鍙犳牱寮? 鍗曠嫭涓€涓?class 渚夸簬鍖哄垎涓?E2E 鏂█ */
+/* 记忆诊断 (P1): 与「记忆优化」同一套折叠样式, 单独一个 class 便于区分与 E2E 断言 */
 .mem-diag { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--ui-line-c-soft); }
 .mem-diag-btns { margin-top: 2px; }
-/* A3 (2026-10-08): 璁板繂鍋ュ悍 + 娉ㄥ叆鏄庣粏 鈥斺€?涓?.mem-diag 鍚屼竴濂楄瑙夊彛寰?*/
+/* A3 (2026-10-08): 记忆健康 + 注入明细 —— 与 .mem-diag 同一套视觉口径 */
 .mem-health { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--ui-line-c-soft); }
 .mem-inject-hits { margin: 4px 0 2px; }
 .mem-inject-hit {
@@ -8622,19 +8920,19 @@ onBeforeUnmount(async () => {
 	color: var(--px-grey);
 	margin-top: 2px;
 }
-/* P4: 銆屽緟鏁寸悊 N 鏉°€?銆岀珛鍗虫暣鐞嗐€嶁€斺€?璁?杩樻病杩涜蹇?鍙 (瀹炴椂閫氶亾榛樿鍏充箣鍚庣殑蹇呰浜や唬) */
+/* P4: 「待整理 N 条」+「立即整理」—— 让"还没进记忆"可见 (实时通道默认关之后的必要交代) */
 .mem-pending {
 	display: flex; align-items: center; justify-content: space-between; gap: 8px;
 	font-size: 11px; color: var(--px-grey);
 	padding: 2px 0 4px;
 }
-/* A: 鏁寸悊鍙嶉**灏卞湴**璐村湪鎸夐挳涓嬮潰 (浠ュ墠鍐欏湪闈㈡澘鏈€搴曢儴, 鐢ㄦ埛鐪嬩笉鍒?鈬?浠ヤ负"鐐逛簡娌＄敤") */
+/* A: 整理反馈**就地**贴在按钮下面 (以前写在面板最底部, 用户看不到 ⇒ 以为"点了没用") */
 .mem-org-msg {
 	margin: 0 0 2px;
 	padding: 3px 0 0;
 	border-top: 1px dashed var(--ui-line-c-soft);
 }
-/* C: 璁板繂搴撻《閮ㄧ粺璁¤ + 绌烘€佹彁绀?+ 搴曢儴鎿嶄綔鍖?*/
+/* C: 记忆库顶部统计行 + 空态提示 + 底部操作区 */
 .mem-stats {
 	font-size: 11px; color: var(--px-grey);
 	padding: 2px 0 4px;
@@ -8646,7 +8944,7 @@ onBeforeUnmount(async () => {
 	padding: 4px 0 2px;
 }
 .mem-btns-bottom { margin-top: 8px; }
-/* 宸蹭綔搴熺殑璁板繂 (B1): 鐏颁竴妗?+ 鍐呭鍒掓帀, 涓€鐪肩湅鍑?杩欐槸鐣欐。, 涓嶆槸鐜板湪鐢熸晥鐨? */
+/* 已作废的记忆 (B1): 灰一档 + 内容划掉, 一眼看出"这是留档, 不是现在生效的" */
 .mem-invalid {
 	& > summary { cursor: pointer; color: var(--px-grey); }
 	.mem-item { opacity: 0.72; }
@@ -8663,7 +8961,7 @@ onBeforeUnmount(async () => {
 	&:active { background: var(--px-panel); }
 	&.danger { background: rgba(146, 64, 14, 0.4); color: #fecaca; border-color: var(--px-red); }
 }
-/* 璁板繂搴撻〉 (鐙珛椤? */
+/* 记忆库页 (独立页) */
 .mem-sec-title-row {
 	display: flex; align-items: center; justify-content: space-between; gap: 8px;
 	.mem-view-all { font-size: 11px; padding: 3px 8px; }
@@ -8687,7 +8985,7 @@ onBeforeUnmount(async () => {
 	}
 }
 .mem-count-hint { font-size: 11px; color: var(--fg-dim); margin: 0 0 6px 2px; }
-/* 涓€绾ц缃〉閲岀殑"璁板繂搴?鍏ュ彛鎸夐挳 (涓変唤鍒楄〃宸叉敹杩涗簩绾ц彍鍗? 杩欓噷鍙暀鍏ュ彛) */
+/* 一级设置页里的"记忆库"入口按钮 (三份列表已收进二级菜单, 这里只留入口) */
 .mem-enter {
 	width: 100%;
 	text-align: left;
@@ -8720,30 +9018,33 @@ onBeforeUnmount(async () => {
 .sheet.diary-sheet { max-width: 620px; max-height: 88vh; margin-inline: auto; }
 .sheet.diary-sheet .sheet-body { padding-top: 4px; }
 @media (max-width: 430px) { .sheet.diary-sheet { padding: 16px 15px 20px; } }
-/* ---------------- 鏂版墜寮曞 ----------------
- * 2026-10-01 閲嶅仛锛堢敤鎴凤細銆屽唴瀹逛笉鍙橈紝AI 鍛冲お澶с€嶏級銆傚師鏉ョ殑闀跨浉鏄€氱敤寮圭獥涓変欢濂楋細
- * 40px 澶?emoji + 灞呬腑鏍囬 + 鍦嗙偣鍒嗛〉 + 鏁村娓愬彉鎸夐挳锛屾鏂囪繕濂椾簡涓憡璀︽ 鈥斺€?鎹㈡垚**濂归€掓潵鐨勪竴寮犱究绛?*锛? * 宸﹀榻愩€佺焊鎰熷簳鑹层€侀《閮ㄤ竴灏忔潯鑳跺甫銆佹爣棰樹笅涓€閬撶煭寮鸿皟绾裤€佹鏂囧乏渚х粏鑹叉潯锛堟浛浠ｅ憡璀︽锛夈€? * 鍒嗛〉鏀规垚缁嗘í鏉°€佹寜閽敹鎴愬彸涓嬭灏忚嵂涓搞€?*鏂囨涓庢暟鎹竴瀛楁湭鏀?*锛岀被鍚嶄篃淇濇寔鍘熸牱锛堟祴璇?鎺㈤拡鎸夌被鍚嶆壘鍏冪礌锛夈€? * 涓ょ涓婚閮藉悆 --ui-* / --px-* 鍙橀噺锛屾墍浠ュ儚绱犻涓嬩緷鐒舵槸纭竟鐩磋銆?*/
+/* ---------------- 新手引导 ----------------
+ * 2026-10-01 重做（用户：「内容不变，AI 味太大」）。原来的长相是通用弹窗三件套：
+ * 40px 大 emoji + 居中标题 + 圆点分页 + 整宽渐变按钮，正文还套了个告警框 —— 换成**她递来的一张便签**：
+ * 左对齐、纸感底色、顶部一小条胶带、标题下一道短强调线、正文左侧细色条（替代告警框）、
+ * 分页改成细横条、按钮收成右下角小药丸。**文案与数据一字未改**，类名也保持原样（测试/探针按类名找元素）。
+ * 两种主题都吃 --ui-* / --px-* 变量，所以像素风下依然是硬边直角。 */
 .intro-mask {
 	position: fixed; inset: 0;
 	background: rgba(2, 6, 23, 0.72);
 	backdrop-filter: blur(var(--ui-blur-mask));
 	-webkit-backdrop-filter: blur(var(--ui-blur-mask));
-	z-index: 80;                 /* 楂樹簬闈㈡澘(20)涓庤皟璇曡(70) */
+	z-index: 80;                 /* 高于面板(20)与调试行(70) */
 	display: flex; align-items: flex-end; justify-content: center;
 }
 .intro {
 	position: relative;
-	width: ~"min(100% - 26px, 396px)";   // 鈿?蹇呴』甯?~"" 杞箟锛歀ESS 浼氬湪缂栬瘧鏈熸妸 100% - 26px 绠楁垚 74%锛屽脊绐楀氨姣旇璁＄獎 55px锛?026-10-02 淇級
+	width: ~"min(100% - 26px, 396px)";   // ⚠ 必须带 ~"" 转义：LESS 会在编译期把 100% - 26px 算成 74%，弹窗就比设计窄 55px（2026-10-02 修）
 	margin: 0 0 calc(30px + env(safe-area-inset-bottom));
 	background: linear-gradient(180deg, #131f36 0%, var(--px-panel) 62%);
 	border: var(--ui-line-w) solid var(--ui-line-c-soft);
 	border-radius: var(--ui-radius-panel);
 	box-shadow: inset 0 2px 0 0 var(--ui-inner-glow), var(--ui-shadow);
 	padding: 20px 20px 16px;
-	transform: rotate(-0.45deg);        /* 鍍忛殢鎵嬫斁鍦ㄦ涓婄殑涓€寮犵焊 */
+	transform: rotate(-0.45deg);        /* 像随手放在桌上的一张纸 */
 	transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* 椤堕儴涓€灏忔潯鑳跺甫 (绾楗? */
+/* 顶部一小条胶带 (纯装饰) */
 .intro-tape {
 	position: absolute; top: -8px; left: 50%;
 	width: 72px; height: 17px; margin-left: -36px;
@@ -8765,7 +9066,7 @@ onBeforeUnmount(async () => {
 	font-size: 19px; font-weight: 600; color: var(--fg);
 	text-align: left; line-height: 1.35;
 }
-/* 鏍囬涓嬮潰閭ｉ亾鐭己璋冪嚎 */
+/* 标题下面那道短强调线 */
 .intro-rule {
 	display: block; width: 34px; height: 3px; margin: 9px 0 15px;
 	background: var(--accent); border-radius: 2px; opacity: 0.85;
@@ -8779,7 +9080,7 @@ onBeforeUnmount(async () => {
 	margin: 0 0 11px; padding-left: 12px;
 	border-left: 2px solid rgba(148, 163, 184, 0.22);
 	&:last-child { margin-bottom: 0; }
-	/* 璇皵鍙綋鐜板湪宸﹁壊鏉′笂 鈥斺€?涓嶅啀鎶婃暣娈垫鏂囨覆鏌撴垚鍛婅妗?*/
+	/* 语气只体现在左色条上 —— 不再把整段正文渲染成告警框 */
 	&.warn { border-left-color: rgba(240, 190, 120, 0.5); }
 	&.ok { border-left-color: rgba(127, 212, 230, 0.5); }
 }
@@ -8795,14 +9096,20 @@ onBeforeUnmount(async () => {
 		border: var(--ui-line-w) solid rgba(127, 212, 230, 0.42);
 	}
 }
-/* 2026-10-02 淇帓鐗堬細鍘熸潵鐨?.intro-foot 鏄?*鍗曡 flex**锛堝垎椤垫潯 + 4 涓寜閽悓涓€琛岋級锛?   鑰?.intro-btns .mini 鏄?white-space: nowrap锛?*涓嶄細缂?*锛夈€傚洓涓寜閽?+ 鍒嗛〉鏉℃尋涓€琛岃 鈮?13px锛?   鑰屽脊绐楀唴瀹瑰鍙湁 325px锛?96 瀹界獥鍙ｏ級/ 225px锛?60 瀹界獥鍙ｏ級/ 195px锛?20 瀹界獥鍙ｏ級
-   鈬?鏁磋婧㈠嚭寮圭獥銆佸彸渚т袱涓寜閽灞忓箷瑁佹帀锛堢敤鎴锋埅鍥撅細鍙湅寰楀埌銆岄」鐩粨搴撱€嶅拰鍗婁釜銆屽姞鍏?Steam 鎰库€︺€嶏級銆?   鏀规垚涓よ锛氳烦杞被涓€琛岋紙.intro-links锛屽彲鎹㈣锛? 鍒嗛〉/缈婚〉涓€琛岋紙.intro-nav锛屽彲鎹㈣锛夈€?   娉ㄦ剰锛?*涓嶇敤 position: fixed** 鈥斺€?閭ｄ細鎶婃寜閽Щ鍑哄脊绐椼€?   锛堝彟娉細`.intro` 鐨?`width: min(100% - 26px, 396px)` 琚?LESS 鍦ㄧ紪璇戞湡绠楁垚浜?`min(74%, 396px)`锛?     寮圭獥瀹炴祴鍙湁瑙嗗彛瀹界殑 74% 鈥斺€?瑙?浜ゆ帴鏂囨。 搂21.1 鐨勮鏄庯紝鏈疆**娌″姩**瀹冦€傦級 */
+/* 2026-10-02 修排版：原来的 .intro-foot 是**单行 flex**（分页条 + 4 个按钮同一行），
+   而 .intro-btns .mini 是 white-space: nowrap（**不会缩**）。四个按钮 + 分页条挤一行要 ≈513px，
+   而弹窗内容宽只有 325px（496 宽窗口）/ 225px（360 宽窗口）/ 195px（320 宽窗口）
+   ⇒ 整行溢出弹窗、右侧两个按钮被屏幕裁掉（用户截图：只看得到「项目仓库」和半个「加入 Steam 愿…」）。
+   改成两行：跳转类一行（.intro-links，可换行）+ 分页/翻页一行（.intro-nav，可换行）。
+   注意：**不用 position: fixed** —— 那会把按钮移出弹窗。
+   （另注：`.intro` 的 `width: min(100% - 26px, 396px)` 被 LESS 在编译期算成了 `min(74%, 396px)`，
+     弹窗实测只有视口宽的 74% —— 见 交接文档 §21.1 的说明，本轮**没动**它。） */
 .intro-foot {
 	display: flex; flex-direction: column; gap: 10px;
 	margin-top: 16px; padding-top: 12px;
 	border-top: 1px dashed var(--ui-line-c-soft);
 }
-/* 璺宠浆绫绘寜閽紙椤圭洰浠撳簱 / Steam 鎰挎湜鍗曪級鍗曠嫭涓€琛岋細绐勫睆鏀句笉涓嬪氨鎹㈣锛屼换浣曟墜鏈哄搴﹂兘涓嶆孩鍑恒€佷笉琚 */
+/* 跳转类按钮（项目仓库 / Steam 愿望单）单独一行：窄屏放不下就换行，任何手机宽度都不溢出、不被裁 */
 .intro-links {
 	display: flex; flex-wrap: wrap; gap: 8px;
 	.mini {
@@ -8813,11 +9120,11 @@ onBeforeUnmount(async () => {
 		border: var(--ui-line-w) solid var(--ui-line-c-soft);
 	}
 }
-/* 鍒嗛〉鏉?+ 銆屼笂涓€姝?/ 寮€濮嬩娇鐢ㄣ€嶏細涔熷厑璁告崲琛岋紙鏋佺獎灞忔椂鎸夐挳鏁翠綋鎺夊埌涓嬩竴琛岋紝涓嶆í鍚戞孩鍑猴級 */
+/* 分页条 + 「上一步 / 开始使用」：也允许换行（极窄屏时按钮整体掉到下一行，不横向溢出） */
 .intro-nav {
 	display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px;
 }
-/* 鍒嗛〉: 缁嗘í鏉?(鍘熸潵鏄渾鐐? 鈥斺€?浠嶆槸 4 涓?<i>, e2e 鎸夋暟閲忔柇瑷€ */
+/* 分页: 细横条 (原来是圆点) —— 仍是 4 个 <i>, e2e 按数量断言 */
 .intro-dots {
 	display: flex; gap: 5px;
 	i {
@@ -8846,9 +9153,10 @@ onBeforeUnmount(async () => {
 }
 .intro-open { color: var(--accent); }
 
-/* ---------------- 妯″瀷鎺堟潈楠岃瘉锛堢瓟棰橀棬锛?026-10-01锛?026-10-02 涓ゅ鍏辩敤锛?----------------
-   缁撴瀯鐓у弬鑰冨浘锛堟爣棰?璇存槑/闂/杈撳叆/鍙栨秷路楠岃瘉/搴曢儴鎻愮ず锛夛紝閰嶈壊璧版湰搴旂敤鐨勬煍鍜岄鍙橀噺銆?   鍙湁涓€浠芥牱寮忥細 clone / model 涓や釜鍔ㄤ綔閮芥寕 .gate-mask + .gate锛堝悇鑷澶栧甫涓€涓涔夌被鍚嶏紝
-   鍏嬮殕閭ｄ釜 .clone-gate 淇濇寔鍘熸牱缁?probe-clone-gate 鎵惧厓绱狅級銆?*/
+/* ---------------- 模型授权验证（答题门，2026-10-01；2026-10-02 两处共用） ----------------
+   结构照参考图（标题/说明/问题/输入/取消·验证/底部提示），配色走本应用的柔和风变量。
+   只有一份样式： clone / model 两个动作都挂 .gate-mask + .gate（各自额外带一个语义类名，
+   克隆那个 .clone-gate 保持原样给 probe-clone-gate 找元素）。 */
 .gate-mask {
 	position: absolute; inset: 0; z-index: 60;
 	display: flex; align-items: center; justify-content: center;
@@ -8912,7 +9220,7 @@ onBeforeUnmount(async () => {
 	border-top: var(--ui-line-w) solid var(--ui-line-c-soft);
 	font-size: 11.5px; line-height: 1.65; color: var(--fg-dim);
 }
-/* 瀛樺偍鑷缁撴灉 (绛夊, 鍙í鍚戞粴鍔? 鐩存帴鎴浘缁欏紑鍙戣€呯湅) */
+/* 存储自检结果 (等宽, 可横向滚动; 直接截图给开发者看) */
 .store-probe {
 	margin: 6px 0 0;
 	padding: 8px 10px;
@@ -8935,9 +9243,9 @@ onBeforeUnmount(async () => {
 		font-size: 12px; color: var(--accent); cursor: pointer; user-select: none;
 		list-style: none;
 		&::-webkit-details-marker { display: none; }
-		&::before { content: "鈻?"; }
+		&::before { content: "▸ "; }
 	}
-	&[open] summary::before { content: "鈻?"; }
+	&[open] summary::before { content: "▾ "; }
 }
 .mem-summary-content {
 	margin-top: 8px;
@@ -8953,8 +9261,8 @@ onBeforeUnmount(async () => {
 	background: var(--px-panel-2);
 	color: var(--px-white); font-size: 14px;
 	border: var(--ui-line-w) solid var(--ui-line-c);
-	/* 鍍忕礌鍑歌捣 (缃戦〉鐗?.pixel-btn-primary 鍚屾閰嶆柟):
-	   浜笂宸?+ 鏆椾笅鍙?+ 纭姇褰? 鎸変笅鏃跺弽杞?鈥斺€?杩欐槸"鑳戒竴鐪肩湅鍑烘崲浜嗛鏍?鐨勫叧閿?*/
+	/* 像素凸起 (网页版 .pixel-btn-primary 同款配方):
+	   亮上左 + 暗下右 + 硬投影, 按下时反转 —— 这是"能一眼看出换了风格"的关键 */
 	box-shadow: inset 2px 2px 0 0 var(--ui-hi), inset -2px -2px 0 0 var(--ui-lo), 0 var(--ui-lift) 0 0 var(--ui-lo), var(--ui-shadow);
 	&:active {
 		transform: translateY(2px);
@@ -8971,7 +9279,7 @@ onBeforeUnmount(async () => {
 	.sheet { transform: translateY(100%); }
 }
 
-/* 鑳屾櫙闊充箰寮€鍏?(璁剧疆闈㈡澘鍐呰仈) */
+/* 背景音乐开关 (设置面板内联) */
 .bgm-toggle {
 	display: flex;
 	align-items: center;
@@ -8980,10 +9288,10 @@ onBeforeUnmount(async () => {
 	font-size: 13px;
 }
 
-/* ---------------- 鍏充簬 / 闅愮 / 寮€婧愯鍙〉锛?026-10-02 鐢ㄦ埛瑕佹眰锛?----------------
-   澶嶇敤鐜版湁 sheet 闈㈡澘锛堝叆鍙ｅ湪璁剧疆闈㈡澘搴曢儴锛夛紝鎵€浠ヨ繖閲屽彧鏈夊唴瀹规帓鐗堬細
-   閰嶈壊涓€寰嬫部鐢ㄧ幇鏈?--fg-* / --px-* / --accent 鍙橀噺锛屼笉鏂伴€犻鑹层€?*/
-/* 璁剧疆闈㈡澘搴曢儴鐨勫叆鍙ｈ锛?mini 鎾戞弧涓€琛岋紝瑙嗚涓婅窡涓€鎺?.btn 鍖哄垎寮€锛?*/
+/* ---------------- 关于 / 隐私 / 开源许可页（2026-10-02 用户要求） ----------------
+   复用现有 sheet 面板（入口在设置面板底部），所以这里只有内容排版：
+   配色一律沿用现有 --fg-* / --px-* / --accent 变量，不新造颜色。 */
+/* 设置面板底部的入口行（.mini 撑满一行，视觉上跟一排 .btn 区分开） */
 .about-row { padding: 4px 2px 10px; }
 .about-open {
 	width: 100%; text-align: left;
@@ -8995,7 +9303,7 @@ onBeforeUnmount(async () => {
 	padding-bottom: 4px;
 }
 .about-sec { display: flex; flex-direction: column; gap: 6px; }
-/* 灏忚妭鏍囬锛氫笌銆岃蹇嗙郴缁熴€嶇殑 .mem-sec-title 鍚屼竴濂楀彛寰勶紙accent 灏忓瓧 + 铏氱嚎涓嬭竟锛?*/
+/* 小节标题：与「记忆系统」的 .mem-sec-title 同一套口径（accent 小字 + 虚线下边） */
 .about-h {
 	font-size: 12px; font-weight: 600; color: var(--accent);
 	letter-spacing: 0.6px; padding-bottom: 4px;
@@ -9003,16 +9311,16 @@ onBeforeUnmount(async () => {
 }
 .about-p { margin: 0; font-size: 13px; line-height: 1.75; color: var(--fg-2); }
 .about-p b { color: var(--fg); }
-/* 瀛椾綋璁稿彲鍏ㄦ枃锛?026-10-16锛? 榛樿鏀惰捣锛屽睍寮€鍚庣粰涓€鍧楀彲婊氬姩鐨勭瓑瀹芥枃鏈尯 */
+/* 字体许可全文（2026-10-16）: 默认收起，展开后给一块可滚动的等宽文本区 */
 .about-license {
 	margin-top: 4px;
 	summary {
 		font-size: 12.5px; color: var(--accent); cursor: pointer;
 		list-style: none; padding: 3px 0;
 		&::-webkit-details-marker { display: none; }
-		&::before { content: "鈻?"; }
+		&::before { content: "▸ "; }
 	}
-	&[open] summary::before { content: "鈻?"; }
+	&[open] summary::before { content: "▾ "; }
 }
 .about-license-text {
 	margin: 6px 0 2px; padding: 10px 12px;
@@ -9035,7 +9343,7 @@ onBeforeUnmount(async () => {
 	border-radius: 3px; padding: 1px 4px;
 	word-break: break-all;
 }
-/* 鈿?鍗歌浇璀﹀憡锛氭部鐢ㄥ紩瀵奸〉 warn 閭ｆ。鎻忚竟鑹诧紝鍙仛涓€鏉″乏鑹叉潯 + 娣″簳锛屼笉鎶㈢溂浣嗙湅寰楄 */
+/* ⚠ 卸载警告：沿用引导页 warn 那档描边色，只做一条左色条 + 淡底，不抢眼但看得见 */
 .about-warn {
 	margin: 0; padding: 8px 10px;
 	font-size: 13px; line-height: 1.7; color: #fbbf24;
@@ -9044,7 +9352,8 @@ onBeforeUnmount(async () => {
 	border-radius: var(--ui-radius-ctl);
 	b { color: #fde68a; }
 }
-/* 澶栭摼涓€寰嬭蛋鍘熺敓 openExternal锛堜笉鍦?WebView 閲岃烦璧帮級鈥斺€?闀跨浉鏄鍐呴摼鎺ワ紝涓嶆槸鎸夐挳銆?   inline-block + max-width:100% + break-all: 闀?URL 鍦ㄧ獎灞忎笂鑷繁鎶樿, 涓嶄細鎶婇潰鏉挎拺瀹姐€?*/
+/* 外链一律走原生 openExternal（不在 WebView 里跳走）—— 长相是行内链接，不是按钮。
+   inline-block + max-width:100% + break-all: 长 URL 在窄屏上自己折行, 不会把面板撑宽。 */
 .about-a {
 	display: inline-block; max-width: 100%;
 	padding: 0; margin: 0;
@@ -9056,7 +9365,7 @@ onBeforeUnmount(async () => {
 }
 .about-a-block { display: block; margin-top: 2px; font-size: 12px; }
 
-/* 鍦ㄧ嚎浜烘暟锛?026-10-21锛? 銆岀増鏈€嶅潡涓嬬殑涓€琛岀姸鎬?+ 涓€涓姸鎬佺偣锛坙ive/stale/off锛?*/
+/* 在线人数（2026-10-21）: 「版本」块下的一行状态 + 一个状态点（live/stale/off） */
 .about-presence { display: flex; align-items: center; gap: 6px; }
 .about-presence b { color: var(--fg); font-variant-numeric: tabular-nums; }
 .about-presence-dot {
@@ -9068,22 +9377,22 @@ onBeforeUnmount(async () => {
 }
 .about-presence-hint { font-size: 12px; color: var(--fg-dim); }
 
-/* 鐢卞竷灞€鐘舵€佸尯鍒嗘í绔栧睆锛岄敭鐩樼缉鐭鍙ｆ椂涓嶅垏鎹㈡í灞忔牱寮忋€?*/
+/* 由布局状态区分横竖屏，键盘缩短视口时不切换横屏样式。 */
 .stage-root:not(.portrait) {
-	/* 鑱婂ぉ闈㈡澘: 涓嶅啀鍏ㄥ (妯睆涓嬩細妯洊鏁翠釜妯″瀷), 闈犲彸闄愬; 绔栧悜绌洪棿灏?鈫?闈㈡澘鏀鹃珮 */
+	/* 聊天面板: 不再全宽 (横屏下会横盖整个模型), 靠右限宽; 竖向空间小 → 面板放高 */
 	.chat-panel {
 		left: auto;
 		right: calc(10px + env(safe-area-inset-right, 0px));
 		width: min(52vw, 520px);
 		max-height: 80vh;
 	}
-	/* 搴曢儴 dock: 鍐呭闄愬灞呬腑 (50%-280px 涓や晶鏀惰繘), 涓嶈鎸夐挳妯法鏁翠釜灞忓箷; 鍏煎鍒樻捣宸﹀彸瀹夊叏鍖?*/
+	/* 底部 dock: 内容限宽居中 (50%-280px 两侧收进), 不让按钮横跨整个屏幕; 兼容刘海左右安全区 */
 	.dock {
 		bottom: calc(8px + env(safe-area-inset-bottom, 0px));
 		padding-left: 7px;
 		padding-right: 7px;
 	}
-	/* 搴曢儴寮瑰眰 (妯″瀷/鍔ㄤ綔/琛ㄦ儏/鏃ヨ/璁板繂搴?璁剧疆): 闄愬灞呬腑, 楂樺害鏀惧 */
+	/* 底部弹层 (模型/动作/表情/日记/记忆库/设置): 限宽居中, 高度放宽 */
 	.sheet-mask {
 		justify-content: center;
 	}
@@ -9091,14 +9400,14 @@ onBeforeUnmount(async () => {
 		width: min(64vw, 680px);
 		max-height: 90vh;
 	}
-	/* 椤舵爮: 琛ュ乏鍙冲畨鍏ㄥ尯 (妯睆鍒樻捣/鎸栧瓟) */
+	/* 顶栏: 补左右安全区 (横屏刘海/挖孔) */
 	.topbar {
 		padding-left: calc(14px + env(safe-area-inset-left, 0px));
 		padding-right: calc(14px + env(safe-area-inset-right, 0px));
 	}
 }
 
-/* 绔栧睆锛氬父椹昏緭鍏ユ爮 + 鐭巻鍙诧紱鏂版皵娉℃部鐢ㄥ師妯＄硦 token锛岀嫭绔嬭皟鏁村～鍏呫€?*/
+/* 竖屏：常驻输入栏 + 短历史；新气泡沿用原模糊 token，独立调整填充。 */
 .portrait {
 	.chat-panel {
 		left: calc(12px + env(safe-area-inset-left, 0px));

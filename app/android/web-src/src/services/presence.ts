@@ -29,14 +29,15 @@ export const PRESENCE_URL =
 export const PRESENCE_KEY =
 	"eyJhbGciOiJSUzI1NiIsImtpZCI6IjBiZDg4YjFiLTI4NGItNDc1Ni05OTk1LThhMTA4YWFjMWU3ZSJ9.eyJpc3MiOiJodHRwczovL25vcmlkcm9pZC1wcmVzZW5jZS1kOGNzdTEwMWZiYTM2LmFwLXNoYW5naGFpLnRjYi1hcGkudGVuY2VudGNsb3VkYXBpLmNvbSIsInN1YiI6ImFub24iLCJhdWQiOiJub3JpZHJvaWQtcHJlc2VuY2UtZDhjc3UxMDFmYmEzNiIsImV4cCI6NDA5NjQ0NzU1NSwiaWF0IjoxNzkyNzY0MzU1LCJub25jZSI6IjlFV1ptcHpEUXVHZ0o4MHBDQVNVWUEiLCJhdF9oYXNoIjoiOUVXWm1wekRRdUdnSjgwcENBU1VZQSIsIm5hbWUiOiJBbm9ueW1vdXMiLCJzY29wZSI6ImFub255bW91cyIsInByb2plY3RfaWQiOiJub3JpZHJvaWQtcHJlc2VuY2UtZDhjc3UxMDFmYmEzNiIsIm1ldGEiOnsicGxhdGZvcm0iOiJQdWJsaXNoYWJsZUtleSJ9LCJyb2xlIjoiYW5vbiIsImlzX2Fub255bW91cyI6dHJ1ZSwiYXBwX21ldGFkYXRhIjp7InByb3ZpZGVyIjoiYW5vbnltb3VzIiwicHJvdmlkZXJzIjpbImFub255bW91cyJdfSwidXNlcl9tZXRhZGF0YSI6eyJuYW1lIjoiQW5vbnltb3VzIn0sInVzZXJfdHlwZSI6IiIsImNsaWVudF90eXBlIjoiY2xpZW50X3VzZXIiLCJpc19zeXN0ZW1fYWRtaW4iOmZhbHNlfQ.U986oSRU97q3XUovFXrI_UW82JvS7hq0Jfc0aNjWv9p2S4IbD9BtHun2diQeG4n0xC1k8__KWqZnltlO9U1ZOZL7zLVTrLcAb0JMXJF6SM_oyhTe9ZnchOTvywgFyhWZujjzW00tN3z3xif4hsutq8qI6rll63UYj_flpnXu1svDsHkFIwYae25WrW2Og55ZHt9N1pT6QsggdtZbup-cPCUfNDpghfc96balT_rF6qSWtxabJ1pBIQXUOBoY8SqWyntC-SoMAEVPwSaRqeGQ0GLfUndpscTBDbqurC_3ZyUZfFeMbiXm1ng5XyCS_DPsZc6W3_gUqXyu88PRtUcB0Q"
 
-/** 心跳间隔：5 分钟（服务端窗口 10 分钟，留一次容错） */
-export const HEARTBEAT_MS = 5 * 60_000
+/** 心跳间隔：10 分钟（服务端窗口 15 分钟，留 5 分钟容错）
+ *  2026-10-25 用户要求从 5 分钟改成 10 分钟，配合 CloudBase 免费额度（约支撑 50 人全天）。 */
+export const HEARTBEAT_MS = 10 * 60_000
 /** 失败后的第一次重试间隔（指数退避：15s → 30s → 1min → 2min → 5min 封顶）
  *  首试失败多半是刚启动/切网，15 秒就重试，别让用户干等一分钟。 */
 export const MIN_RETRY_MS = 15_000
 const MAX_RETRY_MS = 5 * 60_000
-/** 超过这么久没有成功响应，就不再展示旧数字 */
-export const STALE_MS = 15 * 60_000
+/** 超过这么久没有成功响应，就不再展示旧数字（10 分钟心跳下允许漏掉一次） */
+export const STALE_MS = 25 * 60_000
 /** 回前台补心跳的最小间隔（避免频繁切前台反复请求） */
 export const MIN_GAP_MS = 60_000
 /** 原生桥回调的兜底超时（原生 connect/read 各 8s，这里留到 20s） */
@@ -238,7 +239,7 @@ export const presenceStatusText = (
 	if (!state) return "正在连接在线人数服务…"
 	if (!state.ok) return state.error ? `暂时连不上：${state.error}` : "暂时连不上计数服务，稍后自动重试"
 	if (state.failing) return state.error ? `连接不稳定：${state.error}` : "连接不稳定，显示的是上一次的在线人数"
-	if (now - state.at > STALE_MS) return "计数服务已超过 15 分钟没有响应"
+	if (now - state.at > STALE_MS) return "计数服务已超过 25 分钟没有响应"
 	return "匿名心跳：随机安装 ID + 版本号，不含设备标识与聊天内容；今日按北京时间；可在设置里关闭"
 }
 

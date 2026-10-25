@@ -61,10 +61,13 @@ export const PRESENCE_KEY = "<Publishable Key>"
 
 ## 口径 / 限制
 
-- `online` = 最近 10 分钟去重安装数；`today` = 北京时间当天去重安装数
-- 同 ID 30 秒内重复心跳不写库；每次调用顺带清理 10 分钟前在线行、90 天前每日行
+- `online` = 最近 15 分钟去重安装数；`today` = 北京时间当天去重安装数
+- 同 ID 30 秒内重复心跳不写库；每次调用顺带清理 15 分钟前在线行、90 天前每日行
+- 全局每分钟最多计入 **20 个新安装**（`presence_rate` 原子占位）；第 21 个返回 `limited:true`，不写库
+- 重置：执行 [schema-cap20-reset.sql](schema-cap20-reset.sql)（重建函数 + 清空三张表）
 - ID 只存 `md5(id)[:32]`（CloudBase 内置函数，不依赖 pgcrypto），不存原始安装 ID
 - 表开 RLS 且无 policy：anon 不能直接读写表，只能执行函数
-- 免费体验版有 3,000 资源点/月与到期时间；流量异常可能触发平台风控，人多了要升级
+- 免费体验版有 3,000 资源点/月与到期时间；按 10 分钟心跳约支撑 50 人全天在线
+- 详细运维/计费估算见 `docs/运维-在线人数管理.md`
 - API 网关默认域名（`*.api.tcloudbasegateway.com`）是接口域名，不是网站默认域名，
   App/curl 调用不会有浏览器中间页

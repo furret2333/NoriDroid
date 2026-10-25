@@ -11,8 +11,8 @@ android {
         applicationId "com.noridroid"
         minSdk 24
         targetSdk 34
-        versionCode 8
-        versionName "2.5.1"
+        versionCode 9
+        versionName "2.5.2"
     }
 
     /* 2026-10-02 鐢ㄦ埛瑕佹眰鍒囨寮忕鍚嶃€俴eystore.properties 鍦?.gitignore 閲岋紙涓嶈繘浠撳簱/鍏紑浠撳簱锛夛紱

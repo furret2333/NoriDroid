@@ -23,7 +23,7 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 
 仓库地址：<https://github.com/furret2333/NoriDroid>
 
-> **当前交付版本：** `v2.5.1`（`versionCode 8`），收敛并完善「摸头与自定义触摸」设置（区域编辑、手势与 AI 反应、撤销删除），基础设置页新增字体切换，修复柔和风面板残留像素硬底边，并让记忆库可从基础设置页直接打开；APK 使用本地正式签名构建。此前版本说明见 [RELEASE_NOTES_v2.5.1.md](RELEASE_NOTES_v2.5.1.md)。
+> **当前交付版本：** `v2.5.2`（`versionCode 9`），在线人数心跳从 5 分钟改为 10 分钟（服务端窗口 15 分钟），并加入「每分钟全局最多 20 个新安装」上限；其余内容同 2.5.1。此前版本说明见 [RELEASE_NOTES_v2.5.2.md](RELEASE_NOTES_v2.5.2.md)。
 
 ---
 

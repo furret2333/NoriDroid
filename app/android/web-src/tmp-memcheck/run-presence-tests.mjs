@@ -99,8 +99,8 @@ const fresh = {ok: true, online: 128, today: 4567, at: now0 - 60_000}
 check("⑦ 在线主文案", P.presenceCountText(fresh, now0) === "128 位同好", P.presenceCountText(fresh, now0))
 check("⑦-b 今日副文案", P.presenceTodayText(fresh, now0) === "今日 4567 位同好来过", P.presenceTodayText(fresh, now0))
 check("⑦-c 没数据时主文案是加载中", P.presenceCountText(null, now0) === "加载中…")
-check("⑦-d 超过 15 分钟显示暂时连不上", P.presenceCountText(fresh, now0 + P.STALE_MS + 1) === "暂时连不上")
-check("⑦-e 超过 15 分钟后 today 文案为空", P.presenceTodayText(fresh, now0 + P.STALE_MS + 1) === "")
+check("⑦-d 超过 25 分钟显示暂时连不上", P.presenceCountText(fresh, now0 + P.STALE_MS + 1) === "暂时连不上")
+check("⑦-e 超过 25 分钟后 today 文案为空", P.presenceTodayText(fresh, now0 + P.STALE_MS + 1) === "")
 check("⑦-f 状态点: 新鲜=live / 失败=stale / 无数据=off",
 	P.presenceTone(fresh, now0) === "live" &&
 		P.presenceTone({...fresh, failing: true}, now0) === "stale" &&
@@ -210,7 +210,7 @@ const makeHarness = (init = {}) => {
 	check("⑨ start 立即发一次心跳", h.sent.length === 1 && h.sent[0].url === "https://presence.test", JSON.stringify(h.sent))
 	check("⑨-b 上报含版本号", h.sent[0].version === "2.5.0")
 	check("⑨-c 状态更新为在线 1 / 今日 2", h.service.get()?.online === 1 && h.service.get()?.today === 2)
-	check("⑨-d 下一次心跳 = 5 分钟", h.timer()?.ms === P.HEARTBEAT_MS, JSON.stringify(h.timer()))
+	check("⑨-d 下一次心跳 = 10 分钟", h.timer()?.ms === P.HEARTBEAT_MS, JSON.stringify(h.timer()))
 
 	await h.fire()
 	check("⑩ 定时器到点再发一次", h.sent.length === 2, `sent=${h.sent.length}`)
@@ -218,7 +218,7 @@ const makeHarness = (init = {}) => {
 	h.vis.visible = false
 	await h.fire()
 	check("⑪ 后台时不发请求（只重新排期）", h.sent.length === 2, `sent=${h.sent.length}`)
-	check("⑪-b 后台时仍保留 5 分钟排期", h.timer()?.ms === P.HEARTBEAT_MS)
+	check("⑪-b 后台时仍保留 10 分钟排期", h.timer()?.ms === P.HEARTBEAT_MS)
 
 	h.service.stop()
 	check("⑫ stop 后清掉计时器", h.timer() === undefined)
@@ -236,7 +236,7 @@ const makeHarness = (init = {}) => {
 	check("⑬-b 首次失败后退避 60 秒", h.timer()?.ms === P.MIN_RETRY_MS, JSON.stringify(h.timer()))
 	await h.fire()
 	check("⑭ 第二次成功: 数值正确且清掉 failing", h.service.get()?.online === 7 && !h.service.get()?.failing)
-	check("⑭-b 成功后回到 5 分钟间隔", h.timer()?.ms === P.HEARTBEAT_MS, JSON.stringify(h.timer()))
+	check("⑭-b 成功后回到 10 分钟间隔", h.timer()?.ms === P.HEARTBEAT_MS, JSON.stringify(h.timer()))
 
 	const before = h.sent.length
 	h.advance(P.MIN_GAP_MS + 1)
