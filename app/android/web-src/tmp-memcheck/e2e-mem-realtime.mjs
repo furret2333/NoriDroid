@@ -152,8 +152,14 @@ try {
 		`n=${(mem1.memories ?? []).length}`)
 
 	/* ============ ② 把开关点开 → 旧行为回来 ============ */
+	/* v2.4.0: 设置拆成「基础设置 / 进阶设置」两个 tab, 记忆开关搬进
+	 * 进阶设置 →「记忆与互动」折叠区。要先切 tab 再展开, 否则 .row-inline 根本不渲染。 */
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 	await sleep(1000)
+	await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶/.test(x.textContent))?.click()`)
+	await sleep(450)
+	await evalJs(`(() => { const d = document.querySelector("#settings-memory"); if (d && !d.open) d.querySelector("summary")?.click(); return !!d })()`)
+	await sleep(350)
 	const toggled = await evalJs(`(() => {
 		const row = [...document.querySelectorAll(".row-inline")].find(r => /立即提取记忆/.test(r.textContent));
 		if (!row) return "NO_ROW";

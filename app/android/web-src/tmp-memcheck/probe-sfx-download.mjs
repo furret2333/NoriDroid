@@ -185,6 +185,10 @@ try {
 	/* ---- 打开设置面板 ---- */
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 	await sleep(900)
+	/* v2.4.0 起设置分「基础设置 / 进阶设置」两个 tab（默认基础设置）；
+	   「音效文件」那一行在进阶设置的「声音与陪伴」里，不切 tab 根本看不到。 */
+	await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶设置/.test(x.textContent))?.click()`)
+	await sleep(500)
 
 	/* ---- ① 按钮存在 + DOM 顺序 ---- */
 	const row0 = await sfxRow()

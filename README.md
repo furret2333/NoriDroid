@@ -23,7 +23,7 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 
 仓库地址：<https://github.com/furret2333/NoriDroid>
 
-> **当前交付版本：** `v2.5.0`（`versionCode 7`），新增「在线人数」（匿名心跳，设置页显示此刻在线 / 今日来过，可在设置关闭），并包含悬浮窗渲染生命周期与悬浮聊天掉帧修复；APK 使用本地正式签名构建。此前版本说明见 [RELEASE_NOTES_v2.5.0.md](RELEASE_NOTES_v2.5.0.md)。
+> **当前交付版本：** `v2.5.1`（`versionCode 8`），收敛并完善「摸头与自定义触摸」设置（区域编辑、手势与 AI 反应、撤销删除），基础设置页新增字体切换，修复柔和风面板残留像素硬底边，并让记忆库可从基础设置页直接打开；APK 使用本地正式签名构建。此前版本说明见 [RELEASE_NOTES_v2.5.1.md](RELEASE_NOTES_v2.5.1.md)。
 
 ---
 

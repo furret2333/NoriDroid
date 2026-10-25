@@ -80,6 +80,10 @@ var DEFAULT_SETTINGS = {
   bubbleWidth: 82,
   renderScale: 1,
   ttsEnabled: false,
+  petTouchEnabled: true,
+  petTouchEffects: true,
+  petTouchSound: true,
+  petTouchSpeech: true,
   lipSyncEnabled: false,
   ttsProvider: "fish",
   ttsApiKey: "",
@@ -174,19 +178,26 @@ var writeFile = (name, content) => {
     return false;
   }
 };
-var compareAndWriteFile = (name, expected, content) => {
+var compareAndWriteFileDetailed = (name, expected, content) => {
   try {
     const nori = bridge();
     if (nori.writeFileIfUnchanged) {
       const result = nori.writeFileIfUnchanged(name, expected, content);
-      return result === "ok" ? "ok" : result === "conflict" ? "conflict" : "error";
+      if (result === "ok" || result === "conflict") return { status: result };
+      console.error(`[compareAndWriteFile] ${name}: ${result}`);
+      return { status: "error", reason: typeof result === "string" ? result : "err:bridge" };
     }
-    if (readFile(name) !== expected) return "conflict";
-    return writeFile(name, content) ? "ok" : "error";
-  } catch {
-    return "error";
+    const state = readFileState(name);
+    if (state.status === "error") return { status: "error", reason: "err:read" };
+    if (state.content !== expected) return { status: "conflict" };
+    const raw = nori.writeFile(name, content);
+    return raw === "ok" ? { status: "ok" } : { status: "error", reason: raw };
+  } catch (e) {
+    console.error(`[compareAndWriteFile] ${name}:`, e);
+    return { status: "error", reason: "err:bridge" };
   }
 };
+var compareAndWriteFile = (name, expected, content) => compareAndWriteFileDetailed(name, expected, content).status;
 var PERSONA_FILE = "persona.md";
 var pickPersonaFile = () => new Promise((resolve) => {
   const W = window;
@@ -882,6 +893,7 @@ export {
   checkDeepSeekBalance,
   checkFishBalance,
   compareAndWriteFile,
+  compareAndWriteFileDetailed,
   downloadOfficialPersona,
   fetchModels,
   fetchVoices,

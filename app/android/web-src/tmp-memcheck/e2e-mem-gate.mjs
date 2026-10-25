@@ -63,11 +63,19 @@ try {
 		if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text)
 		return r.result.value
 	}
+	/* v2.4.0: 设置拆成「基础设置 / 进阶设置」两个 tab, 默认落在基础设置;
+	 * 带"害羞拦门"的旧入口 .mem-enter 搬到了**进阶设置 → 记忆与互动** 的 <details> 里。
+	 * 本门禁守的就是这个拦门, 所以每次都要先切到进阶页并把那个折叠区展开。 */
 	const openSettings = async () => {
 		await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 		let ok = false
-		for (let i = 0; i < 12 && !ok; i += 1) { await sleep(250); ok = await evalJs(`!!document.querySelector(".sheet .mem-enter")`) }
-		return ok
+		for (let i = 0; i < 12 && !ok; i += 1) { await sleep(250); ok = await evalJs(`!!document.querySelector(".settings-tabs [role=tab]")`) }
+		if (!ok) return false
+		await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶/.test(x.textContent))?.click()`)
+		await sleep(400)
+		await evalJs(`(() => { const d = document.querySelector("#settings-memory"); if (d && !d.open) d.querySelector("summary")?.click(); return !!d })()`)
+		await sleep(300)
+		return evalJs(`!!document.querySelector(".sheet .mem-enter")`)
 	}
 	const state = async () => evalJs(`(() => {
 		const sheet = document.querySelector(".sheet")

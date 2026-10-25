@@ -115,11 +115,11 @@ try {
 			return {bytes: raw.length};
 		})()`)
 
-		/* 打开记忆库: 设置 → 点三下 (前两下只是拦门气泡, 第三下才真正进) */
+		/* 打开设置: v2.4.0 起默认落在「基础设置」tab, 里面的「打开记忆库 · N 条」是直接入口
+		 * (进阶设置里的旧 .mem-enter 三下拦门入口仍存在, 但本量测走用户默认看到的那条路) */
 		await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 		await sleep(900)
-		for (let i = 0; i < 2; i += 1) { await evalJs(`document.querySelector(".sheet .mem-enter")?.click()`); await sleep(340) }
-		/* ★ 计时从"真正进记忆库的那一下"开始, 不含上面人为的 340ms 间隔 */
+		/* ★ 计时从"点开记忆库入口"开始 */
 		const timing = await evalJs(`(async () => {
 			const waitFrame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 			const until = async (fn, budget = 15000) => {
@@ -131,7 +131,9 @@ try {
 				return -1;
 			};
 			const t0 = performance.now();
-			document.querySelector(".sheet .mem-enter")?.click();
+			const entry = [...document.querySelectorAll(".sheet button")].find(x => /打开记忆库/.test(x.textContent));
+			if (!entry) return {err: "NO_ENTRY"};
+			entry.click();
 			const panelMs = await until(() => !!document.querySelector(".sheet .mem-stats"));
 			const listMs = ${nFaded} === 0 ? 0 : await until(() => document.querySelectorAll(".sheet .mem-faded .mem-item").length >= ${nFaded});
 			const stats = (document.querySelector(".sheet .mem-stats") || {}).innerText || "";

@@ -11,6 +11,8 @@
 		"test": "node tmp-memcheck/run-tests.mjs",
 		"test:diary": "node scripts/test-diary.mjs",
 		"test:pomodoro": "node scripts/test-pomodoro.mjs",
+		"test:touch": "node tmp-memcheck/run-touch-tests.mjs",
+		"test:touch:ui": "node tmp-memcheck/e2e-touch-settings.mjs",
 		"postinstall": "node scripts/patch-live2d.mjs",
 		"sync:models": "powershell -ExecutionPolicy Bypass -File scripts/sync-models.ps1"
 	},

@@ -226,15 +226,16 @@ try {
 		const txt = sheet.innerText || ""
 		return {
 			hasChangelog: txt.includes("更新记录") || sheet.querySelectorAll(".changelog").length > 0,
-			hasIntroBtn: !!([...sheet.querySelectorAll("button")].find(b => /新手引导/.test(b.textContent))),
-			introBtnText: ([...sheet.querySelectorAll("button")].find(b => /新手引导/.test(b.textContent)) || {}).textContent || "",
+			// v2.4.0 起这个入口改叫「新手教程 / 致谢」，仍在基础设置顶部（.settings-intro-entry）
+			hasIntroBtn: !!([...sheet.querySelectorAll("button")].find(b => /新手教程|新手引导/.test(b.textContent))),
+			introBtnText: ([...sheet.querySelectorAll("button")].find(b => /新手教程|新手引导/.test(b.textContent)) || {}).textContent || "",
 		}
 	})()`)
 	console.log(`   设置页: ${JSON.stringify(settings)}`)
 	check("设置页最下方的「更新记录」已删除", settings.hasChangelog === false, JSON.stringify(settings))
-	check("设置页有「新手引导」按钮", settings.hasIntroBtn === true, JSON.stringify(settings))
+	check("设置页有「新手教程 / 致谢」入口（可重开新手引导）", settings.hasIntroBtn === true, JSON.stringify(settings))
 
-	await evalJs(`[...document.querySelectorAll(".sheet button")].find(b => /新手引导/.test(b.textContent))?.click()`)
+	await evalJs(`[...document.querySelectorAll(".sheet button")].find(b => /新手教程|新手引导/.test(b.textContent))?.click()`)
 	await sleep(600)
 	const reopened = await evalJs(`(() => {
 		const m = document.querySelector(".intro-mask")

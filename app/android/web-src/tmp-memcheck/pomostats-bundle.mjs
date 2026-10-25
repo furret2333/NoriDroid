@@ -1,4 +1,4 @@
-// ../src/services/pomo-stats.ts
+// src/services/pomo-stats.ts
 var KEEP_DAYS = 3650;
 var dayKey = (d = /* @__PURE__ */ new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 var dayMinutes = (d) => (d?.focusMs !== void 0 ? d.focusMs / 6e4 : d?.focusMin || 0) + (d?.countUpMs !== void 0 ? d.countUpMs / 6e4 : d?.countUpMin || 0);
@@ -35,13 +35,6 @@ var migrateStats = (stats, now = /* @__PURE__ */ new Date()) => {
     for (const k of Object.keys(stats.days)) dayMin = Math.max(dayMin, dayMinutes(stats.days[k]));
     stats.best = { dayMin, streak: bestStreak(stats.days) };
     changed = true;
-  }
-  const cutoff = dayKey(new Date(now.getTime() - KEEP_DAYS * 864e5));
-  for (const k of Object.keys(stats.days)) {
-    if (k < cutoff) {
-      delete stats.days[k];
-      changed = true;
-    }
   }
   return changed;
 };

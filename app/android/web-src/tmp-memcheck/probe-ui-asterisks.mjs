@@ -142,11 +142,15 @@ try {
 		await closeSheet()
 	}
 	/* ③ 其余面板 */
-	for (const [re, name] of [["日记", "日记"], ["番茄", "番茄钟"], ["模型", "选择模型"], ["触摸", "自定义触摸"]]) {
+	for (const [re, name] of [["日记", "日记"], ["番茄", "番茄钟"], ["模型", "选择模型"]]) {
 		await clickFab(re)
 		await scan(name)
 		await closeSheet()
 	}
+	await clickFab("设置")
+	await evalJs(`document.querySelector(".settings-basic-group-touch button")?.click()`)
+	await sleep(400)
+	await scan("互动设置")
 } catch (e) {
 	console.log("探针失败:", e.message)
 	process.exitCode = 1

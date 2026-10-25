@@ -153,6 +153,10 @@ try {
 	const openSettings = async () => {
 		await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 		await sleep(800)
+		// v2.4.0 起设置面板分成「基础设置 / 进阶设置」两个 tab (默认基础设置),
+		// 「背景音乐」那一行在进阶设置的「声音与陪伴」里 —— 不切 tab 只会看到基础设置的分组卡片。
+		await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶设置/.test(x.textContent))?.click()`)
+		await sleep(500)
 	}
 	const boot = async (seed) => {
 		await send("Page.navigate", {url: `http://127.0.0.1:8123/assets/web/index.html?seed=${b64(seed)}`}, sessionId)

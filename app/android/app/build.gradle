@@ -11,12 +11,12 @@ android {
         applicationId "com.noridroid"
         minSdk 24
         targetSdk 34
-        versionCode 7
-        versionName "2.5.0"
+        versionCode 8
+        versionName "2.5.1"
     }
 
-    /* 2026-10-02 用户要求切正式签名。keystore.properties 在 .gitignore 里（不进仓库/公开仓库）；
-       该文件不存在时（别处构建）自动回落 debug 签名，避免构建失败。 */
+    /* 2026-10-02 鐢ㄦ埛瑕佹眰鍒囨寮忕鍚嶃€俴eystore.properties 鍦?.gitignore 閲岋紙涓嶈繘浠撳簱/鍏紑浠撳簱锛夛紱
+       璇ユ枃浠朵笉瀛樺湪鏃讹紙鍒鏋勫缓锛夎嚜鍔ㄥ洖钀?debug 绛惧悕锛岄伩鍏嶆瀯寤哄け璐ャ€?*/
     def ksProps = new Properties()
     def ksPropsFile = rootProject.file("keystore.properties")
     if (ksPropsFile.exists()) { ksPropsFile.withInputStream { ksProps.load(it) } }

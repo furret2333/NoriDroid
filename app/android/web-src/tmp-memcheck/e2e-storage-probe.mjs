@@ -83,6 +83,10 @@ try {
 
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 	await sleep(900)
+	/* v2.4.0 起设置分「基础设置 / 进阶设置」两个 tab（默认基础设置）；
+	   「数据与存储」整块（含存储自检）在进阶设置里，先切过去再展开。 */
+	await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶设置/.test(x.textContent))?.click()`)
+	await sleep(500)
 	await evalJs(`(() => { const d = document.querySelector("#settings-storage"); if (d && !d.open) d.querySelector("summary")?.click() })()`)
 	await sleep(200)
 
@@ -120,7 +124,11 @@ try {
 		}
 	})()`)
 	console.log(`   自检输出:\n${(after.text || "").split("\n").map(l => "     " + l).join("\n")}`)
-	check("点自检后查到 4 个数据文件", after.calls.length === 4, JSON.stringify(after.calls))
+	// 日记功能上线后，自检又多查了 nori-diary.json / .bak / -src.json 三个文件（App.vue 的 names 列表），
+	// 所以是 6 个而不是 4 个；这里断言"逐个都查了"，并钉住四个核心文件必须在内。
+	check("点自检后逐个查了 6 个数据文件",
+		after.calls.length === 6 && ["chat.json", "memory.json", "settings.json", "nori-diary.json"].every(n => after.calls.includes(n)),
+		JSON.stringify(after.calls))
 	check("如实报告「磁盘上有但 MediaStore 不可见」", after.text.includes("磁盘上存在: 是(5436 字节)") && after.text.includes("MediaStore 可见: 否"), after.text)
 	check("如实报告「连直读也被挡住」", after.text.includes("可直读: 否") && after.text.includes("目录内容: []"), after.text)
 	check("如实报告「MediaStore 可见(正常路径)」", after.text.includes("MediaStore 可见: 是(88 字节)"), after.text)

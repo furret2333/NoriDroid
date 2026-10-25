@@ -58,26 +58,24 @@ export const hitTouchArea = (x: number, y: number, px: number, py: number, pw: n
 
 export const SWIPE_DIST = 16
 
-export const SWIPE_AUTO_MS = 700
-
-
 export class TouchDetector {
 	private touches: TouchArea[] = []
 	private canvas: HTMLElement | null = null
 	private modelW = 0
 	private modelH = 0
 
-	private onTrigger: ((area: TouchArea, type: "tap" | "swipe") => void) | null = null
+	private onTrigger: ((area: TouchArea, type: "tap" | "swipe") => boolean | void) | null = null
+	private preview = false
 	
 	private cooldownMs = 2000
 	private lastTriggerAt = new Map<string, number>()
 	
-	private pending: {area: TouchArea; cum: number; startTs: number} | null = null
+	private pending: {area: TouchArea; cum: number; pointerId: number} | null = null
 	
 	private px = 0
 	private py = 0
 
-	constructor(onTrigger?: (area: TouchArea, type: "tap" | "swipe") => void) {
+	constructor(onTrigger?: (area: TouchArea, type: "tap" | "swipe") => boolean | void) {
 		this.onTrigger = onTrigger ?? null
 	}
 
@@ -85,18 +83,44 @@ export class TouchDetector {
 		if (ms > 0) this.cooldownMs = ms
 	}
 
+	getCooldownRemaining(id: string, now = Date.now()): number {
+		const last = this.lastTriggerAt.get(id)
+		return last === undefined ? 0 : Math.max(0, this.cooldownMs - (now - last))
+	}
+
+	setPreview(preview: boolean) { this.cancel(); this.preview = preview }
+
+	clearCooldown(id: string) {
+		this.lastTriggerAt.delete(id)
+	}
+
 	
 	configure(touches: TouchArea[], canvas: HTMLElement | null, modelW = 0, modelH = 0) {
+		this.cancel()
 		this.touches = touches
 		this.canvas = canvas
 		this.modelW = modelW
 		this.modelH = modelH
 	}
 
+	/** Resolve the top-most matching area without starting cooldown or triggering a response. */
+	hitTest(clientX: number, clientY: number): TouchArea | null {
+		const point = toModelPoint(clientX, clientY, this.canvas, this.modelW, this.modelH)
+		if (!point) return null
+		for (let i = this.touches.length - 1; i >= 0; i -= 1) {
+			const area = this.touches[i]
+			if (hitTouchArea(point.x, point.y, area.x, area.y, area.w, area.h)) return area
+		}
+		return null
+	}
+
 	
-	private fire(area: TouchArea, type: "tap" | "swipe") {
-		this.lastTriggerAt.set(area.id, Date.now())
-		this.onTrigger?.(area, type)
+	trigger(area: TouchArea, type: "tap" | "swipe", preview = false): boolean {
+		if (!preview && area.gesture && area.gesture !== "both" && area.gesture !== type) return false
+		if (!preview && this.getCooldownRemaining(area.id) > 0) return false
+		const accepted = this.onTrigger?.(area, type) !== false
+		if (accepted && !preview) this.lastTriggerAt.set(area.id, Date.now())
+		return accepted
 	}
 
 	
@@ -104,38 +128,32 @@ export class TouchDetector {
 		this.pending = null
 		this.px = e.clientX
 		this.py = e.clientY
-		const P = toModelPoint(e.clientX, e.clientY, this.canvas, this.modelW, this.modelH)
-		if (!P) return
-		for (let i = this.touches.length - 1; i >= 0; i--) {
-			const T = this.touches[i]
-			if (hitTouchArea(P.x, P.y, T.x, T.y, T.w, T.h)) {
-				
-				if (Date.now() - (this.lastTriggerAt.get(T.id) || 0) < this.cooldownMs) return
-				this.pending = {area: T, cum: 0, startTs: Date.now()}
-				return
-			}
-		}
+		const area = this.hitTest(e.clientX, e.clientY)
+		if (!area || (!this.preview && this.getCooldownRemaining(area.id) > 0)) return
+		this.pending = {area, cum: 0, pointerId: e.pointerId}
 	}
 
 	onPointerMove(e: PointerEvent) {
-		if (!this.pending) return
-		this.pending.cum += Math.abs(e.clientX - this.px) + Math.abs(e.clientY - this.py)
+		if (!this.pending || this.pending.pointerId !== e.pointerId) return
+		this.pending.cum += Math.hypot(e.clientX - this.px, e.clientY - this.py)
 		this.px = e.clientX
 		this.py = e.clientY
 		
-		if (this.pending.cum >= SWIPE_DIST && Date.now() - this.pending.startTs >= SWIPE_AUTO_MS) {
-			const t = this.pending.area
-			this.pending = null
-			this.fire(t, "swipe")
-		}
 	}
 
-	onPointerUp(_e: PointerEvent) {
-		if (!this.pending) return
+	onPointerUp(e: PointerEvent) {
+		if (!this.pending || this.pending.pointerId !== e.pointerId) return
+		if (e.type === "pointercancel" || e.type === "lostpointercapture") { this.cancel(); return }
+		this.onPointerMove(e)
 		const type: "tap" | "swipe" = this.pending.cum >= SWIPE_DIST ? "swipe" : "tap"
 		const t = this.pending.area
 		this.pending = null
-		this.fire(t, type)
+		const point = toModelPoint(e.clientX, e.clientY, this.canvas, this.modelW, this.modelH)
+		if (point && hitTouchArea(point.x, point.y, t.x, t.y, t.w, t.h)) this.trigger(t, type, this.preview)
+	}
+
+	cancel() {
+		this.pending = null
 	}
 
 	destroy() {

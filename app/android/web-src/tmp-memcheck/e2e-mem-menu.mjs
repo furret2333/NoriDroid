@@ -76,11 +76,9 @@ try {
 	})()`)
 	await sleep(300)
 
-	/* 打开设置 */
+	/* 打开设置 (v2.4.0 起默认落在「基础设置」tab) */
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 	await sleep(900)
-	await evalJs(`(() => { const d = document.querySelector("#settings-memory"); if (d && !d.open) d.querySelector("summary")?.click() })()`)
-	await sleep(200)
 	const lv1 = await evalJs(`(() => {
 		const sheet = document.querySelector(".sheet")
 		if (!sheet) return {err: "没有 .sheet"}
@@ -103,26 +101,51 @@ try {
 			panelTitle: (document.querySelector(".sheet-title, .panel-title") || {}).textContent || "",
 		}
 	})()`)
-	console.log(`   一级页: ${JSON.stringify(lv1)}`)
+	console.log(`   一级页(基础设置): ${JSON.stringify(lv1)}`)
 	check("一级页不再裸露「陪着你的事（目标）」区块 (无 .goal-add)", lv1.goalItems === 0, JSON.stringify(lv1))
 	check("一级页不再裸露「历史总结」列表 (无 .mem-summary)", lv1.summaryItems === 0, JSON.stringify(lv1))
 	check("一级页不再裸露长期记忆列表 (无 .mem-item)", lv1.memItems === 0, JSON.stringify(lv1))
 	check("一级页有「记忆库」入口按钮", lv1.hasEnter === true, JSON.stringify(lv1))
 	check("入口按钮带上条数", /\d+\s*条/.test(lv1.enterText), lv1.enterText)
-	check("一级页保留了记忆设置开关 (裁剪/AI 提取/AI 召回)", lv1.hasTrimToggle && lv1.hasLlmToggle && lv1.hasRecallToggle, JSON.stringify(lv1))
-	check("一级页保留了记忆操作按钮 (清理/清空/导出)", lv1.hasPrune && lv1.hasClear && lv1.hasExport, JSON.stringify(lv1))
+
+	/* v2.4.0: 记忆设置开关/操作按钮搬进了「进阶设置 → 记忆与互动」折叠区。
+	 * 断言它们**还在设置里** (别跟着列表一起搬进记忆库页), 位置变更是允许的。 */
+	await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶/.test(x.textContent))?.click()`)
+	await sleep(450)
+	await evalJs(`(() => { const d = document.querySelector("#settings-memory"); if (d && !d.open) d.querySelector("summary")?.click(); return !!d })()`)
+	await sleep(300)
+	const adv = await evalJs(`(() => {
+		const sheet = document.querySelector(".sheet")
+		const sec = document.querySelector("#settings-memory")
+		const txt = sec ? sec.innerText : ""
+		return {
+			hasTrimToggle: txt.includes("摘要后自动裁剪旧聊天记录"),
+			hasLlmToggle: txt.includes("用 AI 提取与整理记忆"),
+			hasRecallToggle: txt.includes("用 AI 语义召回记忆"),
+			hasPrune: txt.includes("清理低频记忆"),
+			hasClear: txt.includes("清空全部记忆"),
+			hasExport: !!(sec && [...sec.querySelectorAll("button")].find(b => b.textContent.trim() === "导出")),
+		}
+	})()`)
+	console.log(`   进阶设置·记忆与互动: ${JSON.stringify(adv)}`)
+	check("设置里保留了记忆设置开关 (裁剪/AI 提取/AI 召回)", adv.hasTrimToggle && adv.hasLlmToggle && adv.hasRecallToggle, JSON.stringify(adv))
+	check("设置里保留了记忆操作按钮 (清理/清空/导出)", adv.hasPrune && adv.hasClear && adv.hasExport, JSON.stringify(adv))
 
 	/* 点入口 → 二级记忆库。
-	 * ⚠ 2026-09-27 起入口有"害羞拦门": **要点三下才进** (前两下只弹气泡, 见 e2e-mem-gate)。
-	 * 这里必须点满三下, 否则本测试会假红 —— 第一次改完就踩到过 (13/13 → 8/13)。 */
-	const tapEnter3 = async () => {
-		for (let i = 0; i < 3; i += 1) {
-			const ok = await evalJs(`(() => { const b = document.querySelector(".sheet .mem-enter") || [...document.querySelectorAll(".sheet button")].find(x => /记忆库/.test(x.textContent)); if (!b) return false; b.click(); return true })()`)
-			if (!ok) throw new Error("入口按钮不在了")
-			await sleep(350)
-		}
+	 * v2.4.0: 基础设置页的「打开记忆库 · N 条」是**直接入口** (一下即进);
+	 * 进阶页的旧入口仍带"害羞拦门"(三下), 由 e2e-mem-gate 单独覆盖。 */
+	const tapEnterOnce = async () => {
+		const r = await evalJs(`(() => {
+			const t = [...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /基础设置/.test(x.textContent))
+			if (t && t.getAttribute("aria-selected") !== "true") t.click()
+			return !!t
+		})()`)
+		await sleep(350)
+		const ok = await evalJs(`(() => { const b = [...document.querySelectorAll(".sheet button")].find(x => /打开记忆库/.test(x.textContent)); if (!b) return false; b.click(); return true })()`)
+		if (!ok) throw new Error("入口按钮不在了")
+		await sleep(650)
 	}
-	await tapEnter3()
+	await tapEnterOnce()
 	await sleep(700)
 	const lv2 = await evalJs(`(() => {
 		const sheet = document.querySelector(".sheet")
@@ -160,7 +183,7 @@ try {
 	await sleep(500)
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 	await sleep(800)
-	await tapEnter3()          // 同样要点三下 (拦门)
+	await tapEnterOnce()          // 基础设置页的直接入口, 一下即进
 	await sleep(700)
 	const lv2b = await evalJs(`(() => { const t = (document.querySelector(".sheet")||{}).innerText || ""; return {hasGoal: t.includes("陪着你的事"), hasSummary: t.includes("历史总结")} })()`)
 	check("从其它面板切换后仍能进入二级记忆库页", lv2b.hasGoal === true && lv2b.hasSummary === true, JSON.stringify(lv2b))

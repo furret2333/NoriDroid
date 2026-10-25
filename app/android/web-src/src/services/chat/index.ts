@@ -34,6 +34,14 @@ export interface Settings {
 	l2dFps?: number
 	
 	ttsEnabled: boolean
+	/** 主窗口摸头反馈 (表情与轻摆) */
+	petTouchEnabled: boolean
+	/** 摸头柔光粒子与奖励效果 */
+	petTouchEffects: boolean
+	/** 摸头摩擦音效 */
+	petTouchSound: boolean
+	/** 摸头短台词朗读 (仍需配置 TTS) */
+	petTouchSpeech: boolean
 	/** Live2D 口型：默认关闭，开启后按实际播放音频振幅驱动 */
 	lipSyncEnabled: boolean
 	/** 语音提供商: fish / cosyvoice */
@@ -190,6 +198,10 @@ export const DEFAULT_SETTINGS: Settings = {
 	bubbleWidth: 82,
 	renderScale: 1,
 	ttsEnabled: false,
+	petTouchEnabled: true,
+	petTouchEffects: true,
+	petTouchSound: true,
+	petTouchSpeech: true,
 	lipSyncEnabled: false,
 	ttsProvider: "fish",
 	ttsApiKey: "",

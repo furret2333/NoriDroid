@@ -199,7 +199,10 @@ try {
 		!!before.first && /人设文案（提示词）/.test(before.first), JSON.stringify(before.first))
 	check("①-3 第二块就是「官方人设（下载）」+「下载官方人设」按钮可点",
 		/官方人设/.test(before.dlText) && before.hasBtn === true && before.btnDisabled === false, JSON.stringify({dl: before.dlText, hasBtn: before.hasBtn, disabled: before.btnDisabled}))
-	check("①-4 下载行的说明写了要过「人设授权验证」", (before.hints || []).some(h => /人设授权验证/.test(h)), JSON.stringify(before.hints))
+	// v2.4.0 的分组卡片布局里，下载行只留按钮，校验说明改由弹窗承担（②-5/②-6 已断言）；
+	// 这里钉住"行内没有旧说明"，避免以后又冒出一句与弹窗不一致的话。
+	check("①-4 下载行只留按钮、没有旧的行内说明（验证明细由弹窗负责）",
+		(before.hints || []).length === 0, JSON.stringify(before.hints))
 	check("①-5 还没点按钮时 **fetch 一次都没发出去** + 状态行仍是「未设置人设」",
 		before.fetch === 0 && /未设置人设/.test(before.state), JSON.stringify({fetch: before.fetch, state: before.state}))
 

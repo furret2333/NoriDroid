@@ -1,7 +1,7 @@
-/* 探针: 设置 →「更多工具」里的「界面字体」（2026-10-15 用户要求）
+/* 探针: 设置 → 基础设置里的「界面字体」（2026-10-15 用户要求）
  *
  * 验的是**用户真正会走的那条路**：
- *   ① 设置面板 →「更多工具」二级菜单里有「界面字体」行，三个选项（系统默认 / 霞鹜文楷 / 站酷快乐体）
+ *   ① 设置面板 → 基础设置左栏里有「界面字体」行，三个选项（系统默认 / 霞鹜文楷 / 站酷快乐体）
  *   ② 默认 = 系统默认：<html data-ui-font="system">，正文不会用上 Nori WenKai
  *   ③ 点「霞鹜文楷」→ data-ui-font=wenkai，**真的用上了**这套字体（与"不存在的字体"逐像素对比不同）
  *      ，并且落盘 settings.json（重启后还在）
@@ -74,13 +74,13 @@ try {
 	const state = () => evalJs(`(() => {
 		const body = document.querySelector(".sheet .sheet-body")
 		if (!body) return {ok: false}
-		const row = [...body.querySelectorAll(".settings-row")].find(r => /界面字体/.test(r.querySelector("label")?.textContent || ""))
+		const group = body.querySelector(".settings-basic-group-font")
+		const row = group?.querySelector(".settings-row")
 		const btns = row ? [...row.querySelectorAll("button")] : []
-		const det = row ? row.closest("details") : null
 		const cs = getComputedStyle(document.body)
 		return {
 			ok: true,
-			inTools: !!det && /更多工具/.test(det.querySelector("summary")?.textContent || ""),
+			inBasic: !!group,
 			labels: btns.map(b => b.textContent.trim()),
 			on: btns.filter(b => b.classList.contains("on")).map(b => b.textContent.trim()),
 			attr: document.documentElement.getAttribute("data-ui-font"),
@@ -103,7 +103,7 @@ try {
 	}
 	const click = (label) => evalJs(`(() => {
 		const body = document.querySelector(".sheet .sheet-body")
-		const row = [...body.querySelectorAll(".settings-row")].find(r => /界面字体/.test(r.querySelector("label")?.textContent || ""))
+		const row = body.querySelector(".settings-basic-group-font .settings-row")
 		if (!row) return "no-row"
 		const b = [...row.querySelectorAll("button")].find(x => x.textContent.trim() === ${JSON.stringify(label)})
 		if (!b) return "no-btn"
@@ -113,7 +113,7 @@ try {
 	/* ================= ① 位置与选项 ================= */
 	await openSettings()
 	const s0 = await state()
-	check("①-1 设置里能找到「界面字体」行且它确实在「更多工具」二级菜单里", s0.ok === true && s0.inTools === true, JSON.stringify(s0))
+	check("①-1 设置里能找到「界面字体」行且它确实在基础设置左栏", s0.ok === true && s0.inBasic === true, JSON.stringify(s0))
 	check("①-2 三个选项：系统默认 / 霞鹜文楷 / 站酷快乐体",
 		JSON.stringify(s0.labels) === JSON.stringify(["系统默认", "霞鹜文楷", "站酷快乐体"]), JSON.stringify(s0.labels))
 	check("①-3 默认选中「系统默认」", JSON.stringify(s0.on) === JSON.stringify(["系统默认"]), JSON.stringify(s0.on))

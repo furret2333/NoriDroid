@@ -91,11 +91,18 @@ try {
 	})()`)
 	await sleep(300)
 
-	/* 开记忆库 (点三下) */
+	/* 打开记忆库: v2.4.0 起设置默认落在「基础设置」tab, 里面的「打开记忆库 · N 条」是直接入口 */
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 	await sleep(900)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`document.querySelector(".sheet .mem-enter")?.click()`); await sleep(320) }
-	await sleep(800)
+	const entered = await evalJs(`(() => {
+		const t = [...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /基础设置/.test(x.textContent))
+		if (t && t.getAttribute("aria-selected") !== "true") t.click()
+		const b = [...document.querySelectorAll(".sheet button")].find(x => /打开记忆库/.test(x.textContent))
+		if (!b) return "NO_ENTRY"
+		b.click(); return "CLICKED"
+	})()`)
+	if (entered !== "CLICKED") throw new Error("记忆库入口不在了: " + entered)
+	await sleep(900)
 
 	const before = await evalJs(`(() => {
 		const tune = document.querySelector(".sheet .mem-tune")

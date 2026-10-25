@@ -14,13 +14,18 @@ export interface TouchArea {
 	id: string
 	name: string
 	type: TouchType
+	/** 允许触发的手势；缺失时按 both 读取旧配置。 */
+	gesture?: "tap" | "swipe" | "both"
 	
 	x: number
 	y: number
 	w: number
 	h: number
 	image: string
+	/** 旧版区域说明字段。保留以兼容已有配置，新的 AI 反应要求写入 reactionPrompt。 */
 	prompt: string
+	/** 希望 AI 对触摸作出的反应；不再拼进部位名称。 */
+	reactionPrompt?: string
 }
 
 export interface ModelRenderConfig {
@@ -31,6 +36,7 @@ export interface ModelRenderConfig {
 
 export interface ModelTouchConfig {
 	version: number
+	enabled: boolean
 	render: ModelRenderConfig
 	name: string
 	image: string
@@ -38,7 +44,8 @@ export interface ModelTouchConfig {
 }
 
 const defaultConfig = (): ModelTouchConfig => ({
-	version: 1,
+	version: 2,
+	enabled: true,
 	render: {scale: 1.0, posX: 0.0, posY: 0.0},
 	name: "",
 	image: "",
@@ -57,7 +64,15 @@ export const loadTouchConfig = (modelId: string): ModelTouchConfig => {
 			...defaultConfig(),
 			...data,
 			render: {...defaultConfig().render, ...data?.render},
-			touches: Array.isArray(data?.touches) ? data.touches : [],
+			enabled: data?.enabled !== false,
+			touches: Array.isArray(data?.touches) ? data.touches.filter((touch: Partial<TouchArea> | null) =>
+				touch && typeof touch.id === "string" && [touch.x, touch.y, touch.w, touch.h].every(Number.isFinite)
+			).map((touch: TouchArea) => ({
+				...touch,
+				gesture: touch.gesture === "tap" || touch.gesture === "swipe" ? touch.gesture : "both",
+				// 旧 prompt 是区域描述，保留原文，不当成新的 AI 反应指令。
+				reactionPrompt: typeof touch.reactionPrompt === "string" ? touch.reactionPrompt : "",
+			})) : [],
 		}
 	} catch {
 		return defaultConfig()
@@ -65,10 +80,11 @@ export const loadTouchConfig = (modelId: string): ModelTouchConfig => {
 }
 
 
-export const saveTouchConfig = (modelId: string, cfg: ModelTouchConfig): void => {
+export const saveTouchConfig = (modelId: string, cfg: ModelTouchConfig): boolean => {
 	try {
-		localStorage.setItem(`l2d_touch_${modelId}`, JSON.stringify(cfg))
-	} catch {  }
+		localStorage.setItem(`l2d_touch_${modelId}`, JSON.stringify({...cfg, version: 2}))
+		return true
+	} catch { return false }
 }
 
 

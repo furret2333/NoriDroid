@@ -128,32 +128,37 @@ try {
 		const hit = (list || []).filter(p => Array.isArray(p) && p[0] && p[0].role === "system" && String(p[0].content).includes(marker))
 		return {n: (list || []).length, p: hit.length ? hit[hit.length - 1] : null}
 	}
-	/* 设置面板顶部那块 (第一块 .settings-row) 的现场 */
+	/* 人设那一块（v2.4.0 起「基础设置」是分组卡片布局，人设自成一张卡 .settings-basic-group-persona）的现场 */
 	const topRow = () => evalJs(`(() => {
 		const body = document.querySelector(".sheet .sheet-body")
 		if (!body) return {ok: false}
-		const rows = [...body.querySelectorAll(".settings-row")]
+		const card = body.querySelector(".settings-basic-group-persona")
+		if (!card) return {ok: false, why: "no .settings-basic-group-persona"}
+		const conn = body.querySelector(".settings-basic-group-connection")
+		const rows = [...card.querySelectorAll(".settings-row")]
 		const f = rows[0]
 		const btn = (re) => f ? [...f.querySelectorAll("button")].find(b => re.test(b.textContent.trim())) : null
 		const reset = btn(/清除自定义/)
 		return {ok: true, rows: rows.length,
+			order: Number(getComputedStyle(card).order || 0),
+			connOrder: conn ? Number(getComputedStyle(conn).order || 0) : -1,
 			first: f ? f.textContent.replace(/\\s+/g, " ").trim().slice(0, 90) : "",
 			second: rows[1] ? rows[1].textContent.replace(/\\s+/g, " ").trim().slice(0, 30) : "",
-			third: rows[2] ? rows[2].textContent.replace(/\\s+/g, " ").trim().slice(0, 30) : "",
 			state: f && f.querySelector(".hint") ? f.querySelector(".hint").textContent.trim() : "",
 			hasImport: !!btn(/导入文件/), resetDisabled: reset ? !!reset.disabled : null,
 			file: (() => { try { return window.NoriChat.readFile("persona.md") } catch (e) { return "err:" + String(e) } })()}
 	})()`)
 
-	/* ================= ①~④ 设置面板最顶上那一块 ================= */
+	/* ================= ①~④ 人设卡片 ================= */
 	await openSettings()
 	const before = await topRow()
-	check("① 设置面板打得开且有人设行", before.ok === true, JSON.stringify(before))
-	check("② **第一块 .settings-row 就是人设行**（DOM 顺序，不是「存在就行」）",
+	check("① 设置面板打得开且找得到人设卡片", before.ok === true, JSON.stringify(before))
+	check("② 人设卡片里第一行就是「人设文案（提示词）」（DOM 顺序，不是「存在就行」）",
 		!!before.first && before.first.includes("人设文案（提示词）"), JSON.stringify(before.first))
-	check("③ 第二块是「官方人设（下载）」、第三块才是 API Base URL（人设相关都排在配置之前）",
-		!!before.second && /官方人设/.test(before.second) && !!before.third && /API Base URL/i.test(before.third),
-		JSON.stringify({second: before.second, third: before.third}))
+	check("③ 人设卡片是基础设置里的第 2 张卡（紧跟「连接」之后，没有被埋到最后）",
+		before.order === 2 && before.connOrder === 1, JSON.stringify({order: before.order, connOrder: before.connOrder}))
+	check("③b 人设卡片内紧接着就是「官方人设（下载）」行（人设相关成组）",
+		!!before.second && /官方人设/.test(before.second), JSON.stringify(before.second))
 	check("④ 第一块里有「导入文件」按钮", before.hasImport === true, JSON.stringify(before))
 	check("⑤ 没导入过时状态行写「未设置人设」且「清除自定义」置灰",
 		/未设置人设/.test(before.state) && before.resetDisabled === true, JSON.stringify({state: before.state, disabled: before.resetDisabled}))

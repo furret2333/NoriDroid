@@ -88,23 +88,26 @@ try {
 	})()`)
 	await sleep(300)
 
-	/* 打开设置 → **先在一级页导出** (导出按钮在「记忆系统」一级页, 进了记忆库二级页就没有了),
-	 * 再进记忆库做 DOM 断言。导出内容含作废条 —— 这是 B2 的"历史可复盘"。 */
+	/* 打开设置 → 基础设置页的「打开记忆库 · N 条」是**直接入口** (v2.4.0 起设置拆成两个 tab,
+	 * 记忆库入口在基础设置里); 进库后从页面底部「导出」取 Markdown —— 导出内容含作废条,
+	 * 这是 B2 的"历史可复盘"。 */
 	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 	await sleep(900)
-	await evalJs(`[...document.querySelectorAll(".sheet button")].find(b => b.textContent.trim() === "导出")?.click()`)
-	await sleep(600)
+	const entered = await evalJs(`(() => {
+		const t = [...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /基础设置/.test(x.textContent))
+		if (t && t.getAttribute("aria-selected") !== "true") t.click()
+		const b = [...document.querySelectorAll(".sheet button")].find(x => /打开记忆库/.test(x.textContent))
+		if (!b) return "NO_ENTRY"
+		b.click(); return "CLICKED"
+	})()`)
+	if (entered !== "CLICKED") throw new Error("记忆库入口不在了: " + entered)
+	await sleep(900)
+	await evalJs(`[...document.querySelectorAll(".sheet .mem-btns-bottom button")].find(b => b.textContent.trim() === "导出")?.click()`)
+	await sleep(700)
 	const md = await evalJs(`window.__exported || ""`)
 	check("B2: 导出 Markdown 里有「已作废的记忆」段落", /## 已作废的记忆（1 条/.test(md), md.slice(0, 400))
 	check("B2: 导出里带作废时间戳", /我叫小明.*作废于/.test(md), md.slice(0, 600))
 	check("B2: 导出里带来源标注", /\[偏好·旧记录\/手动\]/.test(md) && /\[项目·AI 整理\]/.test(md), md.slice(0, 600))
-
-	/* 进记忆库 (入口要点三下, 见 e2e-mem-gate) */
-	for (let i = 0; i < 3; i += 1) {
-		await evalJs(`document.querySelector(".sheet .mem-enter")?.click()`)
-		await sleep(350)
-	}
-	await sleep(700)
 
 	const collapsed = await evalJs(`(() => {
 		const sheet = document.querySelector(".sheet")

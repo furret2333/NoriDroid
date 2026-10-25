@@ -125,10 +125,21 @@ try {
 	}
 	const openMemPanel = async () => {
 		await closePanels()
-		await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-		await sleep(800)
-		for (let i = 0; i < 3; i += 1) { await evalJs(`document.querySelector(".sheet .mem-enter")?.click()`); await sleep(300) }
-		await sleep(700)
+		const inSettings = await evalJs(`!!document.querySelector(".sheet .settings-tabs")`)
+		if (!inSettings) {
+			await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
+			await sleep(800)
+		}
+		/* v2.4.0: 设置默认落在「基础设置」tab, 「打开记忆库 · N 条」是直接入口 */
+		const r = await evalJs(`(() => {
+			const t = [...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /基础设置/.test(x.textContent))
+			if (t && t.getAttribute("aria-selected") !== "true") t.click()
+			const b = [...document.querySelectorAll(".sheet button")].find(x => /打开记忆库/.test(x.textContent))
+			if (!b) return "NO_ENTRY"
+			b.click(); return "CLICKED"
+		})()`)
+		if (r !== "CLICKED") throw new Error("记忆库入口不在了: " + r)
+		await sleep(900)
 	}
 
 	const chatOpened = await openChat()

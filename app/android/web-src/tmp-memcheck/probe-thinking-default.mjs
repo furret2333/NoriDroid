@@ -127,6 +127,10 @@ try {
 	const thinkRow = async () => {
 		await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
 		await sleep(900)
+		/* v2.4.0 起设置分「基础设置 / 进阶设置」两个 tab（默认基础设置）；
+		   「DeepSeek 思考模式」在进阶设置 →「记忆与互动」里，不切 tab 找不到。 */
+		await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶设置/.test(x.textContent))?.click()`)
+		await sleep(500)
 		return await evalJs(`(() => {
 			const body = document.querySelector(".sheet .sheet-body")
 			if (!body) return {ok: false}

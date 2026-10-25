@@ -1,4 +1,4 @@
-﻿/* E2E: 目标收尾判定 —— 走**真实接线路径** (发消息 → sendChatStream → analyzeAfterReply → pruneDoneGoals)。
+/* E2E: 目标收尾判定 —— 走**真实接线路径** (发消息 → sendChatStream → analyzeAfterReply → pruneDoneGoals)。
  *
  * 为什么这个测试有份量: T28 测的是**服务层**(假 llmCall 直接调 pruneDoneGoals);
  * 这里测的是**接线**——回复完成后到底有没有去判定、判定结果有没有落到库里、气泡有没有弹。
@@ -101,12 +101,28 @@ try {
 	await evalJs(FAKE_MODEL)
 	check("假模型已注入 (chat/chatStream 被替换)", await evalJs(`typeof window.NoriChat.chatStream === "function" && !!window.__llmCalls`))
 
+	/* v2.4.0: 设置默认落在「基础设置」tab, 里面的「打开记忆库 · N 条」是直接入口
+	 * (进阶设置里的旧 .mem-enter 三下拦门入口仍存在, 由 e2e-mem-gate 覆盖) */
+	const openMemories = async () => {
+		const inSettings = await evalJs(`!!document.querySelector(".sheet .settings-tabs")`)
+		if (!inSettings) {
+			await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
+			await sleep(900)
+		}
+		const r = await evalJs(`(() => {
+			const t = [...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /基础设置/.test(x.textContent))
+			if (t && t.getAttribute("aria-selected") !== "true") t.click()
+			const b = [...document.querySelectorAll(".sheet button")].find(x => /打开记忆库/.test(x.textContent))
+			if (!b) return "NO_ENTRY"
+			b.click(); return "CLICKED"
+		})()`)
+		if (r !== "CLICKED") throw new Error("记忆库入口不在了: " + r)
+		await sleep(900)
+	}
+
 	/* 造一个目标 */
 	const added = await evalJs(`(() => { const g = window.__noriAddGoal; return typeof g })()`)
-	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-	await sleep(900)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`(() => { const b = document.querySelector(".sheet .mem-enter"); if (b) b.click(); return true })()`); await sleep(350) }
-	await sleep(600)
+	await openMemories()
 	const goalInput = await evalJs(`(() => { const i = document.querySelector(".goal-add input"); if (!i) return false; i.value = "考雅思"; i.dispatchEvent(new Event("input", {bubbles: true})); return true })()`)
 	check("二级记忆库页有目标输入框", goalInput === true, `addGoal 钩子=${added}`)
 	await evalJs(`[...document.querySelectorAll(".sheet button")].find(b => /记下目标/.test(b.textContent))?.click()`)
@@ -178,10 +194,7 @@ try {
 	console.log(`   气泡: ${JSON.stringify(bubbleNow)}`)
 	check("弹出了\"收起来啦\"气泡", /收起来/.test(String(bubbleNow)), String(bubbleNow))
 
-	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-	await sleep(900)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`(() => { const b = document.querySelector(".sheet .mem-enter"); if (b) b.click(); return true })()`); await sleep(350) }
-	await sleep(700)
+	await openMemories()
 	const memPage = await evalJs(`(() => {
 		const sheet = document.querySelector(".sheet")
 		const txt = (sheet || {}).innerText || ""
@@ -196,10 +209,7 @@ try {
 	await sleep(500)
 	await evalJs(`window.__goalMode = "none"`)
 	// 再造一个目标
-	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-	await sleep(900)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`(() => { const b = document.querySelector(".sheet .mem-enter"); if (b) b.click(); return true })()`); await sleep(350) }
-	await sleep(600)
+	await openMemories()
 	await evalJs(`(() => { const i = document.querySelector(".goal-add input"); if (i) { i.value = "学吉他"; i.dispatchEvent(new Event("input", {bubbles: true})) } })()`)
 	await evalJs(`[...document.querySelectorAll(".sheet button")].find(b => /记下目标/.test(b.textContent))?.click()`)
 	await sleep(500)
@@ -210,10 +220,7 @@ try {
 	const sent2 = await sendMsg("吉他还在练，有点难")
 	check("反例: 消息已发出", sent2 === "SENT", `sent=${sent2}`)
 	await sleep(2600)
-	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-	await sleep(900)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`(() => { const b = document.querySelector(".sheet .mem-enter"); if (b) b.click(); return true })()`); await sleep(350) }
-	await sleep(700)
+	await openMemories()
 	const keepPage = await evalJs(`(() => { const t = (document.querySelector(".sheet") || {}).innerText || ""; return {stillHasGoal: t.includes("学吉他")} })()`)
 	check("反例: 模型说不删时, 目标保留 (不误删)", keepPage.stillHasGoal === true, JSON.stringify(keepPage))
 

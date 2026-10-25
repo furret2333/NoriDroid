@@ -72,7 +72,7 @@ try {
 	check("竖屏默认常驻输入栏，历史与底部 Dock 收起", await evalJs('!!document.querySelector(".stage-root.portrait") && !!document.querySelector(".chat-input input") && !document.querySelector(".chat-history").offsetHeight && !document.querySelector(".dock").offsetHeight'))
 	check("右侧默认只露把手", await evalJs('!!document.querySelector(".side-rail-handle") && !document.querySelector(".side-rail-items").offsetHeight'))
 	await evalJs('document.querySelector(".side-rail-handle").click()')
-	check("展开侧栏显示五个原功能入口", await evalJs('document.querySelector(".side-rail-items").offsetHeight > 0 && [...document.querySelectorAll(".side-action")].map(b => b.textContent.trim()).join(",") === "日记,模型,触摸,番茄,设置"'))
+	check("展开侧栏显示四个功能入口", await evalJs('document.querySelector(".side-rail-items").offsetHeight > 0 && [...document.querySelectorAll(".side-action")].map(b => b.textContent.trim()).join(",") === "日记,模型,番茄,设置"'))
 	await evalJs('document.querySelector(".side-rail-mask").dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}))')
 	check("点外部收起侧栏", await evalJs('!document.querySelector(".side-rail-items").offsetHeight'))
 	await evalJs('document.querySelector(".side-rail-handle").click(); [...document.querySelectorAll(".side-action")].find(b => b.textContent.includes("设置")).click()')
@@ -80,6 +80,9 @@ try {
 	// v-show 的退场动画结束后才会设置 display:none。
 	await until(() => evalJs('!document.querySelector(".chat-panel").offsetHeight'), "聊天栏退场结束")
 	check("侧栏设置打开原面板并隐藏常驻聊天栏", await evalJs('!!document.querySelector(".sheet") && !document.querySelector(".chat-panel").offsetHeight && !document.querySelector(".side-rail")'))
+	// v2.4.0 起设置分「基础设置 / 进阶设置」两个 tab；#settings-connection 这个 `<details>` 在进阶设置里。
+	await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶设置/.test(x.textContent))?.click()`)
+	await sleep(400)
 	await evalJs('document.querySelector("#settings-connection").open = true; document.querySelector("#settings-connection input").focus()')
 	await send("Emulation.setDeviceMetricsOverride", {width: 360, height: 280, screenWidth: 360, screenHeight: 780, deviceScaleFactor: 1, mobile: true}, sessionId)
 	await sleep(300)
@@ -209,14 +212,24 @@ try {
 	await evalJs('window.__layoutCanvas = document.querySelector(".l2d-host canvas")')
 	await send("Emulation.setDeviceMetricsOverride", {width: 780, height: 360, deviceScaleFactor: 1, mobile: true}, sessionId)
 	await until(() => evalJs('!document.querySelector(".stage-root.portrait") && !!document.querySelector(".chat-tools")'), "横屏布局")
-	check("横屏保持底部六入口和原聊天工具栏", await evalJs('!!document.querySelector(".dock").offsetHeight && document.querySelectorAll(".fab").length === 6 && !document.querySelector(".side-rail") && !document.querySelector(".history-toggle")'))
+	check("横屏保持底部五入口和原聊天工具栏", await evalJs('!!document.querySelector(".dock").offsetHeight && document.querySelectorAll(".fab").length === 5 && !document.querySelector(".side-rail") && !document.querySelector(".history-toggle")'))
 	check("切换横屏保留草稿和图片，不重挂模型", await evalJs('document.querySelector(".chat-input input").value === "旋转保留草稿" && !!document.querySelector(".image-preview") && document.querySelector(".l2d-host canvas") === window.__layoutCanvas'))
 	await send("Emulation.setDeviceMetricsOverride", {width: 360, height: 780, deviceScaleFactor: 1, mobile: true}, sessionId)
 	await until(() => evalJs('!!document.querySelector(".stage-root.portrait") && !!document.querySelector(".composer-more")'), "返回竖屏")
 	check("返回竖屏保留历史展开、草稿、图片和画布", await evalJs('!!document.querySelector(".chat-history").offsetHeight && document.querySelector(".chat-input input").value === "旋转保留草稿" && !!document.querySelector(".image-preview") && document.querySelector(".l2d-host canvas") === window.__layoutCanvas'))
 	await evalJs('document.querySelector(".image-remove").click(); document.querySelector(".history-toggle").click()')
 	check("收起历史后只剩输入栏和最新回复气泡", await evalJs('!document.querySelector(".chat-history").offsetHeight && !!document.querySelector(".chat-input input") && !!document.querySelector(".portrait-reply")'))
-	check("回复气泡透明底且最多显示三行", await evalJs('(() => { const b = document.querySelector(".portrait-reply"); return getComputedStyle(b).backgroundColor.endsWith("0.3)") && getComputedStyle(b.firstElementChild).webkitLineClamp === "3" })()'))
+	/* v2.2.0 起气泡改成**分段渲染**（bubbleSegments: 每段一个 .portrait-reply-text），
+	   原来的"最多三行" line-clamp 随之退役 —— 改成"每段限宽 + 整块不超出视口"来防铺满屏。 */
+	check("回复气泡透明底 + 分段渲染 + 宽度有上限 (不铺满屏)", await evalJs(`(() => {
+		const b = document.querySelector(".portrait-reply")
+		if (!b) return false
+		const segs = [...b.children]
+		return getComputedStyle(b).backgroundColor.endsWith("0.3)")
+			&& segs.length > 0 && segs.every(s => s.classList.contains("portrait-reply-text"))
+			&& segs.every(s => getComputedStyle(s).maxWidth !== "none")
+			&& b.getBoundingClientRect().width <= innerWidth
+	})()`))
 	await evalJs('document.querySelector(".portrait-reply").click()')
 	check("点击回复气泡可打开完整记录", await evalJs('!!document.querySelector(".chat-history").offsetHeight && document.querySelector(".chat-msgs").textContent.includes("测试回复")'))
 	await evalJs('document.querySelector(".history-toggle").click()')
@@ -285,7 +298,7 @@ try {
 	writeFileSync(path.join(root, "tmp-memcheck/_chat-tools-360.png"), Buffer.from(screenshot.data, "base64"))
 	await evalJs('document.querySelector(".composer-more > button").click(); document.querySelector(".side-rail-handle").click()')
 	await until(() => evalJs('[...document.querySelectorAll(".side-action img")].every(img => img.complete && img.naturalWidth > 0)'), "侧栏图标加载")
-	check("侧栏复用的五个图标全部正常显示", await evalJs('document.querySelectorAll(".side-action img").length === 5 && [...document.querySelectorAll(".side-action img")].every(img => img.naturalWidth > 0)'))
+	check("侧栏复用的四个图标全部正常显示", await evalJs('document.querySelectorAll(".side-action img").length === 4 && [...document.querySelectorAll(".side-action img")].every(img => img.naturalWidth > 0)'))
 	const sideScreenshot = await send("Page.captureScreenshot", {format: "png"}, sessionId)
 	writeFileSync(path.join(root, "tmp-memcheck/_portrait-side-rail.png"), Buffer.from(sideScreenshot.data, "base64"))
 	await evalJs('document.querySelector(".side-rail-handle").click(); document.querySelector(".history-toggle").click()')

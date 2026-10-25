@@ -1,8 +1,16 @@
-/* 像素风重构的可见性验证 (2026-09-26)。
+/* 主题 token / 视觉的可见性验证 (原「像素风重构验证」2026-09-26; 2026-10-25 重写)。
  *
  * 为什么需要它: 改样式最容易出现"改了 token 但元素没引用"或"var 落空 → 静默回落",
  * 两种情况都**不报错、不红**, 只是页面没变 / 变丑。之前那轮"看不出变化"就是这么来的。
  * 所以这里读 computedStyle 逐项核对**具体数值**, 而不是看源码。
+ *
+ * 2026-10-25 重写背景: 像素风已从产品下线 (v2.4.0 起只剩 柔和雾面 / 潮汐玻璃 两态),
+ * 旧断言里"把主题切到像素风再核对像素凸起"全部失效。现在改为:
+ *   ① --px-* 色板与亮度纪律 (两态共用)
+ *   ② 默认态 = 柔和风: 圆角 / 柔和阴影 / **不再有像素硬边**
+ *   ③ 切潮汐玻璃: 渐变底 + 浮影 + 更强模糊 + 色板不变
+ *   ④ 切回柔和: 可逆, 且永远不会切出像素风第三态
+ *   ⑤ token 落空检测 + 全程无 JS 异常
  *
  * 运行: node tmp-memcheck/e2e-pixel-ui.mjs   (需 harness 在 8123)
  */
@@ -104,22 +112,21 @@ try {
 	for (let i = 0; i < 12 && !hasSheet; i += 1) { await sleep(250); hasSheet = await evalJs(`!!document.querySelector(".sheet")`) }
 	check("设置面板已打开 (后续断言的前提)", hasSheet === true, `hasSheet=${hasSheet}`)
 	if (!hasSheet) throw new Error("设置面板没打开, 无法继续")
+	/* v2.4.0 起设置分「基础设置 / 进阶设置」两个 tab（默认基础设置）；
+	   「外观风格」切换按钮在进阶设置 →「更多工具」里，先切过去。 */
+	await evalJs(`[...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /进阶设置/.test(x.textContent))?.click()`)
+	await sleep(400)
 
-	/* ②b 默认外观 (2026-10-01 起 = 柔和风) + 把主题切到像素风, 让下面的像素断言**确定**成立。
-	   以前这里依赖"应用默认就是像素风" —— 默认一改, 整套断言就会莫名其妙地红。 */
+	/* ②b 默认外观 = 柔和风 (2026-10-01 用户定稿)。
+	   像素风在 v2.4.0 已经**从产品下线**（只剩 柔和雾面 / 潮汐玻璃 两态），
+	   所以这里不再"切到像素风"，而是先断言默认柔和、再由 ⑤ 切潮汐玻璃做对比。 */
 	const themeState = await evalJs(`(() => {
 		const root = document.querySelector(".stage-root");
-		const soft = String(root && root.className).includes("ui-soft");
 		const b = [...document.querySelectorAll(".sheet button")].find(x => /外观风格/.test(x.textContent));
-		return {soft, label: (b && b.textContent.trim()) || ""};
+		return {cls: String(root && root.className), label: (b && b.textContent.trim()) || ""};
 	})()`)
-	check("默认外观 = 柔和风 (2026-10-01 起; 用户定稿)", themeState.soft === true, JSON.stringify(themeState))
-	if (themeState.soft) {
-		await evalJs(`[...document.querySelectorAll(".sheet button")].find(b => /外观风格/.test(b.textContent))?.click()`)
-		await sleep(400)
-	}
-	const nowTide = await evalJs(`String(document.querySelector(".stage-root").className).includes("ui-tide")`)
-	check("切到潮汐玻璃", nowTide === true, String(nowTide))
+	check("默认外观 = 柔和风 (ui-soft; 2026-10-01 用户定稿)", themeState.cls.includes("ui-soft"), JSON.stringify(themeState))
+	check("外观风格按钮显示当前风格「柔和雾面」", /柔和雾面/.test(themeState.label), themeState.label)
 
 	/* ③ 逐项核对渲染值 */
 	const look = await evalJs(`(() => {
@@ -139,12 +146,15 @@ try {
 			fabRadius: g(fab, "borderRadius"),
 			fabShadow: g(fab, "boxShadow"),
 			fabBg: g(fab, "backgroundColor"),
+			/* 2026-10-25: 底栏改成 .dock 容器 + 透明 .fab 图标, 底色要看 .dock 而不是 .fab */
+			dockBg: g(q(".dock"), "backgroundColor"),
+			dockBgImage: String(g(q(".dock"), "backgroundImage")),
 			miniRadius: mini ? g(mini, "borderRadius") : "(no .mini)",
 			miniShadow: mini ? g(mini, "boxShadow") : "(no .mini)",
 			chipRadius: chip ? g(chip, "borderRadius") : "(no .chip)",
 			titleColor: g(q(".sheet-title"), "color"),
 			// C4: 模糊半径集中成 --ui-blur-* 变量 (像素风 = 0px 保持硬边质感)
-			blurs: ["dot", "bubble", "chip", "mask"].map(k => {
+			blurs: ["bubble", "chip", "mask"].map(k => {
 				const root = q(".stage-root")
 				return root ? getComputedStyle(root).getPropertyValue("--ui-blur-" + k).trim() : null
 			}),
@@ -157,40 +167,42 @@ try {
 		}
 	})()`)
 	console.log(`   底栏: ${JSON.stringify(look.fabIcons)} · 文字 ${JSON.stringify(look.fabLabels)}`)
-	check("底栏 6 个图标都真的加载出来了 (naturalWidth>0 ⇒ 路径/打包没问题)",
-		look.fabIcons.length === 6 && look.fabIcons.every(i => i.done && i.w > 0), JSON.stringify(look.fabIcons))
-	check("底栏 6 个图标下方都有文字 (日记/模型/触摸/番茄/设置/对话)",
-		JSON.stringify(look.fabLabels) === JSON.stringify(["日记", "模型", "触摸", "番茄", "设置", "对话"]),
+	check("底栏 5 个图标都真的加载出来了 (naturalWidth>0 ⇒ 路径/打包没问题)",
+		look.fabIcons.length === 5 && look.fabIcons.every(i => i.done && i.w > 0), JSON.stringify(look.fabIcons))
+	check("底栏 5 个图标下方都有文字 (日记/模型/番茄/设置/对话)",
+		JSON.stringify(look.fabLabels) === JSON.stringify(["日记", "模型", "番茄", "设置", "对话"]),
 		JSON.stringify(look.fabLabels))
-	console.log(`   渲染值: ${JSON.stringify(look)}`)
+	console.log(`   渲染值(柔和): ${JSON.stringify(look)}`)
 	const panel = hexToRgb(px["--px-panel"])
-	const panel2 = hexToRgb(px["--px-panel-2"])
 	const white = hexToRgb(px["--px-white"])
-	check("潮汐面板使用圆角", look.sheetRadius !== "0px", look.sheetRadius)
-	check(`面板底色 = --px-panel (${panel})`, look.sheetBg === panel, `${look.sheetBg} vs ${panel}`)
-	check("面板描边保持细线", look.sheetBorderTop === "1px", look.sheetBorderTop)
+	/* ---- 柔和风（默认态）: 圆角 + 柔和阴影 + 没有像素硬边 ---- */
+	check("柔和: 面板圆角 20px", look.sheetRadius === "20px", look.sheetRadius)
+	check(`柔和: 面板底色 = --px-panel (${panel})`, look.sheetBg === panel, `${look.sheetBg} vs ${panel}`)
+	check("柔和: 面板描边是 1px 细线", look.sheetBorderTop === "1px", look.sheetBorderTop)
 	check("标题栏有清晰分隔线", look.headBorderBottom === "1px" || look.headBorderBottom === "2px", look.headBorderBottom)
 	/* 反向断言: 那层抖动条纹不许再出现（用户实机截图判定"太丑"⇒ 删掉，别哪天又被加回来） */
 	check("标题栏**不再**有抖动条纹底纹 (用户 2026-10-01 要求删)",
 		look.headBgImage === false, `backgroundImage=${JSON.stringify(look.headBgImage)}`)
 	check("关闭按钮保持圆形细描边", look.xRadius !== "0px" && look.xBorder === "1px",
 		`${look.xRadius} / ${look.xBorder}`)
-	check("面板标题用 --px-white", look.titleColor === white, `${look.titleColor} vs ${white}`)
-	check("底栏按钮保持圆角", look.fabRadius !== "0px", look.fabRadius)
-	check("底栏按钮底色已解析", !!look.fabBg && look.fabBg !== "rgba(0, 0, 0, 0)", look.fabBg)
-	/* 凸起: 亮上左(收敛后的柔和青) + 暗下右(--px-void) + 硬投影。
-	 * 注意断言的是**收敛后**的高光, 不是网页版原值 #d6fbff —— 那正是"太亮"的来源。 */
-	check("底栏按钮有像素凸起 (inset 柔和高光 + inset 暗 050811 + 4px 硬投影)",
-		/inset/.test(look.fabShadow) && look.fabShadow.includes(hexToRgb(px["--px-hilite"])) && /5, 8, 17/.test(look.fabShadow),
-		`${look.fabShadow}  (期望含 ${hexToRgb(px["--px-hilite"])})`)
-	check("凸起不再使用网页版的原高光 #d6fbff (太亮)",
-		!/214, 251, 255/.test(look.fabShadow), look.fabShadow)
-	/* mini/chip 存在于设置页则不放过; 不存在就明确说明而不是假绿 */
+	check("面板标题用 --px-white (色板不变)", look.titleColor === white, `${look.titleColor} vs ${white}`)
+	check("柔和: 底栏按钮是圆角 (不再是直角)", look.fabRadius !== "0px", look.fabRadius)
+	check("柔和: 底栏底色已解析 (色值或渐变, 不能是空的)",
+		(!!look.dockBg && look.dockBg !== "rgba(0, 0, 0, 0)") || (!!look.dockBgImage && look.dockBgImage !== "none"),
+		`bg=${look.dockBg} img=${String(look.dockBgImage).slice(0, 80)}`)
+	/* 2026-10-25 修复: 面板阴影末尾那条像素硬底边 (`0 -6px 0 rgba(5,8,17,.55)`) 之前是字面量,
+	   柔和风覆盖不到, 圆角面板下沿还挂着像素凸起。现在走 --ui-sheet-edge, 柔和风 = 全透明。 */
+	check("柔和: 面板阴影是柔和投影 (含 0.38 那条投影)",
+		/0\.38/.test(String(look.sheetShadow)), String(look.sheetShadow))
+	check("柔和: 面板**不再**有像素风硬底边 (无 5,8,17 / -6px 硬投影)",
+		!/5, 8, 17/.test(String(look.sheetShadow)) && !/-6px/.test(String(look.sheetShadow)), String(look.sheetShadow))
+	check("柔和: 凸起不再使用网页版原高光 #d6fbff (太亮)",
+		!/214, 251, 255/.test(String(look.fabShadow)), look.fabShadow)
+	/* mini 存在于设置页则不放过; 不存在就明确说明而不是假绿 */
 	if (String(look.miniRadius).startsWith("(")) {
-		check("小按钮 .mini 直角 + 凸起", false, `设置页里没找到 .mini: ${look.miniRadius}`)
+		check("柔和: 小按钮 .mini 圆角", false, `设置页里没找到 .mini: ${look.miniRadius}`)
 	} else {
-		check("小按钮 .mini 直角 + 凸起",
-			look.miniRadius === "0px" && /inset/.test(String(look.miniShadow)), `${look.miniRadius} / ${look.miniShadow}`)
+		check("柔和: 小按钮 .mini 圆角", look.miniRadius !== "0px", look.miniRadius)
 	}
 
 	/* ④ 变量落空检测: 深色面板里出现纯黑文字 = token 没解析出来 */
@@ -203,58 +215,58 @@ try {
 		}
 		return bad
 	})()`)
-	/* C4: 模糊半径变量 (像素风必须四个都是 0px, 否则"像素"被柔和模糊糊掉) */
+	/* C4: 模糊半径变量 (柔和 6/8/3px, 潮汐 10/12/5px; 两个主题都必须解析出值, 不能落空) */
 	check("当前主题模糊变量均有值", look.blurs.every(v => !!v), JSON.stringify(look.blurs))
 	check("真实元素的 backdrop-filter 已解析", String(look.tagBlur).includes("blur("), `${look.tagBlur}`)
 	check("面板内没有\"变量落空变黑\"的元素", broken.length === 0, JSON.stringify(broken))
 
-	/* ⑤ 两种模式对比: 点设置页底部「外观风格」按钮 → 柔和风。
-	 * 断言"色板不变、只有形状变" —— 这正是用户要的"只保留新色板"。 */
+	/* ⑤ 切到潮汐玻璃: 玻璃质感 = 渐变底 + 更重的浮影 + 更强模糊; **色板不变**。
+	 * (像素风已从产品下线, 所以这里是"柔和 ↔ 潮汐玻璃"两态对比, 不是回到像素风。) */
 	const beforeToggle = await evalJs(`({
 		cls: document.querySelector(".stage-root").className,
 		label: ([...document.querySelectorAll(".sheet button")].find(b => /外观风格/.test(b.textContent)) || {}).textContent || "",
 	})`)
 	console.log(`   切换前: ${JSON.stringify(beforeToggle)}`)
-	check("设置页有「外观风格」切换按钮 (便于真机 A/B)", beforeToggle.label.includes("潮汐玻璃"), beforeToggle.label)
+	check("设置页有「外观风格」切换按钮 (便于真机 A/B)", /柔和雾面/.test(beforeToggle.label), beforeToggle.label)
 
 	await evalJs(`[...document.querySelectorAll(".sheet button")].find(b => /外观风格/.test(b.textContent))?.click()`)
 	await sleep(600)
-	const soft = await evalJs(`(() => {
+	const tide = await evalJs(`(() => {
 		const q = (s) => document.querySelector(s)
 		const g = (el, p) => el ? getComputedStyle(el)[p] : null
+		const root = q(".stage-root")
 		return {
-			cls: q(".stage-root").className,
+			cls: root.className,
 			sheetRadius: g(q(".sheet"), "borderTopLeftRadius"),
-			sheetBg: g(q(".sheet"), "backgroundColor"),
-			sheetBorderTop: g(q(".sheet"), "borderTopWidth"),
+			sheetBgImage: String(g(q(".sheet"), "backgroundImage")),
 			sheetShadow: g(q(".sheet"), "boxShadow"),
 			fabRadius: g(q(".fab"), "borderRadius"),
-			fabShadow: g(q(".fab"), "boxShadow"),
 			titleColor: g(q(".sheet-title"), "color"),
-			blurs: ["dot", "bubble", "chip", "mask"].map(k => {
-				const root = q(".stage-root")
-				return root ? getComputedStyle(root).getPropertyValue("--ui-blur-" + k).trim() : null
-			}),
+			blurs: ["bubble", "chip", "mask"].map(k => getComputedStyle(root).getPropertyValue("--ui-blur-" + k).trim()),
 			tagBlur: g(q(".topbar .tag") || q(".tag"), "backdropFilter"),
 		}
 	})()`)
-	console.log(`   柔和模式: ${JSON.stringify(soft)}`)
-	check("切到柔和: 根节点 class 变为 ui-soft", String(soft.cls).includes("ui-soft"), soft.cls)
-	check("柔和: 面板圆角回来 (20px)", soft.sheetRadius === "20px", soft.sheetRadius)
-	check("柔和: 描边变回 1px 细线", soft.sheetBorderTop === "1px", soft.sheetBorderTop)
-	check("柔和: 底栏按钮不再是直角", soft.fabRadius !== "0px", soft.fabRadius)
-	check("柔和: 有柔和阴影、不再有像素凸起的亮边",
-		!/214, 251, 255/.test(String(soft.fabShadow)) && /rgba?\(/.test(String(soft.fabShadow)), soft.fabShadow)
-	check("★ 柔和模式**色板不变**: 面板底仍是 --px-panel 深蓝", soft.sheetBg === panel, `${soft.sheetBg} vs ${panel}`)
-	check("★ 柔和模式**色板不变**: 标题仍是 --px-white", soft.titleColor === white, `${soft.titleColor} vs ${white}`)
-	check("柔和风模糊变量有值", soft.blurs.every(v => !!v), JSON.stringify(soft.blurs))
-	check("柔和风真实元素 backdrop-filter 已解析", String(soft.tagBlur).includes("blur("), `${soft.tagBlur}`)
+	console.log(`   潮汐玻璃: ${JSON.stringify(tide)}`)
+	check("切到潮汐玻璃: 根节点 class 变为 ui-tide", String(tide.cls).includes("ui-tide"), tide.cls)
+	check("潮汐玻璃: 面板圆角 18px", tide.sheetRadius === "18px", tide.sheetRadius)
+	check("潮汐玻璃: 面板是渐变底 (不是纯色)", /linear-gradient/.test(tide.sheetBgImage), tide.sheetBgImage.slice(0, 140))
+	check("潮汐玻璃: 面板有浮影", /rgba?\(/.test(String(tide.sheetShadow)), tide.sheetShadow)
+	check("潮汐玻璃: 底栏按钮是圆角", tide.fabRadius !== "0px", tide.fabRadius)
+	check("★ 潮汐玻璃**色板不变**: 标题仍是 --px-white", tide.titleColor === white, `${tide.titleColor} vs ${white}`)
+	check("潮汐玻璃: 三个模糊变量都有值 (bubble/chip/mask)", tide.blurs.every(v => !!v), JSON.stringify(tide.blurs))
+	check("潮汐玻璃: 真实元素 backdrop-filter 已解析", String(tide.tagBlur).includes("blur("), `${tide.tagBlur}`)
 
-	/* 切回像素风, 并顺手把状态还原, 免得影响后续断言 */
+	/* ⑥ 切回柔和: 状态可逆, 且**永远不会切出像素风第三态** (v2.4.0 起像素风已下线) */
 	await evalJs(`[...document.querySelectorAll(".sheet button")].find(b => /外观风格/.test(b.textContent))?.click()`)
 	await sleep(500)
-	const back = await evalJs(`({cls: document.querySelector(".stage-root").className, r: getComputedStyle(document.querySelector(".sheet")).borderTopLeftRadius})`)
-	check("能切回潮汐玻璃 (状态可逆)", String(back.cls).includes("ui-tide") && back.r !== "0px", JSON.stringify(back))
+	const back = await evalJs(`({
+		cls: String(document.querySelector(".stage-root").className),
+		r: getComputedStyle(document.querySelector(".sheet")).borderTopLeftRadius,
+		label: ([...document.querySelectorAll(".sheet button")].find(b => /外观风格/.test(b.textContent)) || {}).textContent || "",
+	})`)
+	check("能切回柔和风 (状态可逆)", String(back.cls).includes("ui-soft") && back.r === "20px", JSON.stringify(back))
+	check("像素风已下线: 切换只在「柔和雾面 / 潮汐玻璃」两态之间",
+		!String(back.cls).includes("ui-pixel") && /柔和雾面/.test(back.label), JSON.stringify(back))
 
 	check("全程无未捕获 JS 异常", jsErrors.length === 0, JSON.stringify(jsErrors.slice(0, 3)))
 

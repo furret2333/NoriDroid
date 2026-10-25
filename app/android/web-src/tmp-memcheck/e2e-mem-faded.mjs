@@ -74,6 +74,25 @@ try {
 	}
 	await evalJs(`document.querySelector(".intro-mask")?.remove()`)
 
+	/* v2.4.0: 设置默认落在「基础设置」tab, 里面的「打开记忆库 · N 条」是直接入口。
+	 * (进阶设置里的旧 .mem-enter 三下拦门入口仍存在, 由 e2e-mem-gate 覆盖) */
+	const openMemories = async () => {
+		const inSettings = await evalJs(`!!document.querySelector(".sheet .settings-tabs")`)
+		if (!inSettings) {
+			await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
+			await sleep(900)
+		}
+		const r = await evalJs(`(() => {
+			const t = [...document.querySelectorAll(".settings-tabs [role=tab]")].find(x => /基础设置/.test(x.textContent))
+			if (t && t.getAttribute("aria-selected") !== "true") t.click()
+			const b = [...document.querySelectorAll(".sheet button")].find(x => /打开记忆库/.test(x.textContent))
+			if (!b) return "NO_ENTRY"
+			b.click(); return "CLICKED"
+		})()`)
+		if (r !== "CLICKED") throw new Error("记忆库入口不在了: " + r)
+		await sleep(900)
+	}
+
 	/* 造数据: 1 生效 + 1 作废 + 1 已收起 + 回收站 1 条 */
 	const ts0 = Date.now() - 3600_000
 	await evalJs(`(() => {
@@ -93,11 +112,7 @@ try {
 	})()`)
 	await sleep(300)
 
-	/* 打开记忆库 (点三下) */
-	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-	await sleep(900)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`document.querySelector(".sheet .mem-enter")?.click()`); await sleep(320) }
-	await sleep(800)
+	await openMemories()
 
 	const view = await evalJs(`(() => {
 		const sheet = document.querySelector(".sheet")
@@ -190,10 +205,7 @@ try {
 	})()`)
 	await evalJs(`document.querySelector(".sheet-mask")?.click()`)
 	await sleep(500)
-	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-	await sleep(800)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`document.querySelector(".sheet .mem-enter")?.click()`); await sleep(320) }
-	await sleep(700)
+	await openMemories()
 	const beforeForever = await evalJs(`(() => { const d = document.querySelector(".sheet .mem-deleted"); return d ? d.innerText.slice(0, 60) : null })()`)
 	await evalJs(`(() => { const d = document.querySelector(".sheet .mem-deleted"); if (d) d.open = true; const b = d && [...d.querySelectorAll("button")].find(x => /永久删除/.test(x.textContent)); b && b.click(); return !!b })()`)
 	await sleep(900)
@@ -214,10 +226,7 @@ try {
 	/* ⑥ (2026-09-29 新增) 条目行「收起」按钮: 手动收起 → 进「已收起」(原因: 你手动收起的) */
 	await evalJs(`document.querySelector(".sheet-mask")?.click()`)
 	await sleep(400)
-	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-	await sleep(800)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`document.querySelector(".sheet .mem-enter")?.click()`); await sleep(320) }
-	await sleep(700)
+	await openMemories()
 	const rowBtns = await evalJs(`(() => {
 		const rows = [...document.querySelectorAll(".sheet .mem-item")]
 		const row = rows.find(r => /年年/.test(r.innerText))
@@ -263,10 +272,7 @@ try {
 		window.NoriChat.writeFile("memory.json", JSON.stringify(mem))
 		return true
 	})()`)
-	await evalJs(`[...document.querySelectorAll(".fab")].find(x => /设置/.test(x.textContent))?.click()`)
-	await sleep(800)
-	for (let i = 0; i < 3; i += 1) { await evalJs(`document.querySelector(".sheet .mem-enter")?.click()`); await sleep(320) }
-	await sleep(700)
+	await openMemories()
 	await evalJs(`(() => {
 		window.__exported = null
 		const orig = window.NoriChat.writeFile
