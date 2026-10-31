@@ -1183,6 +1183,41 @@ export interface StreamChatCallbacks {
 	onError: (message: string) => void
 }
 
+/**
+ * 流式聊天的可等待终态。
+ *
+ * 为什么不复用 UI 回调当完成信号: 页面侧的 `resolve()` 曾经写在 `onDone`/`onError` 里,
+ * 于是「UI 渲染抛错」会被误当成「业务没结束」—— 外层 `await` 永不 settle, 界面永久卡死。
+ * 现在传输终态由服务自己给出, UI 回调只负责显示。
+ */
+export interface StreamChatResult {
+	/** 正常结束 */
+	ok: true
+	/** 完整回复 (已含标记, 与 onDone 一致) */
+	content: string
+	/** 是否为本地取消 */
+	cancelled: false
+}
+
+export interface StreamChatFailure {
+	ok: false
+	content: string
+	/** 是否为本地取消 (signal abort / 原生"已停止") */
+	cancelled: boolean
+	/** 失败原因, 与 onError 的第一个参数一致 */
+	message: string
+}
+
+export type StreamChatOutcome = StreamChatResult | StreamChatFailure
+
+/**
+ * UI 回调统一隔离：显示层抛错不能影响传输终态、也不能阻塞队列释放。
+ * 模块级是为了给"压根没进队列"的早退分支（缺 Key / 缺模型）复用。
+ */
+const safeUiCallback = (fn: () => void): void => {
+	try { fn() } catch (e) { console.error("[chat] UI 回调抛错（已隔离，不影响本次请求完成）", e) }
+}
+
 declare global {
 	interface Window {
 		__noriChatDelta?: (delta: string) => void
@@ -1220,30 +1255,52 @@ export const sendChatStream = (
 	thinking = false,
 	signal?: AbortSignal,
 	options?: ChatRequestOptions,
-): void => {
-	if (!apiKey.trim()) { callbacks.onError("请先在设置里填写 API Key"); return }
-	if (!model.trim()) { callbacks.onError("请先在设置里选择模型"); return }
-	const task = (): Promise<void> =>
-		new Promise<void>((resolveTask) => {
+): Promise<StreamChatOutcome> => {
+	// 配置缺失这类"根本没进队列"的失败也要给出可等待终态, 否则页面 await 会挂住。
+	if (!apiKey.trim()) {
+		safeUiCallback(() => callbacks.onError("请先在设置里填写 API Key"))
+		return Promise.resolve({ok: false, content: "", cancelled: false, message: "请先在设置里填写 API Key"})
+	}
+	if (!model.trim()) {
+		safeUiCallback(() => callbacks.onError("请先在设置里选择模型"))
+		return Promise.resolve({ok: false, content: "", cancelled: false, message: "请先在设置里选择模型"})
+	}
+	const task = (): Promise<StreamChatOutcome> =>
+		new Promise<StreamChatOutcome>((resolveTask) => {
 			let idleTimer: ReturnType<typeof setTimeout> | null = null
-			const finish = (): void => {
+			let settled = false
+			/**
+			 * 唯一的完成出口。**必须幂等**: 迟到回包/重复回调/UI 抛错都不得二次 resolve,
+			 * 否则队列会被解锁两次而放进不该放的请求。
+			 */
+			const finish = (outcome: StreamChatOutcome): void => {
+				if (settled) return
+				settled = true
 				if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
-				resolveTask()
+				resolveTask(outcome)
 			}
+			/** UI 回调用独立的 try/catch 包住: 显示层出错不能影响传输终态和队列释放。 */
+			const safeCallback = safeUiCallback
 			const nori = window.NoriChat
-			if (signal?.aborted) { callbacks.onError("已停止"); finish(); return }
+			if (signal?.aborted) {
+				safeCallback(() => callbacks.onError("已停止"))
+				finish({ok: false, content: "", cancelled: true, message: "已停止"})
+				return
+			}
 			if (nori && typeof nori.chatStream === "function") {
+				// 组装 payload 与预算裁剪都可能抛错 (预算超限 / 消息里混进不可序列化对象)。
+				// 必须在 Promise 执行器内就地接住, 否则异常会逃出执行器 → 本 Promise reject,
+				// 且这一路从未 finish() → 队列语义上"没有终态就结束"。
+				let payload: string
 				let ready: ChatMsg[]
-				try { ready = prepareChatMessages(messages, options) }
-				catch (e) { callbacks.onError(String(e)); finish(); return }
-				const payload = JSON.stringify(buildApiMessages(ready, options))
-				const onAbort = () => {
-					// 本地取消: 顺手通知原生断流 (否则原生会把整个 SSE 拉完, 白耗流量);
-					// 即使原生桥丢弃过期回包, 这里也能正常结束
-					try { nori.chatStop?.() } catch { /* 忽略 */ }
-					cleanup()
-					callbacks.onError("已停止")
-					finish()
+				try {
+					ready = prepareChatMessages(messages, options)
+					payload = JSON.stringify(buildApiMessages(ready, options))
+				} catch (e) {
+					const msg = e instanceof Error ? e.message : String(e)
+					safeCallback(() => callbacks.onError(msg))
+					finish({ok: false, content: "", cancelled: false, message: msg})
+					return
 				}
 				const cleanup = () => {
 					delete window.__noriChatDelta
@@ -1251,39 +1308,49 @@ export const sendChatStream = (
 					delete window.__noriChatError
 					signal?.removeEventListener("abort", onAbort)
 				}
+				const onAbort = () => {
+					// 本地取消: 顺手通知原生断流 (否则原生会把整个 SSE 拉完, 白耗流量);
+					// 即使原生桥丢弃过期回包, 这里也能正常结束
+					try { nori.chatStop?.() } catch { /* 忽略 */ }
+					cleanup()
+					safeCallback(() => callbacks.onError("已停止"))
+					finish({ok: false, content: "", cancelled: true, message: "已停止"})
+				}
 				/** 重置空闲看门狗: 起跑时与每收到一个 delta 时各调一次 */
 				const armIdleWatchdog = (): void => {
 					if (idleTimer) clearTimeout(idleTimer)
 					idleTimer = setTimeout(() => {
 						idleTimer = null
 						cleanup()
-						callbacks.onError("响应超时（长时间没有数据）")
-						finish()
+						const msg = "响应超时（长时间没有数据）"
+						safeCallback(() => callbacks.onError(msg))
+						finish({ok: false, content: "", cancelled: false, message: msg})
 					}, streamIdleTimeoutMs())
 				}
 				window.__noriChatDelta = (delta) => {
 					armIdleWatchdog()   // 有数据 → 重置看门狗, 长回复不会被误杀
-					callbacks.onDelta(delta)
+					safeCallback(() => callbacks.onDelta(delta))
 				}
 				window.__noriChatDone = (json) => {
 					cleanup()
+					// 解析与 UI 回调分开: 解析失败给空内容, 但不能因此跳过 UI 回调或漏掉 finish
+					let content = ""
 					try {
 						const r = JSON.parse(json) as {ok?: boolean; content?: string}
-						callbacks.onDone(r.content ?? "")
-					} catch {
-						callbacks.onDone("")
-					}
-					finish()
+						content = r.content ?? ""
+					} catch { content = "" }
+					safeCallback(() => callbacks.onDone(content))
+					finish({ok: true, content, cancelled: false})
 				}
 				window.__noriChatError = (json) => {
 					cleanup()
+					let message = "请求失败"
 					try {
 						const r = JSON.parse(json) as {message?: string}
-						callbacks.onError(r.message ?? "请求失败")
-					} catch {
-						callbacks.onError("请求失败")
-					}
-					finish()
+						message = r.message ?? "请求失败"
+					} catch { message = "请求失败" }
+					safeCallback(() => callbacks.onError(message))
+					finish({ok: false, content: "", cancelled: message === "已停止", message})
 				}
 				if (signal) {
 					if (signal.aborted) { onAbort(); return }
@@ -1295,8 +1362,9 @@ export const sendChatStream = (
 					options?.onDispatched?.(ready)
 				} catch (e) {
 					cleanup()
-					callbacks.onError(`发起流式请求失败: ${String(e)}`)
-					finish()
+					const msg = `发起流式请求失败: ${String(e)}`
+					safeCallback(() => callbacks.onError(msg))
+					finish({ok: false, content: "", cancelled: false, message: msg})
 				}
 				return
 			}
@@ -1304,15 +1372,25 @@ export const sendChatStream = (
 			void sendChat(baseUrl, apiKey, model, messages, thinking, {...options, signal}).then((r) => {
 				if (r.ok) {
 					const content = r.content ?? ""
-					callbacks.onDelta(content)
-					callbacks.onDone(content)
+					safeCallback(() => callbacks.onDelta(content))
+					safeCallback(() => callbacks.onDone(content))
+					finish({ok: true, content, cancelled: false})
 				} else {
-					callbacks.onError(r.message ?? "请求失败")
+					const message = r.message ?? "请求失败"
+					safeCallback(() => callbacks.onError(message))
+					finish({ok: false, content: "", cancelled: message === "已停止", message})
 				}
-				finish()
+			}).catch((e) => {
+				// 非流式分支自身异常也必须有终态, 否则队列永久卡住
+				const message = e instanceof Error ? e.message : String(e)
+				safeCallback(() => callbacks.onError(message))
+				finish({ok: false, content: "", cancelled: false, message})
 			})
 		})
-	streamQueue = streamQueue.then(task, task)
+	// 队列只关心"这一路是否已收尾", 不把失败当异常向上抛 (失败已经通过终态表达)
+	const mine: Promise<StreamChatOutcome> = streamQueue.then(task, task)
+	streamQueue = mine   // 串行链只用来排队; 每个调用方拿到的是自己这一路的终态
+	return mine
 }
 
 /** 打断当前流式聊天 */

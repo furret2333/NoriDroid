@@ -32,7 +32,8 @@ const SUITES = [
 	{name: "run-render-lifecycle-tests", kind: "unit"},
 	{name: "run-tests", kind: "unit"},
 	{name: "run-memory-lifecycle-tests", kind: "unit"},
-	{name: "probe-recall-summary-quality", kind: "probe", args: ["--strict"]},
+	{name: "run-memory-recall-tests", kind: "unit"},
+	{name: "probe-recall-summary-quality", kind: "probe", args: ["--guards"]},
 	{name: "run-memory-collapse-tests", kind: "unit"},
 	{name: "run-lipsync-tests", kind: "unit"},        // 口型包络/振幅映射/PCM 头/写参数闸门 (补齐"注释声称有、实际没有"的单测)
 	{name: "audit-memory", kind: "probe"},            // C1: 记忆侧结构审计 (原为手工脚本, 2026-10-08 挂进门禁)

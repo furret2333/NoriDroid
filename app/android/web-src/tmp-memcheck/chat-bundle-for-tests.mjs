@@ -756,90 +756,108 @@ var enqueueChat = (task) => {
   return run;
 };
 var resolveThinking = (baseUrl, thinking) => /deepseek/i.test(baseUrl) ? thinking ? "enabled" : "disabled" : "";
+var safeUiCallback = (fn) => {
+  try {
+    fn();
+  } catch (e) {
+    console.error("[chat] UI \u56DE\u8C03\u629B\u9519\uFF08\u5DF2\u9694\u79BB\uFF0C\u4E0D\u5F71\u54CD\u672C\u6B21\u8BF7\u6C42\u5B8C\u6210\uFF09", e);
+  }
+};
 var STREAM_IDLE_TIMEOUT_MS = 3e4;
 var streamIdleTimeoutMs = () => window.__noriStreamTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
 var streamQueue = Promise.resolve();
 var sendChatStream = (baseUrl, apiKey, model, messages, callbacks, thinking = false, signal, options) => {
   if (!apiKey.trim()) {
-    callbacks.onError("\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u586B\u5199 API Key");
-    return;
+    safeUiCallback(() => callbacks.onError("\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u586B\u5199 API Key"));
+    return Promise.resolve({ ok: false, content: "", cancelled: false, message: "\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u586B\u5199 API Key" });
   }
   if (!model.trim()) {
-    callbacks.onError("\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u9009\u62E9\u6A21\u578B");
-    return;
+    safeUiCallback(() => callbacks.onError("\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u9009\u62E9\u6A21\u578B"));
+    return Promise.resolve({ ok: false, content: "", cancelled: false, message: "\u8BF7\u5148\u5728\u8BBE\u7F6E\u91CC\u9009\u62E9\u6A21\u578B" });
   }
   const task = () => new Promise((resolveTask) => {
     let idleTimer = null;
-    const finish = () => {
+    let settled = false;
+    const finish = (outcome) => {
+      if (settled) return;
+      settled = true;
       if (idleTimer) {
         clearTimeout(idleTimer);
         idleTimer = null;
       }
-      resolveTask();
+      resolveTask(outcome);
     };
+    const safeCallback = safeUiCallback;
     const nori = window.NoriChat;
     if (signal?.aborted) {
-      callbacks.onError("\u5DF2\u505C\u6B62");
-      finish();
+      safeCallback(() => callbacks.onError("\u5DF2\u505C\u6B62"));
+      finish({ ok: false, content: "", cancelled: true, message: "\u5DF2\u505C\u6B62" });
       return;
     }
     if (nori && typeof nori.chatStream === "function") {
+      let payload;
       let ready;
       try {
         ready = prepareChatMessages(messages, options);
+        payload = JSON.stringify(buildApiMessages(ready, options));
       } catch (e) {
-        callbacks.onError(String(e));
-        finish();
+        const msg = e instanceof Error ? e.message : String(e);
+        safeCallback(() => callbacks.onError(msg));
+        finish({ ok: false, content: "", cancelled: false, message: msg });
         return;
       }
-      const payload = JSON.stringify(buildApiMessages(ready, options));
-      const onAbort = () => {
-        try {
-          nori.chatStop?.();
-        } catch {
-        }
-        cleanup();
-        callbacks.onError("\u5DF2\u505C\u6B62");
-        finish();
-      };
       const cleanup = () => {
         delete window.__noriChatDelta;
         delete window.__noriChatDone;
         delete window.__noriChatError;
         signal?.removeEventListener("abort", onAbort);
       };
+      const onAbort = () => {
+        try {
+          nori.chatStop?.();
+        } catch {
+        }
+        cleanup();
+        safeCallback(() => callbacks.onError("\u5DF2\u505C\u6B62"));
+        finish({ ok: false, content: "", cancelled: true, message: "\u5DF2\u505C\u6B62" });
+      };
       const armIdleWatchdog = () => {
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
           idleTimer = null;
           cleanup();
-          callbacks.onError("\u54CD\u5E94\u8D85\u65F6\uFF08\u957F\u65F6\u95F4\u6CA1\u6709\u6570\u636E\uFF09");
-          finish();
+          const msg = "\u54CD\u5E94\u8D85\u65F6\uFF08\u957F\u65F6\u95F4\u6CA1\u6709\u6570\u636E\uFF09";
+          safeCallback(() => callbacks.onError(msg));
+          finish({ ok: false, content: "", cancelled: false, message: msg });
         }, streamIdleTimeoutMs());
       };
       window.__noriChatDelta = (delta) => {
         armIdleWatchdog();
-        callbacks.onDelta(delta);
+        safeCallback(() => callbacks.onDelta(delta));
       };
       window.__noriChatDone = (json) => {
         cleanup();
+        let content = "";
         try {
           const r = JSON.parse(json);
-          callbacks.onDone(r.content ?? "");
+          content = r.content ?? "";
         } catch {
-          callbacks.onDone("");
+          content = "";
         }
-        finish();
+        safeCallback(() => callbacks.onDone(content));
+        finish({ ok: true, content, cancelled: false });
       };
       window.__noriChatError = (json) => {
         cleanup();
+        let message = "\u8BF7\u6C42\u5931\u8D25";
         try {
           const r = JSON.parse(json);
-          callbacks.onError(r.message ?? "\u8BF7\u6C42\u5931\u8D25");
+          message = r.message ?? "\u8BF7\u6C42\u5931\u8D25";
         } catch {
-          callbacks.onError("\u8BF7\u6C42\u5931\u8D25");
+          message = "\u8BF7\u6C42\u5931\u8D25";
         }
-        finish();
+        safeCallback(() => callbacks.onError(message));
+        finish({ ok: false, content: "", cancelled: message === "\u5DF2\u505C\u6B62", message });
       };
       if (signal) {
         if (signal.aborted) {
@@ -854,23 +872,32 @@ var sendChatStream = (baseUrl, apiKey, model, messages, callbacks, thinking = fa
         options?.onDispatched?.(ready);
       } catch (e) {
         cleanup();
-        callbacks.onError(`\u53D1\u8D77\u6D41\u5F0F\u8BF7\u6C42\u5931\u8D25: ${String(e)}`);
-        finish();
+        const msg = `\u53D1\u8D77\u6D41\u5F0F\u8BF7\u6C42\u5931\u8D25: ${String(e)}`;
+        safeCallback(() => callbacks.onError(msg));
+        finish({ ok: false, content: "", cancelled: false, message: msg });
       }
       return;
     }
     void sendChat(baseUrl, apiKey, model, messages, thinking, { ...options, signal }).then((r) => {
       if (r.ok) {
         const content = r.content ?? "";
-        callbacks.onDelta(content);
-        callbacks.onDone(content);
+        safeCallback(() => callbacks.onDelta(content));
+        safeCallback(() => callbacks.onDone(content));
+        finish({ ok: true, content, cancelled: false });
       } else {
-        callbacks.onError(r.message ?? "\u8BF7\u6C42\u5931\u8D25");
+        const message = r.message ?? "\u8BF7\u6C42\u5931\u8D25";
+        safeCallback(() => callbacks.onError(message));
+        finish({ ok: false, content: "", cancelled: message === "\u5DF2\u505C\u6B62", message });
       }
-      finish();
+    }).catch((e) => {
+      const message = e instanceof Error ? e.message : String(e);
+      safeCallback(() => callbacks.onError(message));
+      finish({ ok: false, content: "", cancelled: false, message });
     });
   });
-  streamQueue = streamQueue.then(task, task);
+  const mine = streamQueue.then(task, task);
+  streamQueue = mine;
+  return mine;
 };
 var cancelChatStream = () => {
   try {

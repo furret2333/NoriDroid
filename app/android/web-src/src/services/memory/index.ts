@@ -4,6 +4,11 @@
 import {compareAndWriteFile, readFileState, writeFile} from "../chat"
 import {contentBlocked, filteredSummary, filterDeletedText, setContentAction, summaryFactKeys, summaryUsable, suppressRelatedSummaries, textMentionsMemory} from "./lifecycle"
 import {messageTimeRange} from "../time"
+import {selfQueryFactKey, subjectHints} from "./subjects"
+import {buildRecallQuery, recallIntentMatches, type RecallTurn} from "./query"
+import {supportedAutomaticFact} from "./evidence"
+import {smartCandidates} from "./candidates"
+import type {RecallMetrics} from "./diag"
 import {
 	DIAG_PROMPT_MAX,
 	DIAG_RAW_MAX,
@@ -76,6 +81,7 @@ import {
 	rangeOfSummary,
 	recallMemories,
 	recallMemoriesByKeywords,
+	recallSubjectMatches,
 	scoreMemory,
 	shouldSkipLlmExtract,
 	summariesOverlap,
@@ -855,6 +861,7 @@ const diagInject = (
 	considered: number,
 	matched: number,
 	note = "",
+	recall?: RecallMetrics,
 ): void => {
 	recordInject({
 		source,
@@ -871,6 +878,7 @@ const diagInject = (
 		considered,
 		matched,
 		note,
+		...(recall ? {recall: {...recall, injected: ranked.length}} : {}),
 	})
 }
 
@@ -1505,6 +1513,19 @@ const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
 		)
 	})
 
+/** Exact/normalized evidence checks are guards, not a semantic judge. */
+const automaticFactAllowed = (content: string, messages: readonly {role: string; content: string}[]): boolean =>
+	supportedAutomaticFact(content, messages, (text, fact) => {
+		const body = normalizeForCompare(fact).replace(/^(?:记住|用户|主人|我)(?:的)?[：:]?/, "")
+		return (body.length >= 2 && normalizeForCompare(text).includes(body)) ||
+			textMentionsMemory(text, {content: fact} as MemoryItem)
+	})
+
+/** The summary channel must not reintroduce a claim rejected from the memory block. */
+const automaticSummary = (text: string, messages: readonly {role: string; content: string}[]): string =>
+	(text.match(/[^。！？!?；;\n]+(?:[。！？!?；;]|\n|$)/g) ?? [])
+		.filter(sentence => automaticFactAllowed(sentence, messages)).join("")
+
 /**
  * 混合提取: 规则法 + LLM 法 (捕捉委婉表达). LLM 失败不影响规则结果.
  * @param text 用户消息
@@ -1524,7 +1545,8 @@ export const addMemoriesWithLlm = async (
 	try {
 		const raw = await llmCall(buildLlmExtractPrompt(text))
 		if (generationOf(syncMemoryFromDisk()) !== generation || store !== cache) return 0
-		changed = applyMerge(store, parseLlmMemories(raw).map(m => ({...m, sourceTs: evidenceAt, sourceKind: "llm" as const}))).changed || changed
+		changed = applyMerge(store, parseLlmMemories(raw).filter(m => automaticFactAllowed(m.content, [{role: "user", content: text}]))
+			.map(m => ({...m, sourceTs: evidenceAt, sourceKind: "llm" as const}))).changed || changed
 	} catch {
 		// 忽略
 	}
@@ -1859,7 +1881,8 @@ export const extractMemoriesSmart = async (
 	try {
 		const raw = await llmCall(buildLlmExtractPrompt(userText, recentContext))
 		if (generationOf(syncMemoryFromDisk()) !== generation) return result
-		const facts = parseLlmMemories(raw).map(m => ({...m, sourceTs: evidenceAt, sourceKind: "llm" as const}))
+		const facts = parseLlmMemories(raw).filter(m => automaticFactAllowed(m.content, [{role: "user", content: userText}]))
+			.map(m => ({...m, sourceTs: evidenceAt, sourceKind: "llm" as const}))
 		if (!facts.length) return result
 		const write = await applyLlmMemoryDecision(facts, llmCall)
 		result.added += write.added
@@ -1914,6 +1937,8 @@ export const pruneStaleMemories = (staleDays = 30, minImportance = 0.6): number 
  */
 export interface MemoryRecall {
 	query: string
+	searchQuery?: string
+	metrics?: RecallMetrics
 	generation: string
 	limit: number
 	ranked: {item: MemoryItem; score: number}[]
@@ -1926,10 +1951,9 @@ export interface MemoryRecall {
 
 export const historicalFactKey = (query: string): string | null => {
 	if (!/以前|过去|原来|曾经|之前|旧/.test(query)) return null
-	if (/名字|叫什么|称呼/.test(query)) return "self:name"
-	if (/住在|居住|住哪|城市/.test(query)) return "self:home"
-	if (/生日/.test(query)) return "self:birthday"
-	return null
+	// Existing history UI also accepts an omitted subject, e.g. “以前的名字叫什么”.
+	const abbreviated = query.replace(/以前|过去|原来|曾经|之前|旧/g, "").replace(/^[的\s]+/, "")
+	return selfQueryFactKey(query) ?? (/^(?:名字|姓名|称呼)(?:叫|是|为|改)/.test(abbreviated) ? "self:name" : null)
 }
 const recallPool = (store: MemoryStoreData, query: string): MemoryItem[] => {
 	const key = historicalFactKey(query)
@@ -1939,27 +1963,42 @@ const recallPool = (store: MemoryStoreData, query: string): MemoryItem[] => {
 }
 
 /** 候选选择不更新次数、不记录已发送。 */
-export const selectRecall = (query: string): MemoryRecall => {
+export const selectRecall = (query: string, recent: readonly RecallTurn[] = []): MemoryRecall => {
+	const start = performance.now()
+	const resolved = buildRecallQuery(query, recent)
+	const searchQuery = resolved.search
 	const store = syncMemoryFromDisk()
-	const pool = recallPool(store, query)
-	const primary = recallMemories(pool, query, MEMORY_BLOCK_LIMIT + KW_FALLBACK_LIMIT, true)
-	const aliases = recallMemoriesByKeywords(pool, query, KW_FALLBACK_LIMIT)
+	const pool = resolved.unresolved ? [] : recallPool(store, searchQuery)
+		.filter(m => recallSubjectMatches(searchQuery, m) && recallIntentMatches(query, m))
+	const primary = recallMemories(pool, searchQuery, MEMORY_BLOCK_LIMIT + KW_FALLBACK_LIMIT, true)
+	const aliases = recallMemoriesByKeywords(pool, searchQuery, KW_FALLBACK_LIMIT)
 	const candidates = new Map(primary.ranked.map(r => [r.item.id, r]))
 	for (const r of aliases.ranked) if (!candidates.has(r.item.id)) candidates.set(r.item.id, r)
 	let ranked = diversifyHits([...candidates.values()].sort((a, b) => b.score - a.score), MEMORY_BLOCK_LIMIT)
 	let matched = candidates.size
 	let source: MemInjectSource = "keyword"
 	if (!primary.ranked.length && aliases.ranked.length) source = "keyword-kw"
-	const factKey = historicalFactKey(query) ?? (/(?:我|主人|用户)/.test(query)
-		? /名字|叫什么|称呼|姓名/.test(query) ? "self:name" : /住哪|住在|居住|住哪里/.test(query)
-			? "self:home" : /生日/.test(query) ? "self:birthday" : null : null)
+	const factKey = historicalFactKey(query) ?? selfQueryFactKey(query)
 	if (factKey) {
 		const direct = pool.filter(m => selfFact(m.content)?.key === factKey)
 		for (const m of direct) if (!ranked.some(r => r.item.id === m.id)) ranked.push({item: m, score: m.importance})
 		ranked = ranked.slice(0, MEMORY_BLOCK_LIMIT)
 		matched = Math.max(matched, direct.length)
 	}
-	return {query, generation: generationOf(store), limit: MEMORY_BLOCK_LIMIT, ranked,
+	// Attribute questions can have no content tokens (“我喜欢什么”). Only explicit
+	// subjects and interrogative predicates use this route, never incidental “喜欢”.
+	const subject = subjectHints(query)
+	if ((subject.self || subject.roles.length || subject.names.length) && !/^(?:最)?(?:喜欢|爱喝|爱吃)/.test(query.trim()) &&
+		/(?:最)?(?:喜欢|爱喝|爱吃)(?:什么|啥|哪些)/.test(query)) {
+		const preferences = pool.filter(m => /喜欢|爱喝|爱吃/.test(m.content))
+		for (const item of preferences) if (!ranked.some(r => r.item.id === item.id)) ranked.push({item, score: item.importance})
+		ranked = ranked.slice(0, MEMORY_BLOCK_LIMIT)
+		matched = Math.max(matched, preferences.length)
+	}
+	return {query, searchQuery, generation: generationOf(store), limit: MEMORY_BLOCK_LIMIT, ranked,
+		metrics: {elapsedMs: performance.now() - start, outcome: resolved.unresolved ? "unresolved" : "lexical",
+			candidates: Math.max(matched, ranked.length), channels: {lexical: primary.ranked.length, alias: aliases.ranked.length, diverse: 0, recent: 0, important: 0},
+			contextTurns: resolved.contextTurns, selected: ranked.length},
 		considered: pool.length, matched, source, historical: !!historicalFactKey(query),
 		note: ranked.length ? "" : pool.length ? "正文与别名都没命中" : "库里没有生效记忆"}
 }
@@ -1972,6 +2011,7 @@ export const materializeRecall = (selection: MemoryRecall, maxChars = 1800): {te
 	for (const {item} of selection.ranked.slice(0, selection.limit)) {
 		const current = store.memories.find(m => m.id === item.id)
 		if (!current || contentBlocked(store, current.content) || current.fadedAt) continue
+		if (selection.source !== "opening" && !recallSubjectMatches(selection.searchQuery ?? selection.query, current)) continue
 		if (current.invalidAt && !(selection.historical && selfFact(current.content)?.key === historicalFactKey(selection.query))) continue
 		const rendered = current.invalidAt ? {...current, content: `${current.content}（已作废的旧说法，仅供历史回顾）`} : current
 		if (buildMemoryBlock([...items, rendered], selection.limit).length <= maxChars) items.push(rendered)
@@ -1993,7 +2033,7 @@ export const commitRecall = (selection: MemoryRecall, requestId: string, sentIds
 		persist()
 	}
 	diagInject(selection.source, selection.query, selection.limit, ranked, selection.considered,
-		selection.matched, selection.note)
+		selection.matched, selection.note, selection.metrics)
 }
 /** 字符串接口兼容旧调用方，保持只读。 */
 export const recallForQuery = (query: string): string => materializeRecall(selectRecall(query)).text
@@ -2014,58 +2054,56 @@ export const selectRecallSmart = async (
 	query: string,
 	llmCall: (prompt: string) => Promise<string>,
 	topK = MEMORY_BLOCK_LIMIT,
+	recent: readonly RecallTurn[] = [],
+	onCandidates?: (data: Pick<RecallMetrics, "candidates" | "channels" | "contextTurns">) => void,
 ): Promise<MemoryRecall> => {
+	const start = performance.now()
 	const store = syncMemoryFromDisk()
-	const fallback = selectRecall(query)
-	if (!store.memories.length) return fallback
+	const fallback = selectRecall(query, recent)
+	const search = fallback.searchQuery ?? query
+	if (fallback.metrics?.outcome === "unresolved") return fallback
 	// 只拿**有效**记忆当候选: 作废条从这里漏出去就会又被注入 (它连"高重要/最新"两路
 	// 粗筛都能进, 与 openingMemoryBlock 同一个坑)
-	const all = recallPool(store, query)
-	if (!all.length) return fallback
+	const all = recallPool(store, search).filter(m => recallSubjectMatches(search, m) && recallIntentMatches(query, m))
+	if (!all.length) return {...fallback, metrics: {...fallback.metrics!, outcome: "no-candidates"}}
+	const candidate = smartCandidates(all, search, fallback.ranked.map(r => r.item))
+	const pre = candidate.items
+	onCandidates?.({candidates: pre.length, channels: candidate.channels, contextTurns: fallback.metrics?.contextTurns ?? 0})
 	let picked: MemoryItem[] = []
 	let llmOk = false // LLM 成功返回 (即使无命中)
+	let outcome: RecallMetrics["outcome"] = "parse-error"
 	// 1) LLM 判断 (候选过多时先按关键词粗筛到 Top 20, 控制 prompt 长度)
 	//    带超时: LLM 慢/挂起时 3s 后放弃 → 走关键词降级, 避免对话卡死
 	try {
-		// 候选筛选: 全量 ≤20 时全给 LLM; 超量时混合取 (关键词 Top + 最新 + 高重要),
-		// 避免只按关键词粗筛导致"指代性提问"把真相关记忆筛掉
-		let pre: MemoryItem[]
-		if (all.length <= 20) {
-			pre = all
-		} else {
-			// 正文和别名的并集先进入候选，最近/重要条目只补充剩余位置。
-			const relevant = [...fallback.ranked.map(r => r.item), ...recallMemories(all, query, 12, true).hits,
-				...recallMemoriesByKeywords(all, query).hits]
-			const byNew = [...all].sort((a, b) => b.createdAt - a.createdAt).slice(0, 4)
-			const byImp = [...all].sort((a, b) => b.importance - a.importance).slice(0, 4)
-			const seen = new Set<string>()
-			pre = []
-			for (const m of [...relevant, ...byNew, ...byImp]) {
-				if (!seen.has(m.id)) { seen.add(m.id); pre.push(m) }
-				if (pre.length >= 20) break
-			}
-		}
 		if (pre.length) {
-			const raw = await withTimeout(llmCall(buildLlmRelevancePrompt(query, pre.map(m => ({id: m.id, content: m.content})))), LLM_TIMEOUT_MS)
+			const promptQuery = search === query ? query : `${query}\n【最近用户发言提供的指代线索，仅用于理解当前问题】\n${search}`
+			const raw = await withTimeout(llmCall(buildLlmRelevancePrompt(promptQuery, pre.map(m => ({id: m.id, content: m.content})))), LLM_TIMEOUT_MS)
 			const valid = new Set(pre.map(m => m.id))
 			const parsed = parseLlmRelevanceResult(raw, valid)
 			llmOk = parsed.ok
+			outcome = parsed.ok ? parsed.ids.length ? "success" : "empty" : "parse-error"
 			const llmIds = parsed.ids
 			// 保持 LLM 输出顺序, 只取有效的
 			picked = llmIds.map(id => all.find(m => m.id === id)).filter((m): m is MemoryItem => !!m)
 		}
-	} catch { /* LLM 失败/超时 → llmOk=false → 走关键词兜底 */ }
+	} catch (error) {
+		outcome = error instanceof Error && error.message === "timeout" ? "inner-timeout" :
+			error instanceof Error && error.name === "AbortError" ? "cancelled" : "network-error"
+	}
 	// A valid empty selection stays empty; only failures use lexical fallback.
-	const effectiveLimit = Math.min(topK, MEMORY_BLOCK_LIMIT)
+	const effectiveLimit = Math.max(0, Math.min(topK, MEMORY_BLOCK_LIMIT))
 	picked = picked.slice(0, effectiveLimit)
 	// A3: 得分的计算必须在**强化之前**做 —— 那才是"被选中时的依据";
 	// 先 +1 再算, 记录里显示的分数与当时的决策就不是一回事了。
 	const scoreTokens = tokenize(query)
 	const rankedSmart = picked.map(item => ({item, score: scoreMemory(scoreTokens, item, Date.now())}))
 	const sourceSmart: MemInjectSource = llmOk ? "smart-llm" : "smart-fallback"
-	if (!llmOk) return {...fallback, source: "smart-fallback", note: "AI 召回失败/超时 → 关键词降级"}
+	const metrics: RecallMetrics = {elapsedMs: performance.now() - start, outcome, candidates: pre.length,
+		channels: candidate.channels, contextTurns: fallback.metrics?.contextTurns ?? 0, selected: llmOk ? picked.length : Math.min(fallback.ranked.length, effectiveLimit)}
+	if (!llmOk) return {...fallback, limit: effectiveLimit, ranked: fallback.ranked.slice(0, effectiveLimit), metrics,
+		source: "smart-fallback", note: `AI 召回降级：${outcome}`}
 	return {...fallback, limit: effectiveLimit, ranked: rankedSmart, source: sourceSmart,
-		matched: picked.length, note: picked.length ? "" : "AI 判定没有相关记忆"}
+		metrics, matched: picked.length, note: picked.length ? "" : "AI 判定没有相关记忆"}
 }
 export const recallForQuerySmart = async (query: string, llmCall: (prompt: string) => Promise<string>, topK = MEMORY_BLOCK_LIMIT): Promise<string> =>
 	materializeRecall(await selectRecallSmart(query, llmCall, topK)).text
@@ -2464,7 +2502,7 @@ export const summarizeIfNeeded = async (
 		topic: parsedParts.map(p => p.topic).filter(Boolean).join("、").slice(0, 16), items: parsedParts.flatMap(p => p.items)}
 	// 摘要优先: 哨兵后什么都没有也必须有摘要文本 (模型只答了一半时不能把摘要丢了)
 	const {summaryText, keyFacts} = splitSummaryKeys(parsedBlock.summaryText)
-	const storedText = filterDeletedText(store, summaryText)
+	const storedText = filterDeletedText(store, automaticSummary(summaryText, newer))
 	// 条目来源: ① 记忆块 JSON (主通道) → ② 「记忆要点」文本 (降级通道, 兼容旧格式/模型不听话)
 	const blockItems = parsedBlock.items
 	// **写入门槛 (S2)**: 提示词之外的确定性兜底 —— 一次性事件/低重要度的"垃圾"不进长期记忆。
@@ -2478,6 +2516,7 @@ export const summarizeIfNeeded = async (
 	const deadLink: string[] = []
 	if (worth.length) {
 		for (const it of worth) {
+			if (!automaticFactAllowed(it.content, newer)) { deadLink.push(it.content); continue }
 			// 已作废的旧说法不再从旧对话里回流成活记忆 (见 matchesInvalidated)
 			if (matchesInvalidated(store, it.content)) { deadLink.push(it.content); continue }
 			// 显式要求记住的给 core 类型 ⇒ decayDays=null (永不衰减), 与规则通道的 explicit 同效
@@ -2490,6 +2529,7 @@ export const summarizeIfNeeded = async (
 	} else if (!blockItems.length && keyFacts.length) {
 		for (const fact of keyFacts) {
 			for (const it of extractMemories(fact)) {
+				if (!automaticFactAllowed(it.content, newer)) { deadLink.push(it.content); continue }
 				if (matchesInvalidated(store, it.content)) { deadLink.push(it.content); continue }
 				fresh.push({...it, sourceKind: "rule", sourceTs: newer[newer.length - 1]?.ts ?? 0, sourceFromTs: newer[0]?.ts ?? 0})
 			}

@@ -747,10 +747,14 @@ class ChatBridge(private val appContext: Context) {
     
     private val chatToken = AtomicLong(0)
 
-    
+    /** 最近一次真正发起的 chatStream 的代次; chatStop 用它判断"有没有更新的流已经起来"。 */
+    private val latestStartedToken = AtomicLong(0)
+
+
     @android.webkit.JavascriptInterface
     fun chatStream(baseUrl: String, apiKey: String, model: String, messagesJson: String, thinkingMode: String) {
         val token = chatToken.incrementAndGet()
+        latestStartedToken.set(token)
         chatConnection.getAndSet(null)?.disconnect()
         ioExecutor.execute {
             chatStreamSync(token, baseUrl, apiKey, model, messagesJson, thinkingMode)
@@ -760,9 +764,36 @@ class ChatBridge(private val appContext: Context) {
     
     @android.webkit.JavascriptInterface
     fun chatStop() {
+        // 先取当前代次再自增: 顺序不能反, 否则拿不到"被停的是哪一路"。
+        val stoppingToken = chatToken.get()
         chatToken.incrementAndGet()
         chatConnection.getAndSet(null)?.disconnect()
-        postChatNow("__noriChatError", JSONObject().put("message", "已停止").toString())
+        postChatStop(stoppingToken, JSONObject().put("message", "已停止").toString())
+    }
+
+
+    /**
+     * 投递「已停止」，但要证明"此刻没有一条更新的流已经起来"。
+     *
+     * 旧实现用 postChatNow 无条件下发: chatStop 自增代次后, 若在 mainHandler 真正执行前
+     * 用户已发出下一条 chatStream (代次再增), 这条迟到的「已停止」就会打进**新请求**,
+     * 使其一开场就报错。
+     *
+     * 判定条件用 `latestStartedToken` 而不是 `chatToken` 本身:
+     *   - chatStream 会把 latestStartedToken 记为它自己那一路;
+     *   - chatStop 只自增 chatToken、不碰 latestStartedToken。
+     * 于是"停掉最新一路后没有新流"时 latestStartedToken == stoppingToken → 投递;
+     * 已有新流时 latestStartedToken > stoppingToken → 丢弃。
+     * 若改用 `chatToken.get() == stoppingToken + 1`，连续两次点停止会把两次都丢掉,
+     * 用户第二次停止就失效了 —— 这是实测抓到的边界。
+     */
+    private fun postChatStop(stoppingToken: Long, json: String) {
+        mainHandler.post {
+            if (latestStartedToken.get() != stoppingToken) return@post
+            runCatching {
+                webView?.evaluateJavascript("window.__noriChatError && window.__noriChatError(${JSONObject.quote(json)})", null)
+            }
+        }
     }
 
     
@@ -775,15 +806,6 @@ class ChatBridge(private val appContext: Context) {
         }
     }
 
-    private fun postChatNow(fn: String, json: String) {
-        mainHandler.post {
-            runCatching {
-                webView?.evaluateJavascript("window.$fn && window.$fn(${JSONObject.quote(json)})", null)
-            }
-        }
-    }
-
-    
     private fun chatStreamSync(token: Long, baseUrl: String, apiKey: String, model: String, messagesJson: String, thinkingMode: String) {
         var conn: HttpURLConnection? = null
         var reader: BufferedReader? = null

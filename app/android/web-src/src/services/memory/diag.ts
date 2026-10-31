@@ -114,6 +114,22 @@ export const MAX_INJECT_RECORDS = 60
 /** 一次注入走的是哪条通道（查"为什么没想起来"时先看这个） */
 export type MemInjectSource = "keyword" | "keyword-kw" | "smart-llm" | "smart-fallback" | "opening"
 
+/** Content-free metadata, gated by the existing diagnostic setting. */
+export interface RecallMetrics {
+	elapsedMs: number
+	outcome: "lexical" | "success" | "empty" | "parse-error" | "network-error" | "inner-timeout" | "budget-timeout" | "cancelled" | "no-candidates" | "unresolved"
+	candidates: number
+	channels: {lexical: number; alias: number; diverse: number; recent: number; important: number}
+	contextTurns: number
+	selected: number
+}
+const recallRing: (RecallMetrics & {ts: number})[] = []
+export const recordRecall = (metrics: RecallMetrics): void => {
+	if (!enabled) return
+	recallRing.push({...metrics, channels: {...metrics.channels}, ts: Date.now()})
+	if (recallRing.length > MAX_INJECT_RECORDS) recallRing.shift()
+}
+
 /** 一条「注入」记录：一次召回**真正进了上下文**的完整证据 */
 export interface MemInjectRecord {
 	ts: number
@@ -134,12 +150,13 @@ export interface MemInjectRecord {
 	matched: number
 	/** 失败 / 降级原因（空串 = 正常） */
 	note: string
+	recall?: RecallMetrics & {injected: number}
 }
 
 const injectRing: MemInjectRecord[] = []
 
 export const injectCount = (): number => injectRing.length
-export const clearInjects = (): void => { injectRing.length = 0 }
+export const clearInjects = (): void => { injectRing.length = 0; recallRing.length = 0 }
 /** 记一条注入（开关关着时直接返回，与 recordOrganize 同一约定：零开销） */
 export const recordInject = (rec: Omit<MemInjectRecord, "ts">): void => {
 	if (!enabled) return
@@ -160,6 +177,8 @@ export const lastInjectRecord = (): MemInjectRecord | null =>
 export const buildInjectJsonl = (meta: {model?: string; app?: string; extra?: Record<string, unknown>} = {}): string => {
 	const head = {
 		kind: "inject-header",
+		// Included in the existing export; no raw query, content, ID, prompt or error strings.
+		recalls: recallRing.map(r => ({...r, channels: {...r.channels}})),
 		at: new Date().toISOString(),
 		app: meta.app ?? "NoriDroid",
 		model: meta.model ?? "",

@@ -185,7 +185,7 @@ const send = async () => {	const text = draft.value.trim()
 			const r = await sendChat(s.baseUrl, s.apiKey, s.model, [{role: "system", content: prompt} as ChatMsg], false, {signal})
 			if (!r.ok) throw new Error(r.message ?? "召回失败")
 			return r.content ?? ""
-		} : null, RECALL_BUDGET_MS, ac.signal)
+		} : null, RECALL_BUDGET_MS, ac.signal, history.slice(-6))
 		const context: ChatMsg[] = []
 		const personaText = personaPrompt()
 		if (personaText) context.push({role: "system", content: personaText} as ChatMsg)
@@ -211,8 +211,8 @@ const send = async () => {	const text = draft.value.trim()
 			pendingSpeech = rest
 		}
 
-		await new Promise<void>((resolve) => {
-			sendChatStream(s.baseUrl, s.apiKey, s.model, payload, {
+		// 传输终态由服务自己给出; UI 回调只负责显示 (抛错不影响等待与队列释放)
+		await sendChatStream(s.baseUrl, s.apiKey, s.model, payload, {
 				onDelta: (delta) => {
 					if (delta === "null") return
 					receivedDelta = true
@@ -252,7 +252,6 @@ const send = async () => {	const text = draft.value.trim()
 					}
 					markerBuf.value = ""
 					replyText.value = reply
-					resolve()
 				},
 				onError: (msg) => {
 					if (ttsOn) endSpeakSession()
@@ -260,10 +259,8 @@ const send = async () => {	const text = draft.value.trim()
 					if (msg === "已停止") replyText.value = reply.trim() || "已停止"
 					else if (!reply.trim()) replyText.value = `⚠ ${msg}`
 					else replyText.value = reply
-					resolve()
 				},
 			}, s.deepseekThinking, ac.signal, memoryChatOptions(selection, payload, s.timeAware !== false))
-		})
 
 		// 表演兜底: 全程没收到标记 → 用正文关键词驱动 (与主 App triggerEmotion/pickMotionByKeyword 一致)
 		if (streamOk && reply.trim() && !markerSeen) {

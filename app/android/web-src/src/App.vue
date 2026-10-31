@@ -2254,87 +2254,84 @@ const handleTouchTrigger = async (area: Pick<TouchArea, "name" | "prompt" | "rea
 	}
 
 	try {
-		await new Promise<void>((resolve) => {
-			sendChatStream(cfg.baseUrl, cfg.apiKey, cfg.model, payload, {
-				onDelta: (delta) => {
-					if (delta === "null") return
-					// 剥离隐藏的【表情:xxx】【动作:xxx】标记 (标记不显示、不朗读)
-					const {clean, emotion, motion} = parseMarkerDelta(delta, touchMarkerBuf)
-					const safeClean = stripInternalPromptMetadata(clean)
-					reply = stripInternalPromptMetadata(reply + safeClean)
-					pendingSpeech = stripInternalPromptMetadata(pendingSpeech + safeClean)
-					flushSpeech()
+		// 传输终态由服务自己给出; UI 回调只负责显示 (抛错不影响等待与队列释放)
+		await sendChatStream(cfg.baseUrl, cfg.apiKey, cfg.model, payload, {
+			onDelta: (delta) => {
+				if (delta === "null") return
+				// 剥离隐藏的【表情:xxx】【动作:xxx】标记 (标记不显示、不朗读)
+				const {clean, emotion, motion} = parseMarkerDelta(delta, touchMarkerBuf)
+				const safeClean = stripInternalPromptMetadata(clean)
+				reply = stripInternalPromptMetadata(reply + safeClean)
+				pendingSpeech = stripInternalPromptMetadata(pendingSpeech + safeClean)
+				flushSpeech()
+				if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
+				if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
+				if (cfg.emotionLlm && motion) playMarkerMotion(motion)
+				// 存储合并: 只更新一条 liveBubble, 显示层自动拆多气泡
+				if (!liveBubble && reply.trim()) {
+					liveBubble = {role: "assistant", content: reply, ts: Date.now()}
+					messages.value.push(liveBubble)
+				} else if (liveBubble) {
+					if (reply.trim()) liveBubble.content = reply
+					else {
+						const idx = messages.value.indexOf(liveBubble)
+						if (idx >= 0) messages.value.splice(idx, 1)
+						liveBubble = null
+					}
+				}
+				if (reply.trim()) {
+					showPortraitReply(reply)
+					if (chatOpen.value) scrollChatBottom()
+				}
+			},
+			onDone: (content) => {
+				streamOk = true
+				reply = stripInternalPromptMetadata(reply)
+				// content 含标记: 优先用已剥离的 reply; reply 为空时整体剥离一次 (空缓冲)
+				if (content && !reply.trim()) {
+					const fresh = {value: ""}
+					const {clean, emotion, motion} = parseMarkerDelta(content, fresh)
+					reply = stripInternalPromptMetadata(clean)
 					if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
 					if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
 					if (cfg.emotionLlm && motion) playMarkerMotion(motion)
-					// 存储合并: 只更新一条 liveBubble, 显示层自动拆多气泡
 					if (!liveBubble && reply.trim()) {
 						liveBubble = {role: "assistant", content: reply, ts: Date.now()}
 						messages.value.push(liveBubble)
 					} else if (liveBubble) {
-						if (reply.trim()) liveBubble.content = reply
-						else {
-							const idx = messages.value.indexOf(liveBubble)
-							if (idx >= 0) messages.value.splice(idx, 1)
-							liveBubble = null
-						}
-					}
-					if (reply.trim()) {
-						showPortraitReply(reply)
-						if (chatOpen.value) scrollChatBottom()
-					}
-				},
-				onDone: (content) => {
-					streamOk = true
-					reply = stripInternalPromptMetadata(reply)
-					// content 含标记: 优先用已剥离的 reply; reply 为空时整体剥离一次 (空缓冲)
-					if (content && !reply.trim()) {
-						const fresh = {value: ""}
-						const {clean, emotion, motion} = parseMarkerDelta(content, fresh)
-						reply = stripInternalPromptMetadata(clean)
-						if (cfg.emotionLlm && (emotion || motion)) markerDriven = true
-						if (cfg.emotionLlm && emotion) playMarkerEmotion(emotion)
-						if (cfg.emotionLlm && motion) playMarkerMotion(motion)
-						if (!liveBubble && reply.trim()) {
-							liveBubble = {role: "assistant", content: reply, ts: Date.now()}
-							messages.value.push(liveBubble)
-						} else if (liveBubble) {
-							liveBubble.content = reply
-						}
-					}
-					touchMarkerBuf.value = ""
-					if (liveBubble) {
-						if (reply.trim()) liveBubble.content = reply
-						else {
-							const idx = messages.value.indexOf(liveBubble)
-							if (idx >= 0) messages.value.splice(idx, 1)
-							liveBubble = null
-						}
-					}
-					if (reply.trim()) showPortraitReply(reply)
-					else portraitReply.value = ""
-					persistChat(messages.value)
-					resolve()
-				},
-				onError: (msg) => {
-					const cancelled = stopRequested || msg === "已停止"
-					if (cancelled) showPortraitReply(reply)
-					if (!cancelled && !reply.trim()) {
-						if (liveBubble) {
-							const idx = messages.value.indexOf(liveBubble)
-							if (idx >= 0) messages.value.splice(idx, 1)
-							liveBubble = null
-						}
-						messages.value.push({role: "assistant", content: `⚠ ${msg}`, ts: Date.now(), error: true})
-						showPortraitReply(`⚠ ${msg}`)
-					} else if (liveBubble) {
 						liveBubble.content = reply
 					}
-					persistChat(messages.value)
-					resolve()
-				},
-			}, cfg.deepseekThinking, chatAbort.signal, memoryChatOptions(selection, payload, cfg.timeAware))
-		})
+				}
+				touchMarkerBuf.value = ""
+				if (liveBubble) {
+					if (reply.trim()) liveBubble.content = reply
+					else {
+						const idx = messages.value.indexOf(liveBubble)
+						if (idx >= 0) messages.value.splice(idx, 1)
+						liveBubble = null
+					}
+				}
+				if (reply.trim()) showPortraitReply(reply)
+				else portraitReply.value = ""
+				persistChat(messages.value)
+			},
+			onError: (msg) => {
+				const cancelled = stopRequested || msg === "已停止"
+				if (cancelled) showPortraitReply(reply)
+				if (!cancelled && !reply.trim()) {
+					if (liveBubble) {
+						const idx = messages.value.indexOf(liveBubble)
+						if (idx >= 0) messages.value.splice(idx, 1)
+						liveBubble = null
+					}
+					messages.value.push({role: "assistant", content: `⚠ ${msg}`, ts: Date.now(), error: true})
+					showPortraitReply(`⚠ ${msg}`)
+				} else if (liveBubble) {
+					liveBubble.content = reply
+				}
+				persistChat(messages.value)
+			},
+		}, cfg.deepseekThinking, chatAbort.signal, memoryChatOptions(selection, payload, cfg.timeAware))
 
 		// 收尾: 剩余文本 + 结束朗读会话
 		if (ttsOn) {
@@ -4212,7 +4209,7 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 			const r = await sendChat(cfg.baseUrl, cfg.apiKey, cfg.model, [{role: "system", content: prompt} as ChatMsg], false, {signal})
 			if (!r.ok) throw new Error(r.message ?? "召回失败")
 			return r.content ?? ""
-		} : null, RECALL_BUDGET_MS, chatAbort.signal)
+		} : null, RECALL_BUDGET_MS, chatAbort.signal, messages.value.slice(-7, -1))
 		if (chatAbort.signal.aborted) return
 		const context: ChatMsg[] = []
 		const personaText = personaPrompt()
@@ -4282,8 +4279,8 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 			pendingSpeech = rest
 		}
 
-		await new Promise<void>((resolve) => {
-			sendChatStream(cfg.baseUrl, cfg.apiKey, cfg.model, payload, {
+		// 传输终态由服务自己给出; UI 回调只负责显示 (抛错不影响等待与队列释放)
+		await sendChatStream(cfg.baseUrl, cfg.apiKey, cfg.model, payload, {
 				onDelta: (delta) => {
 					// 防御: 个别代理会把 null 当字符串下发, 直接跳过
 					if (delta === "null") return
@@ -4347,7 +4344,6 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 					if (reply.trim()) showPortraitReply(reply)
 					else portraitReply.value = ""
 					persistChat(messages.value)
-					resolve()
 				},
 				onError: (msg) => {
 					chatStreaming.value = false
@@ -4367,10 +4363,8 @@ const runSend = async (text: string, image?: PendingImage): Promise<void> => {
 						liveBubble.content = reply
 					}
 					persistChat(messages.value)
-					resolve()
 				},
 			}, cfg.deepseekThinking, chatAbort.signal, memoryChatOptions(selection, payload, cfg.timeAware))
-		})
 		if (activeChatAbort === chatAbort) activeChatAbort = null
 		if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = null }
 

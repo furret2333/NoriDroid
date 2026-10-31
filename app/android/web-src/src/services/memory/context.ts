@@ -1,6 +1,8 @@
 import type {ChatMsg, ChatRequestOptions} from "../chat"
 import {commitRecall, goalCarePrompt, historicalFactKey, materializeRecall, recentTopicsBlock,
 	selectRecall, selectRecallSmart, summaryBlock, type MemoryRecall} from "./index"
+import {recordRecall, type RecallMetrics} from "./diag"
+import type {RecallTurn} from "./query"
 
 /** 主界面与悬浮窗共用：迟到候选只读，结束竞速时撤销定时器及辅助调用。 */
 export const selectRecallWithinBudget = async (
@@ -8,18 +10,37 @@ export const selectRecallWithinBudget = async (
 	llmCall: ((prompt: string, signal: AbortSignal) => Promise<string>) | null,
 	budgetMs: number,
 	signal?: AbortSignal,
+	recent: readonly RecallTurn[] = [],
 ): Promise<MemoryRecall> => {
-	if (!llmCall || signal?.aborted) return selectRecall(query)
+	const start = performance.now()
+	let candidateMetrics: Pick<RecallMetrics, "candidates" | "channels" | "contextTurns"> | undefined
+	const finish = (selection: MemoryRecall): MemoryRecall => {
+		if (selection.metrics) {
+			selection = {...selection, metrics: {...selection.metrics, elapsedMs: performance.now() - start}}
+			recordRecall(selection.metrics!)
+		}
+		return selection
+	}
+	const fallback = (outcome?: RecallMetrics["outcome"]): MemoryRecall => {
+		const selection = selectRecall(query, recent)
+		return outcome ? {...selection, source: "smart-fallback", note: `AI 召回降级：${outcome}`,
+			metrics: {...selection.metrics!, ...candidateMetrics, outcome}} : selection
+	}
+	if (signal?.aborted) return finish(fallback("cancelled"))
+	if (!llmCall) return finish(fallback())
 	const abort = new AbortController()
-	const onAbort = (): void => abort.abort()
+	let cancel: (selection: MemoryRecall) => void = () => {}
+	const onAbort = (): void => { cancel(fallback("cancelled")); abort.abort() }
 	signal?.addEventListener("abort", onAbort, {once: true})
 	let timer: ReturnType<typeof setTimeout> | undefined
 	try {
-		const smart = selectRecallSmart(query, prompt => llmCall(prompt, abort.signal)).catch(() => selectRecall(query))
 		const fast = new Promise<MemoryRecall>(resolve => {
-			timer = setTimeout(() => resolve(selectRecall(query)), budgetMs)
+			cancel = resolve
+			timer = setTimeout(() => resolve(fallback("budget-timeout")), Math.max(0, budgetMs))
 		})
-		return await Promise.race([smart, fast])
+		const smart = selectRecallSmart(query, prompt => llmCall(prompt, abort.signal), 6, recent,
+			data => {candidateMetrics = data}).catch(() => fallback("network-error"))
+		return finish(await Promise.race([smart, fast]))
 	} finally {
 		if (timer) clearTimeout(timer)
 		abort.abort()

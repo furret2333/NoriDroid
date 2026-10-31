@@ -178,6 +178,123 @@ const mkMsg = (role, content, ts) => ({role, content, ts})
 	delete window.__noriStreamTimeoutMs
 }
 
+/* ============ T3c 流式终态不依赖 UI 回调 (2026-10-31 修复) ============
+ * 修复前: sendChatStream 返回 void, 页面用 `await new Promise(r => sendChatStream(...))`
+ *   包着, 而 resolve() 写在 onDone/onError 里 → UI 渲染一抛错, 外层 await 永不 settle,
+ *   界面永久卡死 + streamQueue 不再放行 (之后所有消息都发不出去)。
+ * 修复后: 服务自己给出可等待终态; UI 回调异常被隔离, 不影响完成与队列释放。
+ */
+{
+	const preCalls = chatStreamCalls
+
+	// (1) onDone 抛错: 外层 Promise 仍必须 settle, 且队列要解锁
+	let outerSettled = false
+	let outcome = null
+	const p1 = chat.sendChatStream("u", "k", "m", [mkMsg("user", "触发UI异常", 20)], {
+		onDelta: () => {},
+		onDone: () => { throw new Error("模拟 UI 渲染异常") },
+		onError: () => {},
+	})
+	p1.then((o) => { outerSettled = true; outcome = o })
+	await tick()
+	window.__noriChatDelta("好")
+	window.__noriChatDone(JSON.stringify({ok: true, content: "好"}))
+	await tick()
+	check("T3c: onDone 抛错时外层 Promise 仍 settle (不再永久卡死)", outerSettled === true, `settled=${outerSettled}`)
+	check("T3c: onDone 抛错不影响终态判定", outcome && outcome.ok === true && outcome.content === "好",
+		`outcome=${JSON.stringify(outcome)}`)
+
+	// (2) onDelta 抛错不能中断本次流
+	let outer2 = null
+	const p2 = chat.sendChatStream("u", "k", "m", [mkMsg("user", "增量抛错", 21)], {
+		onDelta: () => { throw new Error("模拟渲染异常") },
+		onDone: (c) => { outer2 = c },
+		onError: () => {},
+	})
+	p2.then((o) => { if (!outer2) outer2 = `outcome:${o.ok}:${o.content}` })
+	await tick()
+	window.__noriChatDelta("A")
+	window.__noriChatDelta("B")
+	window.__noriChatDone(JSON.stringify({ok: true, content: "AB"}))
+	await tick()
+	check("T3c: onDelta 抛错后本次流仍能走到完成", outer2 === "AB", `got=${JSON.stringify(outer2)}`)
+
+	// (3) 队列必须已恢复: 后续请求能正常发起并完成
+	const before3 = chatStreamCalls
+	let done3 = ""
+	chat.sendChatStream("u", "k", "m", [mkMsg("user", "后续", 22)], {
+		onDelta: () => {}, onDone: (c) => { done3 = c }, onError: () => {},
+	})
+	await tick()
+	check("T3c: UI 异常之后队列已解锁 (新请求能发起)", chatStreamCalls === before3 + 1,
+		`before=${before3} after=${chatStreamCalls}`)
+	window.__noriChatDone(JSON.stringify({ok: true, content: "正常"}))
+	await tick()
+	check("T3c: UI 异常之后的新请求能正常完成", done3 === "正常", `got=${JSON.stringify(done3)}`)
+
+	// (4) 失败终态也要可等待, 且能区分是否取消
+	let failOutcome = null
+	const p4 = chat.sendChatStream("u", "k", "m", [mkMsg("user", "会失败", 23)], {
+		onDelta: () => {}, onDone: () => {}, onError: () => { throw new Error("错误气泡渲染异常") },
+	})
+	p4.then((o) => { failOutcome = o })
+	await tick()
+	window.__noriChatError(JSON.stringify({message: "网络错误"}))
+	await tick()
+	check("T3c: onError 抛错时仍给出失败终态", failOutcome && failOutcome.ok === false && failOutcome.message === "网络错误",
+		`outcome=${JSON.stringify(failOutcome)}`)
+	check("T3c: 普通失败不被误判为取消", failOutcome && failOutcome.cancelled === false,
+		`cancelled=${failOutcome && failOutcome.cancelled}`)
+
+	// (5) 缺配置时也不能让 await 挂住
+	let cfgOutcome = null
+	chat.sendChatStream("u", "", "m", [mkMsg("user", "没Key", 24)], {
+		onDelta: () => {}, onDone: () => {}, onError: () => {},
+	}).then((o) => { cfgOutcome = o })
+	await tick()
+	check("T3c: 缺 API Key 时返回可等待的失败终态", cfgOutcome && cfgOutcome.ok === false,
+		`outcome=${JSON.stringify(cfgOutcome)}`)
+
+	// (6) 预算超限 (budgetChatMessages 会 throw) 必须被就地接住, 不能逃出 Promise 执行器
+	let budgetOutcome = null
+	let budgetRejected = null
+	chat.sendChatStream("u", "k", "m", [mkMsg("user", "x".repeat(500), 25)], {
+		onDelta: () => {}, onDone: () => {}, onError: () => {},
+	}, false, undefined, {inputCharBudget: 10}).then(
+		(o) => { budgetOutcome = o }, (e) => { budgetRejected = e })
+	await tick(); await tick()
+	check("T3c: 预算超限返回失败终态而非 reject",
+		budgetOutcome !== null && budgetOutcome.ok === false,
+		`outcome=${JSON.stringify(budgetOutcome)} rejected=${budgetRejected && budgetRejected.message}`)
+
+	// (7) 消息含不可序列化结构 (循环引用) → JSON.stringify 抛错, 同样不能逃出
+	let cycOutcome = null
+	let cycRejected = null
+	const cycParts = [{type: "text", text: "x"}]
+	cycParts[0].loop = cycParts
+	chat.sendChatStream("u", "k", "m",
+		[{role: "user", content: "hi", ts: 26, parts: cycParts}],
+		{onDelta: () => {}, onDone: () => {}, onError: () => {}}).then(
+		(o) => { cycOutcome = o }, (e) => { cycRejected = e })
+	await tick(); await tick()
+	check("T3c: 序列化异常返回失败终态而非 reject",
+		cycOutcome !== null && cycOutcome.ok === false,
+		`outcome=${JSON.stringify(cycOutcome)} rejected=${cycRejected && cycRejected.message}`)
+
+	// (8) 上面两类异常之后, 队列必须仍可用
+	const before8 = chatStreamCalls
+	let done8 = ""
+	chat.sendChatStream("u", "k", "m", [mkMsg("user", "之后", 27)], {
+		onDelta: () => {}, onDone: (c) => { done8 = c }, onError: () => {},
+	})
+	await tick()
+	check("T3c: 组装阶段异常后队列仍放行", chatStreamCalls === before8 + 1,
+		`before=${before8} after=${chatStreamCalls}`)
+	window.__noriChatDone(JSON.stringify({ok: true, content: "之后"}))
+	await tick()
+	check("T3c: 组装阶段异常后的新请求能正常完成", done8 === "之后", `got=${JSON.stringify(done8)}`)
+}
+
 /* ============ T4 loadChat 过滤错误气泡 ============ */
 {
 	files.set("chat.json", JSON.stringify([
