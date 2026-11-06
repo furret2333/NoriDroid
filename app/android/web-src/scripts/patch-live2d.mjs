@@ -444,40 +444,6 @@ patch("加载超时reject", "load-timeout-reject", [[WAITING_OLD, WAITING_NEW, "
 patch("Core本地化加载", "cubism-core-local", [[CORE_OLD, CORE_NEW, "one"]])
 patch("纹理CORS1", "texture-cors-1", [[TEX_IMG_OLD, TEX_IMG_NEW, "one"]])
 patch("纹理CORS2", "texture-cors-2", [[TEX_NEW_OLD, TEX_NEW_NEW, "one"]])
-/* 修正 `__noriHasParam`：它调 `this._model.getParameterIndex(id)`，而 CubismModel 的
- * `getParameterIndex` 收的是**参数对象**、不是 id 字符串 ⇒ 对字符串恒返回 -1 ⇒ **恒 false**。
- * 后果不是报错，而是"静默判定为没有这个参数" —— 口型就因此被永久禁掉过一次（`paramMissing` 一置位就不再写）。
- * 改走同一注入块里手写的可靠查找 `__noriParamIndexOf`（getParameterCount + getParameterId 线性比对）。
- *
- * 为什么单开一个条目、而不是直接改上面的 GAZE_API：GAZE_API 是 `MODEL_INFO_CANON` 的一部分，
- * 改它会触发"注入点规范化"那套收敛逻辑，而实测它**不会**把已成型的旧文本换掉
- * （跑完日志说 applied，库里却原样不动）。独立 token 走普通替换路径，可幂等、可自检。 */
-{
-	const HASPARAM_OLD = `window.__noriHasParam = (id) => { try { return this._model.getParameterIndex(id) >= 0 } catch (e) { return false } };`
-	const HASPARAM_NEW = `window.__noriHasParam = (id) => { try { return typeof window.__noriParamIndexOf === "function" ? window.__noriParamIndexOf(id) >= 0 : false } catch (e) { return false } };${M("has-param-fix")}`
-	patch("修正 __noriHasParam", "has-param-fix", [[HASPARAM_OLD, HASPARAM_NEW, "one"]])
-
-	/* 修正 `__noriSetParam` —— **它以前是静默空操作**，这是"口型不动"的真正原因。
-	 *
-	 * 原因链（都在库里）:
-	 *   __noriSetParam(id字符串, v)
-	 *     → this._model.setParameterValueById(id, v, 1)
-	 *       → getParameterIndex(id)   ← 实现是 `if (t == this._parameterIds.at(e))`,
-	 *                                    比的是 **CubismId 对象**, 传字符串**永远不相等**
-	 *         → 走到 `_notExistParameterId` 分支, 拿到一个"不存在的下标"
-	 *       → setParameterValueByIndex(那个假下标, v, 1)
-	 *         → 命中 `_notExistParameterValues.isExist(t)` ⇒ 值被存进一张**边表**里扔掉
-	 *   全程不抛异常, 所以 try/catch 也吞得住 ⇒ **一声不响地什么都没写**。
-	 *
-	 * 旁证: 同一个注入块里的 `__noriAddParam` 就是**对的** —— 它用 `__noriParamIndexOf` 拿到真下标
-	 * 再 `addParameterValueByIndex`。所以**眨眼一直正常**(它走 __noriAddParam), 而口型(走 __noriSetParam)不动。
-	 *
-	 * 修法: 与 `__noriAddParam` 对齐 —— 先用 `__noriParamIndexOf` 解析真下标, 再按**下标**覆盖写。
-	 * 这同时修好了 `live2d/index.ts` 里公开的 `setParam`/`hasParam` 两个包装(它们本来也是坏的)。 */
-	const SETPARAM_OLD = `window.__noriSetParam = (id, v) => { try { this._model.setParameterValueById(id, v, 1) } catch (e) {} };`
-	const SETPARAM_NEW = `window.__noriSetParam = (id, v) => { try { const i = window.__noriParamIndexOf(id); if (i >= 0) this._model.setParameterValueByIndex(i, v, 1) } catch (e) {} };${M("set-param-fix")}`
-	patch("修正 __noriSetParam", "set-param-fix", [[SETPARAM_OLD, SETPARAM_NEW, "one"]])
-}
 // 强行动作前重置模型参数, 消除跨动作的肢体残留(手臂重叠)
 patch("动作前参数复位", "motion-param-reset", [[MOTION_RESET_OLD, MOTION_RESET_NEW, "one"]])
 // 渲染帧率上限 60fps (120Hz 屏省一半; 60Hz 屏无变化)。助手缺失时自动退回原行为。
@@ -550,6 +516,42 @@ if (source.includes(MODEL_INFO_CANON)) {
  * 全新安装时先由上面的规范化补上, 这里才锚得到。 */
 patch("部位几何探针", "part-bounds-probe", [[PART_PROBE_ANCHOR, PART_PROBE_API + PART_PROBE_ANCHOR, "one"]])
 patch("参数相加/读回", "param-add-get", [[PART_PROBE_ANCHOR, PARAM_API + PART_PROBE_ANCHOR, "one"]])
+// These corrections require GAZE_API and its lookup helper to exist first.
+/* 修正 `__noriHasParam`：它调 `this._model.getParameterIndex(id)`，而 CubismModel 的
+ * `getParameterIndex` 收的是**参数对象**、不是 id 字符串 ⇒ 对字符串恒返回 -1 ⇒ **恒 false**。
+ * 后果不是报错，而是"静默判定为没有这个参数" —— 口型就因此被永久禁掉过一次（`paramMissing` 一置位就不再写）。
+ * 改走同一注入块里手写的可靠查找 `__noriParamIndexOf`（getParameterCount + getParameterId 线性比对）。
+ *
+ * 为什么单开一个条目、而不是直接改上面的 GAZE_API：GAZE_API 是 `MODEL_INFO_CANON` 的一部分，
+ * 改它会触发"注入点规范化"那套收敛逻辑，而实测它**不会**把已成型的旧文本换掉
+ * （跑完日志说 applied，库里却原样不动）。独立 token 走普通替换路径，可幂等、可自检。 */
+{
+	const HASPARAM_OLD = `window.__noriHasParam = (id) => { try { return this._model.getParameterIndex(id) >= 0 } catch (e) { return false } };`
+	const HASPARAM_NEW = `window.__noriHasParam = (id) => { try { return typeof window.__noriParamIndexOf === "function" ? window.__noriParamIndexOf(id) >= 0 : false } catch (e) { return false } };${M("has-param-fix")}`
+	patch("修正 __noriHasParam", "has-param-fix", [[HASPARAM_OLD, HASPARAM_NEW, "one"]])
+
+	/* 修正 `__noriSetParam` —— **它以前是静默空操作**，这是"口型不动"的真正原因。
+	 *
+	 * 原因链（都在库里）:
+	 *   __noriSetParam(id字符串, v)
+	 *     → this._model.setParameterValueById(id, v, 1)
+	 *       → getParameterIndex(id)   ← 实现是 `if (t == this._parameterIds.at(e))`,
+	 *                                    比的是 **CubismId 对象**, 传字符串**永远不相等**
+	 *         → 走到 `_notExistParameterId` 分支, 拿到一个"不存在的下标"
+	 *       → setParameterValueByIndex(那个假下标, v, 1)
+	 *         → 命中 `_notExistParameterValues.isExist(t)` ⇒ 值被存进一张**边表**里扔掉
+	 *   全程不抛异常, 所以 try/catch 也吞得住 ⇒ **一声不响地什么都没写**。
+	 *
+	 * 旁证: 同一个注入块里的 `__noriAddParam` 就是**对的** —— 它用 `__noriParamIndexOf` 拿到真下标
+	 * 再 `addParameterValueByIndex`。所以**眨眼一直正常**(它走 __noriAddParam), 而口型(走 __noriSetParam)不动。
+	 *
+	 * 修法: 与 `__noriAddParam` 对齐 —— 先用 `__noriParamIndexOf` 解析真下标, 再按**下标**覆盖写。
+	 * 这同时修好了 `live2d/index.ts` 里公开的 `setParam`/`hasParam` 两个包装(它们本来也是坏的)。 */
+	const SETPARAM_OLD = `window.__noriSetParam = (id, v) => { try { this._model.setParameterValueById(id, v, 1) } catch (e) {} };`
+	const SETPARAM_NEW = `window.__noriSetParam = (id, v) => { try { const i = window.__noriParamIndexOf(id); if (i >= 0) this._model.setParameterValueByIndex(i, v, 1) } catch (e) {} };${M("set-param-fix")}`
+	patch("修正 __noriSetParam", "set-param-fix", [[SETPARAM_OLD, SETPARAM_NEW, "one"]])
+}
+
 patch("参数注入点(顶点前)", "param-inject", [[PARAM_INJECT_OLD, PARAM_INJECT_NEW, "one"]])
 patch("渲染可见边界", "visible-canvas-bounds", [[PART_PROBE_ANCHOR, VISIBLE_BOUNDS_API + PART_PROBE_ANCHOR, "one"]])
 const VISIBLE_CONTEXT_OLD = `${M("visible-canvas-bounds")} window.__noriVisibleBounds = () => { try {`
