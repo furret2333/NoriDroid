@@ -39,7 +39,7 @@ try {
         ok = $true
         apk = $apk
         bytes = (Get-Item -LiteralPath $apk).Length
-        sha256 = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash
+        sha256 = Get-NoriFileHash $apk
         applicationId = $identity.applicationId
         versionCode = $identity.versionCode
         versionName = $identity.versionName

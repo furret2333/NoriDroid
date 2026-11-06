@@ -42,10 +42,13 @@ try {
     [IO.File]::WriteAllText((Join-Path $web 'index.html'), 'index', [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $web 'assets/app.js'), 'app', [Text.UTF8Encoding]::new($false))
     Assert-Check 'exact Web file set and content pass without modifying inputs' {
+        $hashInput = Join-Path $fixtureRoot 'hash-input.txt'
+        [IO.File]::WriteAllText($hashInput, 'abc', [Text.UTF8Encoding]::new($false))
+        if ((Get-NoriFileHash $hashInput) -cne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD') { throw 'Incorrect file SHA-256' }
         $apk = Write-FixtureApk 'same' @{'assets/web/index.html'='index'; 'assets/web/assets/app.js'='app'; 'classes.dex'='irrelevant'}
-        $hash = (Get-FileHash -LiteralPath $apk).Hash
+        $hash = Get-NoriFileHash $apk
         if ((Test-NoriApkWebAssets $apk $web) -ne 2) { throw 'Expected two Web files' }
-        if ((Get-FileHash -LiteralPath $apk).Hash -ne $hash) { throw 'APK changed during check' }
+        if ((Get-NoriFileHash $apk) -ne $hash) { throw 'APK changed during check' }
     }
     Assert-Check 'changed Web content is rejected' {
         $apk = Write-FixtureApk 'changed' @{'assets/web/index.html'='index'; 'assets/web/assets/app.js'='bad'}

@@ -68,6 +68,15 @@ function Get-NoriStreamHash {
     finally { $sha.Dispose() }
 }
 
+function Get-NoriFileHash {
+    param([Parameter(Mandatory)][string]$FilePath)
+    # Use the same SHA-256 stream implementation as the APK asset checks
+    # so verification also works when Get-FileHash cannot be loaded.
+    $stream = [IO.File]::OpenRead((Resolve-Path -LiteralPath $FilePath).ProviderPath)
+    try { return Get-NoriStreamHash $stream }
+    finally { $stream.Dispose() }
+}
+
 function Test-NoriApkWebAssets {
     param([Parameter(Mandatory)][string]$ApkPath, [Parameter(Mandatory)][string]$WebAssetsPath)
     Add-Type -AssemblyName System.IO.Compression
