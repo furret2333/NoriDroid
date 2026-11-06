@@ -24,6 +24,7 @@ app/android/web-src/tmp-memcheck/_*.png
 app/android/web-src/tmp-memcheck/.App.vue.*
 app/android/web-src/tmp-memcheck/_bundle/
 app/android/web-src/tmp-memcheck/_mock/
+app/android/web-src/tmp-memcheck/_regression-runner.lock
 *.hprof
 *.tsbuildinfo
 

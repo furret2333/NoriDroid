@@ -1,0 +1,27 @@
+// Shared dialog controls; imported into each component's scoped styles.
+.ripple {
+	position: relative;
+	overflow: hidden;
+}
+.x {
+	width: 32px; height: 32px; border-radius: var(--ui-radius-ctl);
+	color: var(--px-white);
+	background: var(--px-panel-2);
+	border: var(--ui-line-w) solid var(--ui-line-c);
+	box-shadow: inset -2px -2px 0 0 var(--ui-lo), inset 2px 2px 0 0 var(--ui-hi), var(--ui-shadow);
+	&:active { box-shadow: var(--ui-press); }
+}
+.mini {
+	padding: 9px 14px;
+	border-radius: var(--ui-radius-ctl);
+	background: var(--px-panel-2);
+	color: var(--px-white);
+	font-size: 13px;
+	border: var(--ui-line-w) solid var(--ui-line-c);
+	white-space: nowrap;
+	box-shadow: inset 2px 2px 0 0 var(--ui-hi), inset -2px -2px 0 0 var(--ui-lo), var(--ui-shadow);
+	&:active { box-shadow: var(--ui-press); }
+}
+.hint { font-size: 12px; color: var(--fg-3); }
+.hint.ok { color: #4ade80; }
+.hint.bad { color: #fbbf24; }

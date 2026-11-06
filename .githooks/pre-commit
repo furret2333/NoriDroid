@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+root=$(git rev-parse --show-toplevel)
+exec node "$root/app/android/web-src/scripts/check-staged.mjs"

@@ -5,6 +5,39 @@ import {tmpdir} from "node:os"
 import path from "node:path"
 
 const root = path.resolve(import.meta.dirname, "..")
+const mockRenderer = process.argv.includes("--mock-renderer")
+const seed = {apiKey: "fake-test-key", baseUrl: "https://api.probe.test", model: "fake-vision", smartRecall: false, memoryLlmExtract: false, emotionLlm: false, ambientEnabled: false, dataseaBg: false}
+const pageUrl = mockRenderer ? "http://127.0.0.1:5190" : `http://127.0.0.1:8123/assets/web/index.html?seed=${Buffer.from(JSON.stringify(seed)).toString("base64url")}`
+const shim = `
+localStorage.setItem("intro_seen_v1", "1"); localStorage.setItem("storage_asked", "1");
+window.NoriBridge = {listInstalled: () => JSON.stringify([{id: "ARGNori", entryBase: "ARGNori"}])};
+window.__files = {"settings.json": ${JSON.stringify(JSON.stringify(seed))}};
+window.NoriChat = {
+ readFile: n => window.__files[n] || "", writeFile: (n, v) => { window.__files[n] = v; return "ok" },
+ isStorageReady: () => true, hasAllFilesAccess: () => true, getStorageDir: () => "test",
+ chat: () => setTimeout(() => window.__noriChatRes?.(JSON.stringify({ok: true, content: "{}"})), 5),
+ chatStop: () => {}, ttsStop: () => {}, cosyTtsStop: () => {}
+};
+window.__noriHitTest = () => ({hit: true});
+const realFetch = window.fetch.bind(window);
+window.fetch = (input, options) => {
+ const url = new URL(typeof input === "string" ? input : input.url, location.href);
+ if (url.pathname.endsWith(".model3.json")) return Promise.resolve(new Response(JSON.stringify({FileReferences: {Motions: {}, Expressions: []}})));
+ if (url.origin !== location.origin) return Promise.resolve(new Response(JSON.stringify({list: [], data: [{id: "fake"}]})));
+ return realFetch(input, options);
+};`
+const fakeRenderer = `
+export {readModelConfig, writeModelConfig} from "/src/services/live2d/config.ts";
+export {L2D_FPS_OPTIONS, normalizeFps} from "/src/services/live2d/frameCap.ts";
+export {normalizeRenderScale} from "/src/services/live2d/renderScale.ts";
+export const createLive2D = () => {
+ let cv;
+ const noop = () => {};
+ return {mount: async (_spec, options) => { cv = document.createElement("canvas"); cv.width = innerWidth; cv.height = innerHeight; options.host.appendChild(cv); },
+ canvas: () => cv, destroy: async () => cv?.remove(), getMotions: async () => [],
+ lookAt: noop, resetLook: noop, playExpression: noop, stopExpression: noop, playMotionByIndex: noop, playMotionByName: noop,
+ pauseRender: noop, applyFrameCap: noop, setRenderScale: noop};
+};`
 const profile = mkdtempSync(path.join(tmpdir(), "nori-chat-tools-"))
 const port = 9477
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
@@ -16,7 +49,7 @@ const check = (name, ok, detail = "") => {
 	results.push({name, ok: !!ok})
 	console.log(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : ` ← ${detail}`}`)
 }
-let harness, edge, ws, seq = 0
+let server, harness, edge, ws, seq = 0
 const pending = new Map()
 const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
 	const id = ++seq
@@ -31,10 +64,21 @@ const until = async (fn, label, timeout = 12000) => {
 }
 
 try {
-	const serverReady = async () => { try { return (await fetch("http://127.0.0.1:8123/assets/web/index.html", {signal: AbortSignal.timeout(1000)})).ok } catch { return false } }
-	if (!await serverReady()) {
-		harness = spawn(process.execPath, [".harness/server.mjs"], {cwd: path.resolve(root, ".."), stdio: "ignore", windowsHide: true})
-		await until(serverReady, "harness")
+	if (mockRenderer) {
+		const {createServer} = await import("vite")
+		server = await createServer({root, configFile: path.join(root, "vite.config.ts"), server: {host: "127.0.0.1", port: 5190, strictPort: true}, plugins: [{
+			name: "chat-ui-fakes", enforce: "pre",
+			resolveId(source, importer) { if (source === "./services/live2d" && importer?.includes("App.vue")) return "\0chat-ui-renderer" },
+			load(id) { if (id === "\0chat-ui-renderer") return fakeRenderer },
+			transformIndexHtml() { return [{tag: "script", children: shim, injectTo: "head-prepend"}] },
+		}]})
+		await server.listen()
+	} else {
+		const serverReady = async () => { try { return (await fetch("http://127.0.0.1:8123/assets/web/index.html", {signal: AbortSignal.timeout(1000)})).ok } catch { return false } }
+		if (!await serverReady()) {
+			harness = spawn(process.execPath, [".harness/server.mjs"], {cwd: path.resolve(root, ".."), stdio: "ignore", windowsHide: true})
+			await until(serverReady, "harness")
+		}
 	}
 	edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", [
 		"--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
@@ -64,9 +108,8 @@ try {
 		if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text)
 		return result.result.value
 	}
-	const seed = {apiKey: "fake-test-key", baseUrl: "https://api.probe.test", model: "fake-vision", smartRecall: false, memoryLlmExtract: false, emotionLlm: false, ambientEnabled: false, dataseaBg: false}
 	await send("Page.addScriptToEvaluateOnNewDocument", {source: 'localStorage.setItem("intro_seen_v1","1"); localStorage.setItem("storage_asked","1")'}, sessionId)
-	await send("Page.navigate", {url: `http://127.0.0.1:8123/assets/web/index.html?seed=${Buffer.from(JSON.stringify(seed)).toString("base64url")}`}, sessionId)
+	await send("Page.navigate", {url: pageUrl}, sessionId)
 	await until(() => evalJs('!!document.querySelector(".fab") && !!window.NoriChat'), "Vue 页面")
 	await until(() => evalJs('!!document.querySelector(".l2d-host canvas") && !document.querySelector(".topbar .loading")'), "Live2D 加载")
 	check("竖屏默认常驻输入栏，历史与底部 Dock 收起", await evalJs('!!document.querySelector(".stage-root.portrait") && !!document.querySelector(".chat-input input") && !document.querySelector(".chat-history").offsetHeight && !document.querySelector(".dock").offsetHeight'))
@@ -258,9 +301,27 @@ try {
 	check("戳戳明确告诉模型动作并注入简短灵活指令", poke.at(-1).content.includes("戳戳") && poke.some(m => m.role === "system" && m.content.includes("自然闲聊 1～3 句")))
 	check("戳戳复用时间和文字历史，未带旧图", poke.every(m => typeof m.content === "string") && poke.some(m => m.content.includes("当前时间")))
 	check("连续戳戳只触发一次生成", await evalJs('window.__toolPayloads.length === 5 && document.querySelector(".poke").disabled'))
+	const composingEnter = () => evalJs('(() => { const input = document.querySelector(".chat-input input"); input.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true})); input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", isComposing: true, bubbles: true})); input.dispatchEvent(new CompositionEvent("compositionend", {bubbles: true})); })()')
+	const legacyEnter = () => evalJs('document.querySelector(".chat-input input").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", keyCode: 229, bubbles: true}))')
+	const unchangedImeDraft = () => evalJs('window.__toolPayloads.length === 5 && !document.querySelector(".queue-hint") && document.querySelector(".chat-input input").value === "输入法确认文字"')
+	await draft("输入法确认文字")
+	await composingEnter()
+	check("生成中输入法合成回车保留草稿且不发送或排队", await unchangedImeDraft())
+	await legacyEnter()
+	check("生成中 keyCode 229 回车保留草稿且不发送或排队", await unchangedImeDraft())
 	await evalJs('window.__noriChatDelta("戳戳测试回复。"); window.__noriChatDone(JSON.stringify({ok: true, content: "戳戳测试回复。"}))')
 	await idle()
 	check("戳戳回复进入对话且按钮恢复", await evalJs('document.querySelector(".chat-msgs").textContent.includes("戳戳测试回复") && !document.querySelector(".poke").disabled'))
+	await composingEnter()
+	check("空闲时输入法合成回车保留草稿且不发送或排队", await unchangedImeDraft())
+	await legacyEnter()
+	check("空闲时 keyCode 229 回车保留草稿且不发送或排队", await unchangedImeDraft())
+	await evalJs('window.__holdReply = false; document.querySelector(".chat-input input").dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}))')
+	await until(() => evalJs("window.__toolPayloads.length === 6"), "输入法确认后普通回车发送")
+	await idle()
+	await sleep(250)
+	all = await payloads()
+	check("输入法确认后的普通回车只发送一次正文", all.length === 6 && messageBody(all[5].at(-1).content) === "输入法确认文字" && await evalJs('!document.querySelector(".queue-hint") && document.querySelector(".chat-input input").value === ""'))
 	await evalJs('document.querySelector(".chat-input input").focus(); document.querySelector(".history-toggle").click()')
 	for (let height = 740; height >= 300; height -= 40) {
 		await send("Emulation.setDeviceMetricsOverride", {width: 360, height, screenWidth: 360, screenHeight: 780, deviceScaleFactor: 1, mobile: true}, sessionId)
@@ -278,7 +339,7 @@ try {
 	// 用默认画布位置截图，避免前面的捏合测试放大模型影响外观审查。
 	await send("Emulation.setDeviceMetricsOverride", {width: 360, height: 780, deviceScaleFactor: 1, mobile: true}, sessionId)
 	await evalJs('["l2d_scale_ARGNori", "l2d_offset_x_ARGNori", "l2d_offset_y_ARGNori"].forEach(key => localStorage.removeItem(key))')
-	await send("Page.navigate", {url: `http://127.0.0.1:8123/assets/web/index.html?seed=${Buffer.from(JSON.stringify(seed)).toString("base64url")}`}, sessionId)
+	await send("Page.navigate", {url: pageUrl}, sessionId)
 	await until(() => evalJs('!!document.querySelector(".l2d-host canvas") && !document.querySelector(".topbar .loading") && !!document.querySelector(".composer-more")'), "默认画布截图页")
 	check("外观截图使用默认模型位置和缩放", sameView({scale: 1.12, offsetX: 0, offsetY: 0}, await view()))
 	await evalJs(`(() => {
@@ -312,6 +373,7 @@ try {
 	try { ws?.close() } catch { /* 已关闭 */ }
 	edge?.kill()
 	harness?.kill()
+	await server?.close()
 	const passed = results.filter(r => r.ok).length
 	console.log(`\n${passed}/${results.length} passed`)
 	if (passed !== results.length) process.exitCode = 1

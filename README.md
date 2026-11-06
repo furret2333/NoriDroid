@@ -78,3 +78,5 @@ Kotlin 原生外壳 + Vue 3 WebView 界面：Live2D 渲染 · LLM 聊天与长�
 
 - Bug / 建议：[提 Issue](https://github.com/furret2333/NoriDroid/issues)
 - QQ 群：**471419518**（inori 一群）
+
+开发维护请先阅读 [维护地图](MAINTENANCE.md) 和 [自动检查与打包校验](MAINTENANCE_CHECKS.md)。

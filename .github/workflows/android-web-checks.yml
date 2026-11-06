@@ -1,0 +1,77 @@
+name: Android Web checks
+
+on:
+  pull_request:
+    paths:
+      - "app/android/web-src/**"
+      - "app/android/app/src/**"
+      - "app/android/app/build.gradle"
+      - "app/android/.harness/**"
+      - ".githooks/**"
+      - ".github/workflows/android-web-checks.yml"
+      - "AGENTS.md"
+      - "scripts/check-version-consistency.mjs"
+      - "MAINTENANCE.md"
+      - "MAINTENANCE_CHECKS.md"
+  push:
+    paths:
+      - "app/android/web-src/**"
+      - "app/android/app/src/**"
+      - "app/android/app/build.gradle"
+      - "app/android/.harness/**"
+      - ".githooks/**"
+      - ".github/workflows/android-web-checks.yml"
+      - "AGENTS.md"
+      - "scripts/check-version-consistency.mjs"
+      - "MAINTENANCE.md"
+      - "MAINTENANCE_CHECKS.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-web-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast-and-types:
+    name: Fast regression and TypeScript
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app/android/web-src
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.0"
+          cache: pnpm
+          cache-dependency-path: app/android/web-src/pnpm-lock.yaml
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Fast regression
+        run: pnpm test:fast
+      - name: Android and Web version consistency
+        run: node ../../../scripts/check-version-consistency.mjs
+      - name: TypeScript
+        run: pnpm typecheck
+      - name: APK verification self-tests
+        run: pnpm test:apk-verification
+      - name: Upload regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-web-regression
+          path: |
+            app/android/web-src/tmp-memcheck/_regression-*.log
+            app/android/web-src/tmp-memcheck/_regression-*.txt
+          if-no-files-found: ignore
+          retention-days: 7

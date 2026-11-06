@@ -37,7 +37,7 @@ jobs:
       - name: 装 pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.9
 
       - name: 装 Node 22
         uses: actions/setup-node@v4
@@ -98,10 +98,10 @@ jobs:
         run: pnpm build
 
       # ---------- 验证（与本地同一套脚本，纯 Node，约 1 分钟）----------
-      - name: 快速门禁（run-tests 536+ 条 + 纯 Node 探针）
+      - name: 快速门禁（统一回归入口）
         if: ${{ !inputs.skip_tests }}
         working-directory: app/android/web-src
-        run: node tmp-memcheck/run-all-gates.mjs --fast
+        run: pnpm test:fast
 
       # 打包前预检：读**已构建的前端产物**，断言"本轮该有的东西真的在里面"
       # （记忆/诊断/模型选择/底栏图标 6 张 png 等 82 项）—— 专门防"改了但没打进包"。

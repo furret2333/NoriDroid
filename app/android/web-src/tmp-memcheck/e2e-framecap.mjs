@@ -75,11 +75,14 @@ try {
 	/* ② 打开设置面板 */
 	await evalJs(`(() => {
 		const btns = [...document.querySelectorAll("button")];
-		const b = btns.find(x => x.textContent.trim() === "设置");
+		const b = btns.find(x => x.querySelector(".fab-label")?.textContent.trim() === "设置");
 		if (b) b.click();
 		return !!b;
 	})()`, sessionId)
 	await sleep(700)
+	await evalJs(`(() => { const tab = [...document.querySelectorAll("button[role=tab]")].find(b => b.textContent.trim() === "进阶设置"); if (!tab) throw new Error("进阶设置入口不存在"); tab.click(); })()`, sessionId)
+	await sleep(100)
+	await evalJs(`document.querySelector("#settings-display").open = true`, sessionId)
 	const panelOpen = await evalJs(`document.body.innerText.includes("渲染帧率上限")`, sessionId)
 	check("② 设置面板里有「渲染帧率上限」这一行", panelOpen)
 

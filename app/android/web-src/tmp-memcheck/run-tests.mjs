@@ -153,6 +153,36 @@ const clearTestDisk = () => { files.clear(); mem.__resetMemorySessionForTest(); 
 const resetDisk = () => { clearTestDisk(); mem.reloadMemory() }
 const diskMemories = () => { try { return JSON.parse(files.get("memory.json") || "{}").memories ?? [] } catch { return [] } }
 
+/* 旧版仅保存 dataseaBg；必须在合并新默认值前完成迁移。 */
+{
+	const cases = [
+		[{dataseaBg: false}, "off"],
+		[{dataseaBg: true}, "datasea"],
+		[{}, "datasea"],
+		[{backgroundMode: "deep-sea", dataseaBg: false}, "deep-sea"],
+		[{backgroundMode: "off", dataseaBg: true}, "off"],
+		[{backgroundMode: "unknown", dataseaBg: false}, "off"],
+		[{backgroundMode: null}, "datasea"],
+	]
+	for (const [raw, expected] of cases) {
+		files.set("settings.json", JSON.stringify(raw))
+		const loaded = chatSvc.loadSettings()
+		check(`背景设置迁移 ${JSON.stringify(raw)} → ${expected}`,
+			loaded.backgroundMode === expected && loaded.dataseaBg === (expected !== "off"))
+	}
+	files.set("settings.json", JSON.stringify({backgroundMode: "deep-sea"}))
+	const settings = chatSvc.loadSettings()
+	check("背景设置写入后可重新读取增强模式", chatSvc.saveSettings(settings) && chatSvc.loadSettings().backgroundMode === "deep-sea")
+	for (const [raw, expected] of [[{}, "balanced"], [{deepseaQuality: "balanced"}, "balanced"], [{deepseaQuality: "fine"}, "fine"], [{deepseaQuality: "bad"}, "balanced"], [{deepseaQuality: null}, "balanced"]]) {
+		files.set("settings.json", JSON.stringify(raw))
+		check(`深海画质迁移 ${JSON.stringify(raw)} → ${expected}`, chatSvc.loadSettings().deepseaQuality === expected)
+	}
+	files.set("settings.json", JSON.stringify({backgroundMode: "datasea", deepseaQuality: "fine"}))
+	const otherBackground = chatSvc.loadSettings()
+	check("切换其他背景后画质设置仍可保存和读取", chatSvc.saveSettings(otherBackground) && chatSvc.loadSettings().deepseaQuality === "fine")
+	files.delete("settings.json")
+}
+
 /* ============ T1 H1: decayDays=null 重启后保持 null; 缺字段的才回填 ============ */
 {
 	clearTestDisk()

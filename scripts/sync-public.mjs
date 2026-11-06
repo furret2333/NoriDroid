@@ -5,7 +5,7 @@
  * 三条硬规矩（任何一条不满足就 exit(1)，**绝不推送**）：
  *   ① 只导出**已提交的 HEAD**（工作区改动不带进快照）；
  *   ② 快照里只允许出现：Android 代码 + `README.md` / `LICENSE` / `SETUP.md` / `THIRD-PARTY.md`
- *      （外加 `.github/` 与 `scripts/`）—— 交接/清单/方案这类**内部文档一律不进公开仓库**；
+ *      （外加 `.github/`、`.githooks/`、`scripts/` 与通用维护说明）—— 交接/清单/方案这类**内部文档一律不进公开仓库**；
  *   ③ 推送前跑**隐私/密钥扫描**：命中本机绝对路径、密钥文件名、口令字面量、常见凭据、
  *      日志/临时物 ⇒ 直接报错退出（fail-closed，"宁可拦住也不许推"）。
  *
@@ -31,7 +31,7 @@
 import {execFileSync} from "node:child_process"
 import {existsSync, rmSync, readdirSync, appendFileSync, readFileSync, writeFileSync, statSync,
 	openSync, readSync, closeSync} from "node:fs"
-import {join, resolve, extname, basename} from "node:path"
+import {join, resolve, extname, basename, dirname, relative, isAbsolute} from "node:path"
 import {tmpdir} from "node:os"
 
 const REPO_ROOT = resolve(import.meta.dirname, "..")
@@ -42,13 +42,19 @@ const PUBLIC_REMOTE = "https://github.com/furret2333/NoriDroid.git"
 const COMMIT_IDENTITY = {name: "HuiOVO", email: "317002734+furret2333@users.noreply.github.com"}
 
 /** 根级只保留这些（其余根级条目一律排除，并逐条打印原因） */
-const ROOT_KEEP_FILES = [".gitignore", ".gitattributes", "README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md", "RELEASE_NOTES_v2.1.0.md", "RELEASE_NOTES_v2.4.0.md", "RELEASE_NOTES_v2.5.0.md", "RELEASE_NOTES_v2.5.1.md", "RELEASE_NOTES_v2.5.2.md", "RELEASE_NOTES_v2.5.3.md"]
-const ROOT_KEEP_DIRS = [".github", "app", "scripts", "services"]
+const ROOT_KEEP_FILES = [".gitignore", ".gitattributes", "AGENTS.md", "MAINTENANCE.md", "MAINTENANCE_CHECKS.md", "README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md", "RELEASE_NOTES_v2.1.0.md", "RELEASE_NOTES_v2.4.0.md", "RELEASE_NOTES_v2.5.0.md", "RELEASE_NOTES_v2.5.1.md", "RELEASE_NOTES_v2.5.2.md", "RELEASE_NOTES_v2.5.3.md"]
+const ROOT_KEEP_DIRS = [".github", ".githooks", "app", "scripts", "services"]
+// Only these two general maintenance guides are published; dated acceptance
+// records and the rest of docs/ remain private. Public snapshots can re-export.
+const MAINTENANCE_EXPORTS = [
+	["docs/AppVue_维护地图.md", "MAINTENANCE.md"],
+	["docs/AppVue_自动检查与打包校验_20261106.md", "MAINTENANCE_CHECKS.md"],
+]
 /** 根级"内部文档"的命名（用户要求：这些是项目记忆，留在私有仓库，不进公开仓库） */
 const ROOT_DOC_PATTERNS = [/^交接-.*\.md$/, /^实机验证清单-.*\.md$/, /^待办清单-.*\.md$/,
 	/^记忆模块重构方案-.*\.md$/, /^长期.*\.md$/, /^回滚说明\.txt$/]
 /** 上游 / 不该进公开仓库的目录（相对仓库根） */
-const DROP_DIRS = ["app/desktop", "backend", "docs", "backups", ".reasonix"]
+const DROP_DIRS = ["app/desktop", "backend", "docs", "backups", ".reasonix", "app/android/web-src/tmp-memcheck/_mock"]
 /** 全树按目录名清理（日志/临时物） */
 const DROP_DIR_NAMES = [".scope-logs"]
 
@@ -62,8 +68,7 @@ const DROP_DIR_NAMES = [".scope-logs"]
  * 私有仓库里的这些文件**一字不动**，只是不导出进公开快照。
  */
 const DROP_DEV_FILES = [
-	// 本地实测服务器 + Windows 快捷方式
-	"app/android/.harness/server.mjs",
+	// Windows 快捷方式（便携的测试服务器保留，正式 UI 回归需要它）
 	"app/android/.harness/打开测试服务器.bat.lnk",
 	// 一次性开发脚本（改文件 / 生成资源 / 出预览图 / 跑本地 APK 检查）
 	"app/android/web-src/tmp-memcheck/_add-repo-button.py",
@@ -86,6 +91,8 @@ const DROP_DEV_FILES = [
 const MUST_HAVE = ["app/android/app/src/main/java/com/noridroid/ChatBridge.kt",
 	"app/android/web-src/src/App.vue", "app/android/web-src/tmp-memcheck/run-tests.mjs",
 	"README.md", "LICENSE", "SETUP.md", "THIRD-PARTY.md", ".github/workflows/android.yml",
+	"AGENTS.md", ".githooks/pre-commit", "MAINTENANCE.md", "MAINTENANCE_CHECKS.md",
+	"app/android/.harness/server.mjs", ".github/workflows/android-web-checks.yml",
 	// 在线人数计数服务（2026-10-21）: 公开仓库也要能自部署，否则 SETUP/README 指向的功能不存在
 	"services/presence/src/index.mjs", "services/presence/wrangler.toml"]
 /** 最少文件数（低于这个数说明导出不完整） */
@@ -119,13 +126,18 @@ if (dirty) log(`⚠ 工作区有未提交改动（${dirty.split("\n").length} �
 
 // ---------- 1) 导出 HEAD 的全部跟踪文件 ----------
 let tmp
+const assertExportRoot = (directory) => {
+	const absolute = resolve(directory)
+	if (absolute === REPO_ROOT || dirname(absolute) === absolute) throw new Error("Unsafe public export directory")
+	return absolute
+}
 if (reuseTmp) {
 	if (!existsSync(reuseTmp)) { log(`✗ --tmp 指定的目录不存在：${reuseTmp}`); process.exit(1) }
-	tmp = reuseTmp
+	tmp = assertExportRoot(reuseTmp)
 	log(`\n[1/5] 复用已有目录（跳过导出）→ ${tmp}`)
 	log(`      目录里现有条目 ${readdirSync(tmp, {recursive: true}).length} 个`)
 } else {
-	tmp = join(tmpdir(), `nori-public-${Date.now()}`)
+	tmp = assertExportRoot(join(tmpdir(), `nori-public-${Date.now()}`))
 	rmSync(tmp, {recursive: true, force: true})
 	execFileSync("node", ["-e", `require('fs').mkdirSync(${JSON.stringify(tmp)},{recursive:true})`])
 	log(`\n[1/5] 导出 HEAD → ${tmp}`)
@@ -143,9 +155,32 @@ if (reuseTmp) {
 
 // ---------- 2) 清理：上游 / 内部文档 / 本机专用脚本 / Live2D Core ----------
 log("[2/5] 清理上游 / 内部文档 / 不要的东西")
+const publicMarkdown = (text) => {
+	for (const [source, target] of MAINTENANCE_EXPORTS) {
+		text = text.replaceAll(source, target).replaceAll(basename(source), target)
+	}
+	return text
+		.replace("按日期命名的验收文档用于追溯批次，不替代维护地图。", "")
+		.replace("按日期记录的拆分/验收文档保留历史证据，本页维护当前职责与约束。", "")
+		.replace(/^.*第八批手机验收.*(?:\r?\n|$)/gm, "")
+		.replace(/## 本轮本地验证[\s\S]*$/, "")
+		.replace("已验收第八批 APK 的公开证书", "已验收签名证书的公开指纹")
+}
+for (const [source, target] of MAINTENANCE_EXPORTS) {
+	const input = existsSync(join(tmp, source)) ? source : target
+	if (!existsSync(join(tmp, input))) throw new Error(`Missing maintenance guide: ${source} or ${target}`)
+	writeFileSync(join(tmp, target), publicMarkdown(readFileSync(join(tmp, input), "utf8")), "utf8")
+}
+const agentRules = join(tmp, "AGENTS.md")
+if (existsSync(agentRules)) writeFileSync(agentRules, publicMarkdown(readFileSync(agentRules, "utf8")), "utf8")
+const checksWorkflow = join(tmp, ".github/workflows/android-web-checks.yml")
+if (existsSync(checksWorkflow)) writeFileSync(checksWorkflow,
+	readFileSync(checksWorkflow, "utf8").replaceAll('"docs/AppVue_维护地图.md"', '"MAINTENANCE.md"\n      - "MAINTENANCE_CHECKS.md"'), "utf8")
 const dropped = []
 const drop = (rel, why) => {
-	const p = join(tmp, rel)
+	const p = resolve(tmp, rel)
+	const child = relative(tmp, p)
+	if (!child || child === ".." || child.startsWith("../") || child.startsWith("..\\") || isAbsolute(child)) throw new Error(`Unsafe export removal: ${rel}`)
 	if (!existsSync(p)) return false
 	rmSync(p, {recursive: true, force: true})
 	dropped.push({rel, why})
@@ -198,6 +233,9 @@ const note = "\n---\n\n> **本仓库只包含 Android 版**（`app/android`）�
 if (existsSync(rdPath) && !readFileSync(rdPath, "utf8").includes("本仓库只包含 Android 版")) {
 	appendFileSync(rdPath, note, "utf8")
 	log("      README 补了说明")
+}
+if (existsSync(rdPath) && !readFileSync(rdPath, "utf8").includes("[维护地图](MAINTENANCE.md)")) {
+	appendFileSync(rdPath, "\n开发维护请先阅读 [维护地图](MAINTENANCE.md) 和 [自动检查与打包校验](MAINTENANCE_CHECKS.md)。\n", "utf8")
 }
 
 // ---------- 3) 本地硬校验 + 隐私/密钥扫描（不过就退出，绝不推） ----------
@@ -426,6 +464,7 @@ const g = (args) => git(args, {cwd: tmp, quiet: true})
 g(["init", "-q", "-b", "main"])
 // 公开快照统一保存文本换行，避免开发机 Git 配置把 CRLF 差异带进提交。
 g(["-c", "core.autocrlf=input", "add", "-A"])
+g(["update-index", "--chmod=+x", ".githooks/pre-commit"])
 const tree = g(["write-tree"]).trim()
 log(`      tree ${tree.slice(0, 8)} · ${g(["ls-files"]).trim().split("\n").length} 个文件`)
 

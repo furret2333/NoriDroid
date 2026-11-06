@@ -9,6 +9,8 @@
  */
 import {readFileSync, readdirSync} from "node:fs"
 import {pathToFileURL} from "node:url"
+import {mock} from "node:test"
+import {setImmediate} from "node:timers/promises"
 import path from "node:path"
 
 const root = path.resolve(import.meta.dirname, "..")
@@ -134,48 +136,58 @@ const mkMsg = (role, content, ts) => ({role, content, ts})
  * 修复前实测: 桥存在且调用成功、但永不回包时, 那一路 Promise 永不 settle →
  *   streamQueue 永久卡住 → 之后所有消息都发不出去, 只能重启 App。
  * 修复后: 距上次 delta 超过 __noriStreamTimeoutMs 即报错并放行队列。
- * 这里把超时调小 (60ms) 以便快速断言。
+ * 只在本节使用可控时钟，避免机器负载让 40ms 的真实等待超过 60ms 看门狗。
+ * setImmediate 保持真实事件循环，用于让串行队列的微任务完成起跑/解锁。
  */
 {
+	mock.timers.enable({apis: ["setTimeout"]})
 	window.__noriStreamTimeoutMs = 60
-	const got1 = []
-	chat.sendChatStream("u", "k", "m", [mkMsg("user", "无响应", 10)], {
-		onDelta: () => {}, onDone: () => { got1.push("done") }, onError: (m) => { got1.push(m) },
-	})
-	// 收到一个 delta 也应重置看门狗; 但这一路我们完全不回包, 直接等超时
-	await new Promise((r) => setTimeout(r, 160))
-	check("T3b: 原生不回包 → 触发超时错误", got1.length === 1 && String(got1[0]).includes("超时"),
-		`got=${JSON.stringify(got1)}`)
+	try {
+		const got1 = []
+		chat.sendChatStream("u", "k", "m", [mkMsg("user", "无响应", 10)], {
+			onDelta: () => {}, onDone: () => { got1.push("done") }, onError: (m) => { got1.push(m) },
+		})
+		await setImmediate()
+		mock.timers.tick(59)
+		check("T3b: 空闲时长未到阈值不会提前超时", got1.length === 0, JSON.stringify(got1))
+		mock.timers.tick(1)
+		await setImmediate()
+		check("T3b: 原生不回包 → 触发超时错误", got1.length === 1 && String(got1[0]).includes("超时"),
+			`got=${JSON.stringify(got1)}`)
 
-	// 队列必须已解锁: 下一路能正常发起并完成
-	const callsBefore = chatStreamCalls
-	const got2 = []
-	chat.sendChatStream("u", "k", "m", [mkMsg("user", "第二路", 11)], {
-		onDelta: () => {}, onDone: (c) => { got2.push(c) }, onError: (m) => { got2.push(m) },
-	})
-	await tick()
-	check("T3b: 超时后队列解锁 (第二路已发起)", chatStreamCalls === callsBefore + 1,
-		`before=${callsBefore} after=${chatStreamCalls}`)
-	window.__noriChatDelta("好")
-	window.__noriChatDone(JSON.stringify({ok: true, content: "好"}))
-	check("T3b: 超时后下一路能正常完成", got2.length === 1 && got2[0] === "好", JSON.stringify(got2))
+		// 队列必须已解锁: 下一路能正常发起并完成
+		const callsBefore = chatStreamCalls
+		const got2 = []
+		chat.sendChatStream("u", "k", "m", [mkMsg("user", "第二路", 11)], {
+			onDelta: () => {}, onDone: (c) => { got2.push(c) }, onError: (m) => { got2.push(m) },
+		})
+		await setImmediate()
+		check("T3b: 超时后队列解锁 (第二路已发起)", chatStreamCalls === callsBefore + 1,
+			`before=${callsBefore} after=${chatStreamCalls}`)
+		window.__noriChatDelta("好")
+		window.__noriChatDone(JSON.stringify({ok: true, content: "好"}))
+		check("T3b: 超时后下一路能正常完成", got2.length === 1 && got2[0] === "好", JSON.stringify(got2))
 
-	// 心跳重置: 只要有 delta 持续到达, 就不该触发超时
-	const got3 = []
-	chat.sendChatStream("u", "k", "m", [mkMsg("user", "慢速", 12)], {
-		onDelta: () => {}, onDone: (c) => { got3.push(c) }, onError: (m) => { got3.push(m) },
-	})
-	await tick()
-	for (let i = 0; i < 4; i += 1) {
-		await new Promise((r) => setTimeout(r, 40))   // 每次间隔 40ms < 60ms 超时
-		window.__noriChatDelta("字")
+		// 心跳重置: 只要有 delta 持续到达, 就不该触发超时
+		const got3 = []
+		chat.sendChatStream("u", "k", "m", [mkMsg("user", "慢速", 12)], {
+			onDelta: () => {}, onDone: (c) => { got3.push(c) }, onError: (m) => { got3.push(m) },
+		})
+		await setImmediate()
+		for (let i = 0; i < 4; i += 1) {
+			mock.timers.tick(40)   // 每次间隔 40ms < 60ms 超时；累计已超过一次超时窗口
+			window.__noriChatDelta("字")
+		}
+		check("T3b: 持续有 delta 时看门狗被重置 (未误判超时)", got3.length === 0, JSON.stringify(got3))
+		window.__noriChatDone(JSON.stringify({ok: true, content: "字字字字"}))
+		await setImmediate()
+		check("T3b: 慢速但持续输出的流能正常完成", got3.length === 1 && got3[0] === "字字字字", JSON.stringify(got3))
+		mock.timers.tick(60)
+		check("T3b: 完成后清理看门狗，不再补发超时错误", got3.length === 1, JSON.stringify(got3))
+	} finally {
+		delete window.__noriStreamTimeoutMs
+		mock.timers.reset()
 	}
-	check("T3b: 持续有 delta 时看门狗被重置 (未误判超时)", got3.length === 0, JSON.stringify(got3))
-	window.__noriChatDone(JSON.stringify({ok: true, content: "字字字字"}))
-	await tick()
-	check("T3b: 慢速但持续输出的流能正常完成", got3.length === 1 && got3[0] === "字字字字", JSON.stringify(got3))
-
-	delete window.__noriStreamTimeoutMs
 }
 
 /* ============ T3c 流式终态不依赖 UI 回调 (2026-10-31 修复) ============

@@ -16,6 +16,18 @@ export {normalizeCloneVoices, type CosyCloneVoice}
 /* 2026-10-01 用户要求：**内置人设已从 App 移除**（原文见 git 历史 / 桌面《Nori-人设设定.md》）。
    Nori 的人格完全来自用户导入的 `persona.md`；没有导入时就没有人格提示词（不会用任何内置文本兜底）。 */
 
+export type BackgroundMode = "off" | "datasea" | "deep-sea"
+export type DeepseaQuality = "balanced" | "fine"
+
+/** 旧设置或非法值回落到原有深海画质。 */
+export const normalizeDeepseaQuality = (value: unknown): DeepseaQuality => value === "fine" ? "fine" : "balanced"
+
+/** 新字段有效时优先；旧设置只记录开关，缺失则沿用默认的数据海。 */
+export const normalizeBackgroundMode = (mode: unknown, legacyDataseaBg: unknown): BackgroundMode => {
+	if (mode === "off" || mode === "datasea" || mode === "deep-sea") return mode
+	return legacyDataseaBg === false ? "off" : "datasea"
+}
+
 export interface Settings {
     pomo?: PomoConfig
 	apiKey: string
@@ -63,8 +75,12 @@ export interface Settings {
 	bgmVolume: number
 	/** 按键音效音量 (0~1, 0 = 关闭) */
 	sfxVolume: number
-	/** 动态背景 (数据海: 星尘/星云漂移/网格, 纯程序渲染零素材) */
+	/** 兼容旧版本的动态背景开关；写入时与 backgroundMode 同步。 */
 	dataseaBg: boolean
+	/** 背景选择；读取旧配置时由 dataseaBg 迁移。 */
+	backgroundMode: BackgroundMode
+	/** 深海场景独立画质，切换其他背景时保留。 */
+	deepseaQuality: DeepseaQuality
 	/**
 	 * 界面字体 (2026-10-15 用户要求): system = 系统字体栈 / wenkai = 霞鹜文楷 / kuaile = 站酷快乐体。
 	 * 后两者是随包的 OFL 1.1 子集（`scripts/subset-ui-fonts.py` 生成），
@@ -217,6 +233,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	bgmVolume: 0.35,
 	sfxVolume: 0.5,
 	dataseaBg: true,
+	backgroundMode: "datasea",
+	deepseaQuality: "balanced",
 	uiFont: "system",
 	timeAware: true,
 	ambientEnabled: true,
@@ -349,6 +367,10 @@ export const loadSettings = (): Settings => {
 		if (!raw) return {...DEFAULT_SETTINGS}
 		const parsed = JSON.parse(raw)
 		const merged = {...DEFAULT_SETTINGS, ...parsed} as Settings
+		// 必须读取合并前的原值，否则默认 backgroundMode 会覆盖旧版的 false。
+		merged.backgroundMode = normalizeBackgroundMode(parsed?.backgroundMode, parsed?.dataseaBg)
+		merged.dataseaBg = merged.backgroundMode !== "off"
+		merged.deepseaQuality = normalizeDeepseaQuality(parsed?.deepseaQuality)
 		merged.renderScale = normalizeRenderScale((parsed as {renderScale?: unknown})?.renderScale, DEFAULT_SETTINGS.renderScale)
 		merged.floatRenderScale = normalizeRenderScale((parsed as {floatRenderScale?: unknown})?.floatRenderScale, DEFAULT_SETTINGS.floatRenderScale)
 		// 旧版是 string[], 读时统一归一化 (不能只靠类型断言)
